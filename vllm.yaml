@@ -1,0 +1,6 @@
+model: /home/fra/data/models/gguf/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf
+tokenizer: /home/fra/data/models/gguf/Qwen3-4B-Instruct-2507-GGUF/
+host: "127.0.0.1"
+port: 8000
+uvicorn-log-level: "info"
+tensor-parallel-size: 2

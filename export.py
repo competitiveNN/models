@@ -52,7 +52,7 @@ def default_out_dir_for(model_name, weight_format):
     return f"{base}-{weight_format}{awq_suffix}-ov"
 
 
-def export_model(model_id, task, output_dir, mode='fast', dataset='wikitext2', low_cpu_mem_usage=True, cache_dir=None, revision=None, token=None, weight_format='int4'):
+def export_model(model_id, task, output_dir, mode='fast', dataset='wikitext2', low_cpu_mem_usage=True, cache_dir=None, revision=None, token=None, weight_format='int4', export=True):
     """Export model using Optimum Intel."""
     os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
 
@@ -102,7 +102,7 @@ def export_model(model_id, task, output_dir, mode='fast', dataset='wikitext2', l
         print("Falling back to export without calibration")
     # Use comprehensive loading parameters for optimal export
     load_kwargs = {
-        "export": True,
+        "export": export,
         "trust_remote_code": True,
         "low_cpu_mem_usage": low_cpu_mem_usage,
         "force_download": False,  # Don't force download, use cache if available
@@ -189,6 +189,60 @@ For more help: %(prog)s --help
 
     args = parser.parse_args()
 
+    model_path = Path(args.model)
+    resolved_model_id = args.model
+    inferred_export = True
+
+    if model_path.exists():
+        if model_path.is_file():
+            suffix = model_path.suffix.lower()
+
+            # OpenVINO IR input: provide the directory containing .xml/.bin and disable export
+            if suffix == '.xml':
+                resolved_model_id = str(model_path.parent)
+                inferred_export = False
+
+            elif suffix == '.bin':
+                # Disambiguate OpenVINO IR .bin vs PyTorch weights .bin
+                # If there is a sibling .xml file, assume OpenVINO IR.
+                has_sibling_xml = any(p.suffix.lower() == '.xml' for p in model_path.parent.glob('*.xml'))
+                if has_sibling_xml:
+                    resolved_model_id = str(model_path.parent)
+                    inferred_export = False
+                else:
+                    resolved_model_id = str(model_path.parent)
+                    inferred_export = True
+
+            # Local weight file path: treat as a HF-style model directory (common when user points to the weights file)
+            elif suffix in {'.safetensors', '.pt', '.pth'}:
+                resolved_model_id = str(model_path.parent)
+                inferred_export = True
+
+            # GGUF is not supported by optimum/transformers export path
+            elif suffix == '.gguf':
+                raise SystemExit(
+                    "Unsupported model input: GGUF files cannot be exported with optimum-intel. "
+                    "Provide a Hugging Face repo id, a local Hugging Face-format model directory, "
+                    "or an OpenVINO IR (.xml/.bin) directory/file. "
+                    f"Got file: {args.model}"
+                )
+
+            else:
+                raise SystemExit(
+                    "Unsupported model input: you provided a local file path with an unrecognized extension. "
+                    "Provide a Hugging Face repo id, a local Hugging Face-format model directory, "
+                    "or an OpenVINO IR (.xml/.bin) directory/file. "
+                    f"Got file: {args.model}"
+                )
+
+        elif model_path.is_dir():
+            # If the directory already looks like OpenVINO IR, don't re-export
+            has_xml = any(p.suffix.lower() == '.xml' for p in model_path.glob('*.xml'))
+            has_bin = any(p.suffix.lower() == '.bin' for p in model_path.glob('*.bin'))
+            if has_xml and has_bin:
+                inferred_export = False
+            resolved_model_id = str(model_path)
+
     # Auto-detect task if not specified
     task = args.task or detect_task_for(args.model)
 
@@ -196,7 +250,8 @@ For more help: %(prog)s --help
     out_dir = args.out or default_out_dir_for(args.model, args.param_size)
 
     options = {
-        "model_id": args.model,
+        "model_id": resolved_model_id,
+        "export": inferred_export,
         "task": task,
         "output_dir": out_dir,
         "mode": args.mode,
@@ -213,7 +268,7 @@ For more help: %(prog)s --help
 
     # Always use model export
     export_model(
-        model_id=args.model,
+        model_id=resolved_model_id,
         task=task,
         output_dir=out_dir,
         mode=args.mode,
@@ -221,7 +276,8 @@ For more help: %(prog)s --help
         cache_dir=getattr(args, 'cache_dir', None),
         revision=getattr(args, 'revision', None),
         token=getattr(args, 'token', None),
-        weight_format=args.param_size
+        weight_format=args.param_size,
+        export=inferred_export
     )
 
     # Export completed
