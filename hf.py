@@ -194,7 +194,7 @@ def check_repo_exists(repo_id):
         return False
 
 
-def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=None, format_type="auto"):
+def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=None, format_type="auto", files=None):
     """
     Download model from Hugging Face Hub.
     
@@ -204,14 +204,16 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
         quantization: Quantization type to search for (if None, downloads all except excluded)
         exclude_quantizations: List of quantization types to exclude
         format_type: Model format ('auto', 'gguf', 'openvino')
+        files: Pre-fetched list of files (optional, will fetch if not provided)
     """
     print(f"Analyzing repository: {repo_id}")
     
-    # List all files in the repository
-    files = list_repo_files(repo_id)
-    if not files:
-        print(f"✗ Could not list files in repository {repo_id}")
-        sys.exit(1)
+    # List all files in the repository (if not already provided)
+    if files is None:
+        files = list_repo_files(repo_id)
+        if not files:
+            print(f"✗ Could not list files in repository {repo_id}")
+            sys.exit(1)
     
     # Detect model format if auto
     if format_type == "auto":
@@ -440,6 +442,13 @@ def main():
         
         sys.exit(0)
     
+    # Detect format early to determine directory naming
+    files = list_repo_files(repo_id)
+    if args.format == "auto":
+        detected_format = detect_model_format(files)
+    else:
+        detected_format = args.format
+    
     # Determine quantization to search for
     if args.no_quantization:
         quantization = None
@@ -453,8 +462,8 @@ def main():
         else:
             local_dir = model_name
     
-    # For OpenVINO format, always use the model name as directory
-    if args.format == "openvino":
+    # For OpenVINO format (explicit or auto-detected), always use the model name as directory
+    if args.format == "openvino" or detected_format == "openvino":
         local_dir = model_name
     
     # Check if directory already exists
@@ -468,7 +477,7 @@ def main():
     Path(local_dir).mkdir(exist_ok=True)
     
     # Download the model
-    download_model(repo_id, local_dir, quantization, exclude_quantizations, args.format)
+    download_model(repo_id, local_dir, quantization, exclude_quantizations, detected_format, files)
 
 
 if __name__ == "__main__":
