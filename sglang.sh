@@ -2,12 +2,12 @@
 
 source ~/dev/sglang-setup/.venv/bin/activate
 #MODEL="$HOME/data/models/safetensors/Qwen3-30B-A3B-GPTQ-Int4"
+#MODEL="$HOME/data/models/safetensors/Qwen3-VL-8B-Instruct-unsloth-bnb-4bit"
+MODEL="$HOME/data/models/safetensors/pixtral-12b"
 #MODEL="$HOME/data/models/safetensors/GLM-4.7-Flash-int4-AutoRound"
 #MODEL="$HOME/data/models/safetensors/GLM-4.7-Flash-AWQ-4bit"
-#MODEL="$HOME/data/models/safetensors/Qwen3-VL-8B-Instruct-unsloth-bnb-4bit"
-MODEL="$HOME/data/models/safetensors/DeepSeek-OCR"
+#MODEL="$HOME/data/models/safetensors/DeepSeek-OCR"
 #MODEL="$HOME/data/models/safetensors/DeepSeek-OCR-2"
-#MODEL="$HOME/data/models/safetensors/Qwen3-VL-32B-Instruct-AWQ-4bit"
 
 python -m sglang.launch_server \
     --model "$MODEL" \
