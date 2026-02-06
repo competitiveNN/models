@@ -1,0 +1,3 @@
+[submodule "tokenomics"]
+	path = tokenomics
+	url = https://github.com/tugot17/tokenomics
