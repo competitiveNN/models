@@ -1,0 +1,16 @@
+{
+  "model_config_list": [
+    {
+      "config": {
+        "name": "qwen3-14b_model",
+        "base_path": "/models/ov/server/qwen3-14b"
+      }
+    }
+  ],
+  "mediapipe_config_list": [
+    {
+      "name": "qwen3-14b",
+      "graph_path": "/models/ov/server/graph.pbtxt"
+    }
+  ]
+}
