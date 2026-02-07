@@ -1264,6 +1264,7 @@ dependencies = [
     { name = "auto-round" },
     { name = "openai" },
     { name = "optimum", extra = ["nncf", "openvino"] },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -1272,6 +1273,7 @@ requires-dist = [
     { name = "auto-round", specifier = ">=0.9.7" },
     { name = "openai", specifier = ">=2.16.0" },
     { name = "optimum", extras = ["nncf", "openvino"], specifier = ">=2.1.0" },
+    { name = "requests", specifier = ">=2.25.0" },
 ]
 
 [[package]]
