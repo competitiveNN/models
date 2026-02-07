@@ -13,6 +13,7 @@ CMD="bench"
 [ -d ".venv" ] && source .venv/bin/activate
 
 # Parse flags and commands
+MODEL_SPECIFIED=false
 while [[ $# -gt 0 ]]; do
   case $1 in
     -u|--url)
@@ -25,6 +26,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -m|--model)
       MODEL="$2"
+      MODEL_SPECIFIED=true
       shift 2
       ;;
     -r|--requests)
@@ -63,6 +65,26 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# If model not specified, try to find the first available one via API
+if [ "$MODEL_SPECIFIED" = false ]; then
+    echo "No model specified, querying API for available models..."
+    FIRST_MODEL=$(python3 -c "from openai import OpenAI; 
+try:
+    client = OpenAI(api_key='$KEY', base_url='$URL');
+    models = client.models.list().data;
+    print(models[0].id if models else '')
+except Exception:
+    print('')" 2>/dev/null)
+    
+    if [ -n "$FIRST_MODEL" ]; then
+        MODEL="$FIRST_MODEL"
+        echo "Using first available model: $MODEL"
+    else
+        echo "Failed to query models from API. Using fallback default: gemma3-4b-cw"
+        MODEL="gemma3-4b-cw"
+    fi
+fi
 
 OPTS=()
 case "$CMD" in
