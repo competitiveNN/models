@@ -9,4 +9,5 @@ dependencies = [
     "auto-round>=0.9.7",
     "openai>=2.16.0",
     "optimum[nncf,openvino]>=2.1.0",
+    "requests>=2.25.0",
 ]
