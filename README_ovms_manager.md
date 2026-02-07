@@ -11,7 +11,7 @@ A Python script to manage OpenVINO Model Server (OVMS) configuration files and r
 - **Reload configuration** via OVMS REST API
 - **Check server status** and loaded models
 - **Validation** of model paths and duplicate names
-- **Flexible device targeting** (GPU/CPU)
+- **Optional device targeting** (GPU/CPU/etc.)
 
 ## Usage
 
@@ -179,4 +179,4 @@ This is required for Large Language Models in OpenVINO Model Server as they need
 **Configuration structure:**
 - `model_config_list`: Contains the model definition (name: `{graph_name}_model`)
 - `mediapipe_config_list`: Contains the graph/pipeline definition (name: `{graph_name}`)
-- The model is linked to the graph by naming convention: graph name + `_model` suffix
+- The model is linked to the graph by naming convention: graph name + `_model` suffix.
