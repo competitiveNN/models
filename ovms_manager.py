@@ -356,6 +356,54 @@ class OVMSConfigManager:
         
         self._save_config(self.config)
         print(f"✓ Removed {'/'.join(removed_items)} '{model_name}' from configuration")
+
+    def clear_all(self, force: bool = False) -> None:
+        """Remove all models and graphs from the configuration and managed directories."""
+        models = self.config.get("model_config_list", [])
+        graphs = self.config.get("mediapipe_config_list", [])
+        
+        # Collect base names for managed directories
+        model_names = set()
+        for model in models:
+            name = model.get("config", {}).get("name", "")
+            if name:
+                if name.endswith("_model"):
+                    name = name[:-6]
+                model_names.add(name)
+        
+        for graph in graphs:
+            name = graph.get("name", "")
+            if name:
+                model_names.add(name)
+
+        if not model_names and not models and not graphs:
+            print("Configuration is already empty.")
+            return
+
+        if not force and self.interactive:
+            print(f"Found {len(model_names)} models/graphs in configuration.")
+            confirm = input("Warning: This will delete ALL managed directories and configurations. Continue? [y/N]: ")
+            if confirm.lower() not in ['y', 'yes']:
+                print("Aborted.")
+                return
+
+        # 1. Remove managed directories
+        for name in model_names:
+            target_model_dir = os.path.join("/models/ov/server", name)
+            host_model_dir = self._map_path(target_model_dir)
+            if host_model_dir.exists():
+                try:
+                    shutil.rmtree(host_model_dir)
+                    print(f"✓ Removed managed directory {target_model_dir}")
+                except Exception as e:
+                    print(f"Error removing directory {target_model_dir}: {e}")
+
+        # 2. Clear the configuration lists
+        self.config["model_config_list"] = []
+        self.config["mediapipe_config_list"] = []
+        
+        self._save_config(self.config)
+        print("✓ All models and graphs cleared from configuration.")
     
     def list_models(self) -> None:
         """List all models and graphs in the configuration."""
@@ -511,6 +559,10 @@ def main():
     remove_parser = subparsers.add_parser("remove", help="Remove a model or graph from the configuration")
     remove_parser.add_argument("name", help="Name of the model/graph to remove")
     
+    # Clear command
+    clear_parser = subparsers.add_parser("clear", help="Remove ALL models and graphs from configuration")
+    clear_parser.add_argument("--force", "-f", action="store_true", help="Don't ask for confirmation")
+    
     # List command
     subparsers.add_parser("list", help="List all configured models and graphs")
     
@@ -534,6 +586,8 @@ def main():
         manager.add_model(args.path, args.name, args.llm, args.device)
     elif args.command == "remove":
         manager.remove_model(args.name)
+    elif args.command == "clear":
+        manager.clear_all(args.force)
     elif args.command == "list":
         manager.list_models()
     elif args.command == "reload":
