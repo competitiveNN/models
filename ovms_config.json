@@ -2,15 +2,16 @@
   "model_config_list": [
     {
       "config": {
-        "name": "gemma-3-4b-it-int4-cw-ov_model",
-        "base_path": "/models/ov/server/gemma-3-4b-it-int4-cw-ov"
+        "name": "qwen3-4b-instruct-2507-int4-asym-awq-ov_model",
+        "base_path": "/models/ov/server/qwen3-4b-instruct-2507-int4-asym-awq-ov",
+        "target_device": "HETERO"
       }
     }
   ],
   "mediapipe_config_list": [
     {
-      "name": "gemma-3-4b-it-int4-cw-ov",
-      "graph_path": "/models/ov/server/gemma-3-4b-it-int4-cw-ov/graph.pbtxt"
+      "name": "qwen3-4b-instruct-2507-int4-asym-awq-ov",
+      "graph_path": "/models/ov/server/qwen3-4b-instruct-2507-int4-asym-awq-ov/graph.pbtxt"
     }
   ]
 }

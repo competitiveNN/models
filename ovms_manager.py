@@ -28,6 +28,10 @@ import shutil
 import sys
 from pathlib import Path
 import requests
+try:
+    import openvino as ov
+except ImportError:
+    ov = None
 from typing import Dict, List, Optional
 
 
@@ -131,9 +135,70 @@ class OVMSConfigManager:
         name = re.sub(r'-+', '-', name)
         return name
 
-    def _create_unique_graph(self, template_path: str, target_path: str, model_path: str) -> bool:
-        """Create a unique graph.pbtxt by copying a template and updating models_path."""
-        # Try to find the template, handling host path mapping if needed
+    def _get_gpu_mem_gb(self, device: str) -> float:
+        """Get GPU memory in GB using OpenVINO."""
+        if ov is None:
+            return 8.0 # Conservative default
+        
+        try:
+            core = ov.Core()
+            d = device.upper() if device else "GPU.0"
+            if d == "GPU":
+                d = "GPU.0"
+            
+            if d.startswith("GPU"):
+                mem = core.get_property(d, "GPU_DEVICE_TOTAL_MEM_SIZE")
+                return float(mem) / (1024**3)
+        except Exception as e:
+            # Silently fallback for some devices or CPU
+            pass
+        
+        return 8.0 # Fallback
+
+    def _get_model_size_gb(self, model_path: str) -> float:
+        """Calculate model size in GB by scanning the directory."""
+        host_path = self._map_path(model_path)
+        if not host_path.exists():
+            return 4.0 # Default assumption
+            
+        total_size = 0
+        for f in host_path.rglob('*'):
+            if f.is_file() and f.suffix in ['.bin', '.xml']:
+                total_size += f.stat().st_size
+        
+        # If no bin/xml found, check everything
+        if total_size == 0:
+            for f in host_path.rglob('*'):
+                if f.is_file():
+                    total_size += f.stat().st_size
+                    
+        return float(total_size) / (1024**3)
+
+    def _estimate_cache_size(self, device: str, model_path: str) -> int:
+        """Estimate optimal cache_size in GB."""
+        gpu_mem = self._get_gpu_mem_gb(device)
+        model_size = self._get_model_size_gb(model_path)
+        
+        available = gpu_mem - model_size - 1.5
+        cache_size = max(1, int(available))
+        
+        print(f"Heuristic Cache Calculation for {device}:")
+        print(f"  GPU Memory:   {gpu_mem:.2f} GB")
+        print(f"  Model Size:   {model_size:.2f} GB")
+        print(f"  System/OVMS:  1.50 GB")
+        print(f"  Available:    {available:.2f} GB -> Setting cache_size: {cache_size}")
+        
+        return cache_size
+
+    def _create_unique_graph(self, template_path: str, target_path: str, model_path: str, 
+                             kv_cache_precision: Optional[str] = "u8", 
+                             cache_size: Optional[int] = None,
+                             device: Optional[str] = None,
+                             source_model_path: Optional[str] = None,
+                             num_streams: Optional[str] = None,
+                             performance_hint: Optional[str] = "THROUGHPUT",
+                             inference_precision_hint: Optional[str] = None) -> bool:
+        """Create a unique graph.pbtxt by copying a template and updating configuration."""
         p_template = self._map_path(template_path)
         
         if not p_template.exists():
@@ -144,28 +209,82 @@ class OVMSConfigManager:
             with open(p_template, 'r') as f:
                 content = f.read()
             
-            # Update models_path - the model files are in the /1 subdirectory
+            # 1. Update models_path
             new_models_path = os.path.join(model_path, "1")
             pattern = r'(models_path:\s*["\'])([^"\']*)(["\'])'
-            new_content = re.sub(pattern, lambda m: f"{m.group(1)}{new_models_path}{m.group(3)}", content)
+            content = re.sub(pattern, lambda m: f"{m.group(1)}{new_models_path}{m.group(3)}", content)
             
-            # Determine target write path (handling host mapping if needed)
+            # 2. Update plugin_config
+            plugin_pattern = r'plugin_config:\s*(["\'])(.*?)\1'
+            match = re.search(plugin_pattern, content)
+            if match:
+                quote_char = match.group(1)
+                try:
+                    plugin_json = json.loads(match.group(2))
+                    
+                    # Set KV Cache Precision
+                    if kv_cache_precision and kv_cache_precision.lower() != "none":
+                        plugin_json["KV_CACHE_PRECISION"] = kv_cache_precision
+                    
+                    # Set Performance Hint
+                    if performance_hint and performance_hint.lower() != "none":
+                        plugin_json["PERFORMANCE_HINT"] = performance_hint.upper()
+                    
+                    # Set Inference Precision Hint
+                    if inference_precision_hint and inference_precision_hint.lower() != "none":
+                        plugin_json["INFERENCE_PRECISION_HINT"] = inference_precision_hint
+                    
+                    # Set NUM_STREAMS - default to max_num_seqs if not provided
+                    if num_streams and num_streams.lower() != "none":
+                        plugin_json["NUM_STREAMS"] = num_streams
+                    elif not num_streams:
+                        # Try to find max_num_seqs in the pbtxt
+                        seqs_match = re.search(r'max_num_seqs:\s*([0-9]+)', content)
+                        if seqs_match:
+                            seqs_val = seqs_match.group(1)
+                            plugin_json["NUM_STREAMS"] = seqs_val
+                    
+                    new_plugin_str = json.dumps(plugin_json)
+                    content = content.replace(match.group(0), f"plugin_config: {quote_char}{new_plugin_str}{quote_char}")
+                except json.JSONDecodeError:
+                    print("Warning: Could not parse plugin_config as JSON, skipping updates.")
+
+            # 3. Update cache_size
+            # If not provided, use heuristic if it's a GPU
+            if cache_size is None and device and device.upper().startswith("GPU"):
+                # Use source_model_path if provided for accurate size estimation
+                size_path = source_model_path or model_path
+                cache_size = self._estimate_cache_size(device, size_path)
+            
+            if cache_size is not None:
+                cache_pattern = r'(cache_size:\s*)([0-9]+)'
+                content = re.sub(cache_pattern, lambda m: f"{m.group(1)}{cache_size}", content)
+
+            # 4. Update device in pbtxt if specified
+            if device:
+                device_pattern = r'(device:\s*["\'])([^"\']*)(["\'])'
+                content = re.sub(device_pattern, lambda m: f"{m.group(1)}{device}{m.group(3)}", content)
+
+            # Determine target write path
             p_target = self._map_path(target_path)
-            
-            # Ensure parent exists
             p_target.parent.mkdir(parents=True, exist_ok=True)
             
             with open(p_target, 'w') as f:
-                f.write(new_content)
+                f.write(content)
                 
-            print(f"✓ Created unique graph at {target_path} (models_path: {new_models_path})")
+            print(f"✓ Created unique graph at {target_path}")
             return True
         except Exception as e:
             print(f"Error creating unique graph: {e}")
             return False
 
     def add_model(self, model_path: str, model_name: Optional[str] = None, 
-                  is_llm: bool = False, device: Optional[str] = None) -> None:
+                  is_llm: bool = False, device: Optional[str] = None,
+                  kv_cache_precision: Optional[str] = "u8",
+                  cache_size: Optional[int] = None,
+                  num_streams: Optional[str] = None,
+                  performance_hint: Optional[str] = "THROUGHPUT",
+                  inference_precision_hint: Optional[str] = None) -> None:
         """Add a model to the configuration."""
         # Resolve real path and determine symlink target
         symlink_target = model_path
@@ -250,7 +369,10 @@ class OVMSConfigManager:
             # 1. Create unique graph
             template_graph_path = "/models/ov/server/graph.pbtxt"
             print(f"Creating unique graph from template: {template_graph_path}")
-            if not self._create_unique_graph(template_graph_path, unique_graph_path, target_model_dir):
+            if not self._create_unique_graph(template_graph_path, unique_graph_path, target_model_dir,
+                                             kv_cache_precision, 
+                                             cache_size, device, symlink_target,
+                                             num_streams, performance_hint, inference_precision_hint):
                 print("Failed to create unique graph. Aborting configuration update.")
                 return
 
@@ -554,6 +676,16 @@ def main():
     add_parser.add_argument("--device", "-d", help="Target device (e.g. CPU, GPU, MULTI:GPU.1,GPU.0)")
     add_parser.add_argument("--llm", action="store_true",
                            help="Add as LLM graph (MediaPipe pipeline)")
+    add_parser.add_argument("--kv-cache-precision", default="u8", 
+                           help="KV cache precision (default: u8, set to 'none' to skip)")
+    add_parser.add_argument("--cache-size", type=int,
+                           help="LLM KV cache size in GB (default: heuristic calculation)")
+    add_parser.add_argument("--num-streams", 
+                           help="Number of streams (default: max_num_seqs from pbtxt, set to 'none' to skip)")
+    add_parser.add_argument("--performance-hint", choices=["THROUGHPUT", "LATENCY", "none"], default="THROUGHPUT",
+                           help="Performance hint (default: THROUGHPUT, set to 'none' to skip)")
+    add_parser.add_argument("--inference-precision-hint", 
+                           help="Inference precision hint (e.g. f32, f16, bf16). Default: None (not set)")
     
     # Remove command
     remove_parser = subparsers.add_parser("remove", help="Remove a model or graph from the configuration")
@@ -583,7 +715,10 @@ def main():
     
     # Execute command
     if args.command == "add":
-        manager.add_model(args.path, args.name, args.llm, args.device)
+        manager.add_model(args.path, args.name, args.llm, args.device, 
+                         args.kv_cache_precision,
+                         args.cache_size, args.num_streams,
+                         args.performance_hint, args.inference_precision_hint)
     elif args.command == "remove":
         manager.remove_model(args.name)
     elif args.command == "clear":

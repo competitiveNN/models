@@ -5,13 +5,18 @@ A Python script to manage OpenVINO Model Server (OVMS) configuration files and r
 ## Features
 
 - **Add models** by path with automatic name extraction or custom naming
-- **Add LLM graphs** as MediaPipe pipelines for Large Language Models
+- **Add LLM graphs** as MediaPipe pipelines with automatic `graph.pbtxt` generation and customization
 - **Remove models/graphs** by name
+- **Clear all models** with a single command
 - **List all configured items** with details (path, device, type)
 - **Reload configuration** via OVMS REST API
 - **Check server status** and loaded models
 - **Validation** of model paths and duplicate names
 - **Optional device targeting** (GPU/CPU/etc.)
+- **Advanced LLM Configuration**:
+    - **KV Cache Precision**: Configurable (e.g., `u8`, `f16`)
+    - **Smart Cache Sizing**: Heuristic calculation based on GPU memory and model size
+    - **Performance Tuning**: Configurable `NUM_STREAMS` and `PERFORMANCE_HINT`
 
 ## Usage
 
@@ -33,6 +38,9 @@ python ovms_manager.py add /models/ov/mistral/phi-3-mini --name phi3-mini --devi
 # Remove a model or graph by name
 python ovms_manager.py remove llama-2-7b-chat
 
+# Clear all models and graphs (with confirmation)
+python ovms_manager.py clear
+
 # Reload configuration on the server
 python ovms_manager.py reload
 
@@ -40,22 +48,26 @@ python ovms_manager.py reload
 python ovms_manager.py status
 ```
 
-### Advanced Options
+### LLM Optimization Flags
+
+When adding an LLM (`--llm`), you can fine-tune its performance:
 
 ```bash
-# Use custom config file and server URL
-python ovms_manager.py --config /path/to/config.json --server http://localhost:9000 list
+# Set KV cache precision (default: u8)
+python ovms_manager.py add /models/ov/llama-2-7b --llm --kv-cache-precision f16
+
+# Set specific cache size in GB (default: heuristic calculation based on available GPU memory)
+python ovms_manager.py add /models/ov/llama-2-7b --llm --cache-size 10
+
+# Set number of streams (default: uses max_num_seqs from template)
+python ovms_manager.py add /models/ov/llama-2-7b --llm --num-streams 2
+
+# Set performance hint (default: THROUGHPUT)
+python ovms_manager.py add /models/ov/llama-2-7b --llm --performance-hint LATENCY
+
+# Set inference precision hint (e.g. f32, f16, bf16). Default: None (not set)
+python ovms_manager.py add /models/ov/llama-2-7b --llm --inference-precision-hint f16
 ```
-
-### Command Reference
-
-| Command | Description | Options |
-|---------|-------------|---------|
-| `add <path>` | Add model/graph to configuration | `--name`, `--device`, `--llm` |
-| `remove <name>` | Remove model/graph by name | None |
-| `list` | List all configured models and graphs | None |
-| `reload` | Reload server configuration | None |
-| `status` | Check server status | None |
 
 ### Global Options
 
@@ -63,10 +75,32 @@ python ovms_manager.py --config /path/to/config.json --server http://localhost:9
 |--------|-------------|---------|
 | `--config`, `-c` | Configuration file path | `ovms_config.json` |
 | `--server`, `-s` | OVMS server URL | `http://localhost:8000` |
+| `--models-path`, `-m` | Host path where `/models` is mapped | `$MODELS_PATH` or `~/data/models` |
+
+### Command Reference
+
+| Command | Description | Options |
+|---------|-------------|---------|
+| `add <path>` | Add model/graph to configuration | `--name`, `--device`, `--llm`, `--kv-cache-precision`, `--cache-size`, `--num-streams`, `--performance-hint`, `--inference-precision-hint` |
+| `remove <name>` | Remove model/graph by name | None |
+| `clear` | Remove all models and graphs | `--force` |
+| `list` | List all configured models and graphs | None |
+| `reload` | Reload server configuration | None |
+| `status` | Check server status | None |
+
+## LLM Graph Support
+
+When using the `--llm` flag, the script performs several automated steps:
+
+1.  **Unique Graph Generation**: Creates a unique `graph.pbtxt` for the model in its managed directory.
+2.  **Path Resolution**: Updates the `models_path` in the graph to point to the correct location (handling symlinks).
+3.  **Plugin Configuration**: Injects optimization parameters (`KV_CACHE_PRECISION`, `NUM_STREAMS`, `PERFORMANCE_HINT`) into the graph's `plugin_config`.
+4.  **Configuration Entry**: Adds an entry to `mediapipe_config_list` pointing to the new unique graph.
+
+**Heuristic Cache Sizing**:
+If `--cache-size` is not provided and the target device is a GPU, the script uses `openvino` to detect the GPU's total memory. It then subtracts the estimated model size and a system overhead buffer (~1.5GB) to automatically set the optimal `cache_size`.
 
 ## Configuration Format
-
-The script manages JSON configuration files in the OVMS format:
 
 ### Regular Model
 ```json
@@ -75,11 +109,8 @@ The script manages JSON configuration files in the OVMS format:
     {
       "config": {
         "name": "model-name",
-        "base_path": "/path/to/model",
-        "target_device": "GPU",
-        "plugin_config": {
-          "PERFORMANCE_HINT": "LATENCY"
-        }
+        "base_path": "/models/ov/server/model-name",
+        "target_device": "GPU"
       }
     }
   ]
@@ -93,90 +124,16 @@ The script manages JSON configuration files in the OVMS format:
     {
       "config": {
         "name": "llm-name_model",
-        "base_path": "/path/to/llm",
-        "target_device": "GPU",
-        "plugin_config": {
-          "PERFORMANCE_HINT": "LATENCY"
-        }
+        "base_path": "/models/ov/server/llm-name",
+        "target_device": "GPU"
       }
     }
   ],
   "mediapipe_config_list": [
     {
       "name": "llm-name",
-      "graph_path": "/models/ov/server/graph.pbtxt"
+      "graph_path": "/models/ov/server/llm-name/graph.pbtxt"
     }
   ]
 }
 ```
-
-## API Integration
-
-The script uses the OVMS REST API for configuration reloading:
-
-- **Reload endpoint**: `POST /v1/config/reload`
-- **Status endpoint**: `GET /v1/config`
-
-## Requirements
-
-- Python 3.11+
-- `requests` library
-- Running OpenVINO Model Server (for reload/status commands)
-
-## Error Handling
-
-- **Path validation**: Warns if model paths don't exist
-- **Duplicate detection**: Prevents adding models with existing names
-- **Server connectivity**: Graceful handling of connection errors
-- **JSON validation**: Validates configuration file format
-
-## Examples
-
-### Typical Workflow
-
-```bash
-# Start with listing current models and graphs
-python ovms_manager.py list
-
-# Add a new LLM as a graph
-python ovms_manager.py add /models/ov/mistral/Ministral-3b-instruct-openvino --name ministral --llm
-
-# Add a regular model
-python ovms_manager.py add /models/ov/vision/yolo-v8 --name yolo
-
-# Reload the server configuration
-python ovms_manager.py reload
-
-# Check that the models are loaded
-python ovms_manager.py status
-
-# Remove a model when no longer needed
-python ovms_manager.py remove ministral
-python ovms_manager.py reload
-```
-
-### Batch Operations
-
-```bash
-# Add multiple models and LLMs
-python ovms_manager.py add /models/ov/llama/7b --name llama-7b --llm
-python ovms_manager.py add /models/ov/llama/13b --name llama-13b --device CPU --llm
-python ovms_manager.py add /models/ov/vision/resnet --name resnet
-
-# Reload once after all additions
-python ovms_manager.py reload
-```
-
-## LLM Graph Support
-
-When using the `--llm` flag, the script creates:
-1. A model configuration with `_model` suffix
-2. A MediaPipe configuration that references the model by naming convention
-3. Uses the default graph path: `/models/ov/server/graph.pbtxt`
-
-This is required for Large Language Models in OpenVINO Model Server as they need to be served as MediaPipe graphs rather than regular models.
-
-**Configuration structure:**
-- `model_config_list`: Contains the model definition (name: `{graph_name}_model`)
-- `mediapipe_config_list`: Contains the graph/pipeline definition (name: `{graph_name}`)
-- The model is linked to the graph by naming convention: graph name + `_model` suffix.
