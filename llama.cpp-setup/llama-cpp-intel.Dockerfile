@@ -14,8 +14,7 @@ ENV PATH="/app/venv/bin:$PATH"
 
 # Install llama-cpp-python with SYCL support
 # Using the command provided by the user
-RUN . /opt/intel/oneapi/setvars.sh && \
-    CMAKE_ARGS="-DGGML_SYCL=on -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx" pip install --upgrade --no-cache-dir llama-cpp-python
+RUN CMAKE_ARGS="-DGGML_SYCL=on -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx" pip install --upgrade --no-cache-dir llama-cpp-python
 
 FROM intel/deep-learning-essentials:$ONEAPI_VERSION AS server
 
