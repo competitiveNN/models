@@ -7,3 +7,6 @@
 [submodule "sglang-setup/sglang"]
 	path = sglang-setup/sglang
 	url = https://github.com/sgl-project/sglang.git
+[submodule "vllm-setup/vllm"]
+	path = vllm-setup/vllm
+	url = https://github.com/vllm-project/vllm
