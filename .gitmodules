@@ -1,3 +1,6 @@
 [submodule "tokenomics"]
 	path = tokenomics
 	url = https://github.com/tugot17/tokenomics
+[submodule "llama.cpp"]
+	path = llama.cpp
+	url = https://github.com/ggerganov/llama.cpp.git
