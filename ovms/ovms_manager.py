@@ -195,7 +195,6 @@ class OVMSConfigManager:
                              cache_size: Optional[int] = None,
                              device: Optional[str] = None,
                              source_model_path: Optional[str] = None,
-                             num_streams: Optional[str] = None,
                              performance_hint: Optional[str] = "CUMULATIVE_THROUGHPUT",
                              inference_precision_hint: Optional[str] = None) -> bool:
         """Create a unique graph.pbtxt by copying a template and updating configuration."""
@@ -235,16 +234,6 @@ class OVMSConfigManager:
                     # Set Inference Precision Hint
                     if inference_precision_hint and inference_precision_hint.lower() != "none":
                         plugin_json["INFERENCE_PRECISION_HINT"] = inference_precision_hint
-                    
-                    # Set NUM_STREAMS - default to max_num_seqs if not provided
-                    if num_streams and num_streams.lower() != "none":
-                        plugin_json["NUM_STREAMS"] = num_streams
-                    elif not num_streams:
-                        # Try to find max_num_seqs in the pbtxt
-                        seqs_match = re.search(r'max_num_seqs:\s*([0-9]+)', content)
-                        if seqs_match:
-                            seqs_val = seqs_match.group(1)
-                            plugin_json["NUM_STREAMS"] = seqs_val
                     
                     # Set Model Distribution Policy - default to PIPELINE_PARALLEL
                     plugin_json["MODEL_DISTRIBUTION_POLICY"] = "PIPELINE_PARALLEL"
@@ -318,7 +307,6 @@ class OVMSConfigManager:
                   is_llm: bool = False, device: Optional[str] = None,
                   kv_cache_precision: Optional[str] = "u8",
                   cache_size: Optional[int] = None,
-                  num_streams: Optional[str] = None,
                   performance_hint: Optional[str] = "CUMULATIVE_THROUGHPUT",
                   inference_precision_hint: Optional[str] = None) -> None:
         """Add a model to the configuration."""
@@ -408,7 +396,7 @@ class OVMSConfigManager:
             if not self._create_unique_graph(template_graph_path, unique_graph_path, target_model_dir,
                                              kv_cache_precision, 
                                              cache_size, device, symlink_target,
-                                             num_streams, performance_hint, inference_precision_hint):
+                                             performance_hint, inference_precision_hint):
                 print("Failed to create unique graph. Aborting configuration update.")
                 return
 
@@ -720,8 +708,6 @@ def main():
                            help="KV cache precision (default: u8, set to 'none' to skip)")
     add_parser.add_argument("--cache-size", type=int,
                            help="LLM KV cache size in GB (default: heuristic calculation)")
-    add_parser.add_argument("--num-streams", 
-                           help="Number of streams (default: max_num_seqs from pbtxt, set to 'none' to skip)")
     add_parser.add_argument("--performance-hint", 
                            choices=["THROUGHPUT", "CUMULATIVE_THROUGHPUT", "LATENCY", "none", "lat", "thr", "cth"], 
                            default="CUMULATIVE_THROUGHPUT",
@@ -768,7 +754,7 @@ def main():
     if args.command == "add":
         manager.add_model(args.path, args.name, args.llm, args.device, 
                          args.kv_cache_precision,
-                         args.cache_size, args.num_streams,
+                         args.cache_size,
                          args.performance_hint, args.inference_precision_hint)
     elif args.command == "remove":
         manager.remove_model(args.name)

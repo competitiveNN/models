@@ -2,15 +2,15 @@
   "model_config_list": [
     {
       "config": {
-        "name": "qwen3-4b-instruct-2507-int4-asym-awq-ov_model",
-        "base_path": "/models/ov/server/qwen3-4b-instruct-2507-int4-asym-awq-ov"
+        "name": "nemotron-cascade-14b-thinking-int4-asym-se-ov_model",
+        "base_path": "/models/ov/server/nemotron-cascade-14b-thinking-int4-asym-se-ov"
       }
     }
   ],
   "mediapipe_config_list": [
     {
-      "name": "qwen3-4b-instruct-2507-int4-asym-awq-ov",
-      "graph_path": "/models/ov/server/qwen3-4b-instruct-2507-int4-asym-awq-ov/graph.pbtxt"
+      "name": "nemotron-cascade-14b-thinking-int4-asym-se-ov",
+      "graph_path": "/models/ov/server/nemotron-cascade-14b-thinking-int4-asym-se-ov/graph.pbtxt"
     }
   ]
 }
