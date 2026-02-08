@@ -14,7 +14,16 @@ ENV PATH="/app/venv/bin:$PATH"
 
 # Install llama-cpp-python with SYCL support
 # Using the command provided by the user
-RUN CMAKE_ARGS="-DGGML_SYCL=on -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx" pip install --upgrade --no-cache-dir llama-cpp-python
+ARG GGML_SYCL_F16=ON
+RUN CMAKE_ARGS="-DGGML_SYCL=on \
+    -DCMAKE_C_COMPILER=icx \
+    -DCMAKE_CXX_COMPILER=icpx \
+    -DGGML_SYCL_F16=${GGML_SYCL_F16} \
+    -DGGML_NATIVE=OFF \
+    -DGGML_BACKEND_DL=ON \
+    -DGGML_CPU_ALL_VARIANTS=ON \
+    -DLLAMA_BUILD_TESTS=OFF" \
+    pip install --upgrade --no-cache-dir llama-cpp-python
 
 FROM intel/deep-learning-essentials:$ONEAPI_VERSION AS server
 
