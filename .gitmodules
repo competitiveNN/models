@@ -2,7 +2,7 @@
 	path = tokenomics
 	url = https://github.com/tugot17/tokenomics
 [submodule "llama.cpp"]
-	path = llama.cpp
+	path = llama.cpp-setup/llama.cpp
 	url = https://github.com/ggerganov/llama.cpp.git
 [submodule "sglang-setup/sglang"]
 	path = sglang-setup/sglang
