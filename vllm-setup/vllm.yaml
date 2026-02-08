@@ -3,9 +3,9 @@
 #model: /home/fra/data/models/safetensors/GLM-4.7-Flash-AWQ-4bit
 #quantization: awq
 
-# model: /home/fra/data/models/safetensors/DeepSeek-OCR
+model: /home/fra/data/models/safetensors/DeepSeek-OCR
 
-model: /home/fra/data/models/safetensors/Qwen3-VL-32B-Instruct-AWQ-4bit
+# model: /home/fra/data/models/safetensors/Qwen3-VL-32B-Instruct-AWQ-4bit
 
 #model: /home/fra/data/models/gguf/unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf
 #tokenizer_pool_extra_config: '{"fix_mistral_regex": true}'
@@ -16,11 +16,13 @@ model: /home/fra/data/models/safetensors/Qwen3-VL-32B-Instruct-AWQ-4bit
 
 #model: /home/fra/data/models/safetensors/Qwen3-VL-8B-Instruct-unsloth-bnb-4bit
 
+#model: /home/fra/data/models/safetensors/Qwen3-4B-Base-unsloth-bnb-4bit
+#model: /home/fra/data/models/safetensors/Qwen3-4B-Base-unsloth-bnb-4bit
+
 #trust-remote-code: true
 host: "127.0.0.1"
 port: 8001
 uvicorn-log-level: "info"
 tensor-parallel-size: 2
 enable_chunked_prefill: true
-pipeline_parallel_size: 1
-gpu_memory_utilization: 0.7
+gpu_memory_utilization: 0.65

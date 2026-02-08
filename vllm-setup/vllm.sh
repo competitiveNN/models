@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 MODEL_PATH="$HOME/data/models"
 MODEL=""
 IMAGE=intel/vllm

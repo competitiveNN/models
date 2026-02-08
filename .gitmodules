@@ -10,6 +10,3 @@
 [submodule "vllm-setup/vllm"]
 	path = vllm-setup/vllm
 	url = https://github.com/vllm-project/vllm
-[submodule "openarc-setup/OpenArc"]
-	path = openarc-setup/OpenArc
-	url = https://github.com/SearchSavior/OpenArc.git
