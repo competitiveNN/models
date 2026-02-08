@@ -3,21 +3,22 @@
 #model: /home/fra/data/models/safetensors/GLM-4.7-Flash-AWQ-4bit
 #quantization: awq
 
-model: /home/fra/data/models/safetensors/DeepSeek-OCR
+# model: /home/fra/data/models/safetensors/DeepSeek-OCR
 
 # model: /home/fra/data/models/safetensors/Qwen3-VL-32B-Instruct-AWQ-4bit
 
-#model: /home/fra/data/models/gguf/unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf
-#tokenizer_pool_extra_config: '{"fix_mistral_regex": true}'
-#load_format: gguf
+# model: /home/fra/data/models/gguf/unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf
+# tokenizer_pool_extra_config: '{"fix_mistral_regex": true}'
+# load_format: gguf
 
-#model: /home/fra/data/models/gguf/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-UD-Q4_K_XL.gguf
-#load_format: gguf
+# model: /home/fra/data/models/gguf/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-UD-Q4_K_XL.gguf
+# load_format: gguf
 
-#model: /home/fra/data/models/safetensors/Qwen3-VL-8B-Instruct-unsloth-bnb-4bit
+# model: /home/fra/data/models/safetensors/Qwen3-VL-8B-Instruct-unsloth-bnb-4bit
 
-#model: /home/fra/data/models/safetensors/Qwen3-4B-Base-unsloth-bnb-4bit
-#model: /home/fra/data/models/safetensors/Qwen3-4B-Base-unsloth-bnb-4bit
+# model: /home/fra/data/models/safetensors/Qwen3-4B-Base-unsloth-bnb-4bit
+# model: /home/fra/data/models/safetensors/Qwen3-4B-Base-4bit-Autoround-asym
+model: /home/fra/data/models/safetensors/Qwen3-4B-AWQ
 
 #trust-remote-code: true
 host: "127.0.0.1"

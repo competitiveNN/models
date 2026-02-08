@@ -1,7 +1,10 @@
 #!/bin/bash
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 MODELS_PATH="${MODELS_PATH:-$HOME/data/models}"
-CONFIG_FILE="$(pwd)/ovms_config.json"
+CONFIG_FILE="$SCRIPT_DIR/ovms_config.json"
 API_KEY=abc
 #TAG=latest-gpu
 TAG=latest-py

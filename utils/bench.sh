@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Defaults
 URL="http://localhost:8000/v3"
 KEY="abc"
@@ -104,4 +107,4 @@ case "$CMD" in
         ;;
 esac
 
-python3 bench.py --url "$URL" --api-key "$KEY" --model "$MODEL" "${OPTS[@]}"
+python3 "$SCRIPT_DIR/bench.py" --url "$URL" --api-key "$KEY" --model "$MODEL" "${OPTS[@]}"

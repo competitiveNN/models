@@ -36,7 +36,7 @@ from typing import Dict, List, Optional
 
 
 class OVMSConfigManager:
-    def __init__(self, config_path: str = "ovms_config.json", server_url: str = "http://localhost:8000", 
+    def __init__(self, config_path: str = str(Path(__file__).resolve().parent / "ovms_config.json"), server_url: str = "http://localhost:8000", 
                  interactive: bool = True, host_models_path: Optional[str] = None):
         self.config_path = Path(config_path)
         self.server_url = server_url
@@ -196,7 +196,7 @@ class OVMSConfigManager:
                              device: Optional[str] = None,
                              source_model_path: Optional[str] = None,
                              num_streams: Optional[str] = None,
-                             performance_hint: Optional[str] = "THROUGHPUT",
+                             performance_hint: Optional[str] = "CUMULATIVE_THROUGHPUT",
                              inference_precision_hint: Optional[str] = None) -> bool:
         """Create a unique graph.pbtxt by copying a template and updating configuration."""
         p_template = self._map_path(template_path)
@@ -222,9 +222,11 @@ class OVMSConfigManager:
                 try:
                     plugin_json = json.loads(match.group(2))
                     
-                    # Set KV Cache Precision
+                    # Set KV Cache Precision - default to u8
                     if kv_cache_precision and kv_cache_precision.lower() != "none":
                         plugin_json["KV_CACHE_PRECISION"] = kv_cache_precision
+                    elif not kv_cache_precision or kv_cache_precision.lower() == "u8":
+                        plugin_json["KV_CACHE_PRECISION"] = "u8"
                     
                     # Set Performance Hint
                     if performance_hint and performance_hint.lower() != "none":
@@ -244,26 +246,30 @@ class OVMSConfigManager:
                             seqs_val = seqs_match.group(1)
                             plugin_json["NUM_STREAMS"] = seqs_val
                     
+                    # Set Model Distribution Policy - default to PIPELINE_PARALLEL
+                    plugin_json["MODEL_DISTRIBUTION_POLICY"] = "PIPELINE_PARALLEL"
+                    
                     new_plugin_str = json.dumps(plugin_json)
                     content = content.replace(match.group(0), f"plugin_config: {quote_char}{new_plugin_str}{quote_char}")
                 except json.JSONDecodeError:
                     print("Warning: Could not parse plugin_config as JSON, skipping updates.")
 
             # 3. Update cache_size
-            # If not provided, use heuristic if it's a GPU
-            if cache_size is None and device and device.upper().startswith("GPU"):
-                # Use source_model_path if provided for accurate size estimation
-                size_path = source_model_path or model_path
-                cache_size = self._estimate_cache_size(device, size_path)
+            # If not provided, default to 0
+            if cache_size is None:
+                cache_size = 0
             
             if cache_size is not None:
                 cache_pattern = r'(cache_size:\s*)([0-9]+)'
                 content = re.sub(cache_pattern, lambda m: f"{m.group(1)}{cache_size}", content)
 
-            # 4. Update device in pbtxt if specified
-            if device:
-                device_pattern = r'(device:\s*["\'])([^"\']*)(["\'])'
-                content = re.sub(device_pattern, lambda m: f"{m.group(1)}{device}{m.group(3)}", content)
+            # 4. Update device in pbtxt
+            # Set default device if not specified
+            if not device:
+                device = "HETERO:GPU.1,GPU.0,CPU,NPU"
+            
+            device_pattern = r'(device:\s*["\'])([^"\']*)(["\'])'
+            content = re.sub(device_pattern, lambda m: f"{m.group(1)}{device}{m.group(3)}", content)
 
             # Determine target write path
             p_target = self._map_path(target_path)
@@ -278,12 +284,42 @@ class OVMSConfigManager:
             print(f"Error creating unique graph: {e}")
             return False
 
+    def _set_graph_cache_size(self, graph_path: str, cache_size: int) -> bool:
+        p_graph = self._map_path(graph_path)
+        if not p_graph.exists():
+            print(f"Error: Graph file '{graph_path}' not found.")
+            return False
+
+        try:
+            with open(p_graph, 'r') as f:
+                content = f.read()
+
+            cache_pattern = r'(cache_size:\s*)([0-9]+)'
+            new_content, count = re.subn(cache_pattern, lambda m: f"{m.group(1)}{cache_size}", content)
+            if count == 0:
+                # Insert cache_size after the first models_path line (best-effort)
+                models_path_line = re.search(r'(^\s*models_path:\s*[^\n]*\n)', content, flags=re.MULTILINE)
+                if models_path_line:
+                    insert_at = models_path_line.end(1)
+                    new_content = content[:insert_at] + f"cache_size: {cache_size}\n" + content[insert_at:]
+                else:
+                    new_content = content.rstrip("\n") + f"\ncache_size: {cache_size}\n"
+
+            with open(p_graph, 'w') as f:
+                f.write(new_content)
+
+            print(f"✓ Set cache_size to {cache_size} in {graph_path}")
+            return True
+        except Exception as e:
+            print(f"Error updating cache_size in graph: {e}")
+            return False
+
     def add_model(self, model_path: str, model_name: Optional[str] = None, 
                   is_llm: bool = False, device: Optional[str] = None,
                   kv_cache_precision: Optional[str] = "u8",
                   cache_size: Optional[int] = None,
                   num_streams: Optional[str] = None,
-                  performance_hint: Optional[str] = "THROUGHPUT",
+                  performance_hint: Optional[str] = "CUMULATIVE_THROUGHPUT",
                   inference_precision_hint: Optional[str] = None) -> None:
         """Add a model to the configuration."""
         # Resolve real path and determine symlink target
@@ -375,6 +411,9 @@ class OVMSConfigManager:
                                              num_streams, performance_hint, inference_precision_hint):
                 print("Failed to create unique graph. Aborting configuration update.")
                 return
+
+            # Force cache_size to 0 after graph.pbtxt is created in the model location
+            self._set_graph_cache_size(unique_graph_path, 0)
 
             # 2. Update/Add backend model configuration
             model_config = {
@@ -650,10 +689,11 @@ def main():
   %(prog)s status"""
     )
     
+    default_config_path = str(Path(__file__).resolve().parent / "ovms_config.json")
     parser.add_argument(
         "--config", "-c",
-        default="ovms_config.json",
-        help="Path to OVMS configuration file (default: ovms_config.json)"
+        default=default_config_path,
+        help="Path to OVMS configuration file (default: ovms_config.json in the script directory)"
     )
     
     parser.add_argument(
@@ -682,8 +722,10 @@ def main():
                            help="LLM KV cache size in GB (default: heuristic calculation)")
     add_parser.add_argument("--num-streams", 
                            help="Number of streams (default: max_num_seqs from pbtxt, set to 'none' to skip)")
-    add_parser.add_argument("--performance-hint", choices=["THROUGHPUT", "LATENCY", "none"], default="THROUGHPUT",
-                           help="Performance hint (default: THROUGHPUT, set to 'none' to skip)")
+    add_parser.add_argument("--performance-hint", 
+                           choices=["THROUGHPUT", "CUMULATIVE_THROUGHPUT", "LATENCY", "none", "lat", "thr", "cth"], 
+                           default="CUMULATIVE_THROUGHPUT",
+                           help="Performance hint (default: CUMULATIVE_THROUGHPUT). Shortcuts: lat=LATENCY, thr=THROUGHPUT, cth=CUMULATIVE_THROUGHPUT")
     add_parser.add_argument("--inference-precision-hint", 
                            help="Inference precision hint (e.g. f32, f16, bf16). Default: None (not set)")
     
@@ -709,6 +751,15 @@ def main():
     if not args.command:
         parser.print_help()
         sys.exit(1)
+    
+    # Map performance hint shortcuts to full values
+    if args.command == "add" and hasattr(args, 'performance_hint'):
+        perf_hint_map = {
+            "lat": "LATENCY",
+            "thr": "THROUGHPUT",
+            "cth": "CUMULATIVE_THROUGHPUT"
+        }
+        args.performance_hint = perf_hint_map.get(args.performance_hint, args.performance_hint)
     
     # Create manager instance
     manager = OVMSConfigManager(args.config, args.server, host_models_path=args.models_path)
