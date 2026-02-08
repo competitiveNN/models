@@ -92,7 +92,7 @@ case "$CMD" in
         OPTS+=(--list)
         ;;
     optimize)
-        OPTS+=(--optimize --max-tokens "$TOKENS")
+        OPTS+=(--optimize --concurrency "$CONCURRENCY" --max-tokens "$TOKENS")
         ;;
     context)
         OPTS+=(--context)

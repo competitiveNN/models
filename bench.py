@@ -80,15 +80,15 @@ async def run_benchmark_session(client, model, num_requests, concurrency, max_to
         "total_wall_time": total_wall_time
     }
 
-async def optimize_concurrency(url, api_key, model, max_tokens):
+async def optimize_concurrency(url, api_key, model, max_tokens, start_concurrency=1):
     client = AsyncOpenAI(api_key=api_key, base_url=url)
     print(f"Optimizing concurrency for {model} at {url}...")
     
     all_results = {} # concurrency -> result
     
     # Phase 1: Exponential Exploration (Powers of 2)
-    curr_c = 1
-    best_c = 1
+    curr_c = start_concurrency
+    best_c = start_concurrency
     while curr_c <= 128:
         # Use enough requests to get stable results
         num_requests = max(curr_c * 2, 4)
@@ -224,7 +224,7 @@ if __name__ == "__main__":
         if args.list:
             list_models(args.url, args.api_key)
         elif args.optimize:
-            asyncio.run(optimize_concurrency(args.url, args.api_key, args.model, args.max_tokens))
+            asyncio.run(optimize_concurrency(args.url, args.api_key, args.model, args.max_tokens, args.concurrency))
         elif args.context:
             asyncio.run(find_max_context(args.url, args.api_key, args.model))
         else:
