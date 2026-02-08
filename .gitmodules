@@ -4,3 +4,6 @@
 [submodule "llama.cpp"]
 	path = llama.cpp
 	url = https://github.com/ggerganov/llama.cpp.git
+[submodule "sglang-setup/sglang"]
+	path = sglang-setup/sglang
+	url = https://github.com/sgl-project/sglang.git

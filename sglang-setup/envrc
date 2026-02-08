@@ -1,0 +1,4 @@
+export Torch_DIR=$(python -c "import torch; print(torch.utils.cmake_prefix_path)")
+#export SYCL_LIBRARY_PATH=$(python -c "import torch; import os; print(os.path.dirname(torch.__file__))")/libsycl.so
+#export LD_LIBRARY_PATH=$(python -c "import torch; import os; print(os.path.dirname(torch.__file__))"):$LD_LIBRARY_PATH
+#export CMAKE_ARGS="-DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx -Wno-dev"
