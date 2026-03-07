@@ -118,6 +118,84 @@ def categorize_gguf_files(gguf_files):
     return model_files, special_files
 
 
+def select_smallest_file(repo_id, files):
+    """Select the smallest file from a list using Hub metadata."""
+    if not files:
+        return []
+    try:
+        api = HfApi()
+        repo_info = api.repo_info(repo_id)
+        sizes = {}
+        for sibling in repo_info.siblings:
+            if sibling.rfilename in files:
+                size = getattr(sibling, "size", None)
+                if isinstance(size, int):
+                    sizes[sibling.rfilename] = size
+
+        if sizes:
+            smallest = min(sizes.items(), key=lambda kv: kv[1])[0]
+            return [smallest]
+    except Exception:
+        pass
+
+    return [sorted(files)[0]]
+
+
+def select_smallest_sharded_group(repo_id, files):
+    if not files:
+        return []
+
+    import re
+
+    shard_re = re.compile(r"^(?P<base>.*?)-\d{5}-of-\d{5}\.gguf$", re.IGNORECASE)
+    groups = {}
+    for f in files:
+        m = shard_re.match(f)
+        base = m.group("base") if m else f
+        groups.setdefault(base, []).append(f)
+
+    if len(groups) == 1:
+        return sorted(next(iter(groups.values())))
+
+    sizes = {}
+    try:
+        api = HfApi()
+        repo_info = api.repo_info(repo_id)
+        for sibling in repo_info.siblings:
+            if sibling.rfilename in files:
+                size = getattr(sibling, "size", None)
+                if isinstance(size, int):
+                    sizes[sibling.rfilename] = size
+    except Exception:
+        sizes = {}
+
+    def group_total(gfiles):
+        total = 0
+        missing = False
+        for gf in gfiles:
+            if gf in sizes:
+                total += sizes[gf]
+            else:
+                missing = True
+        return None if missing else total
+
+    best_base = None
+    best_total = None
+    for base, gfiles in groups.items():
+        total = group_total(gfiles)
+        if total is None:
+            continue
+        if best_total is None or total < best_total:
+            best_total = total
+            best_base = base
+
+    if best_base is not None:
+        return sorted(groups[best_base])
+
+    best_base = sorted(groups.keys())[0]
+    return sorted(groups[best_base])
+
+
 def find_quantized_files(files, quantization):
     """
     Find files that match the quantization pattern.
@@ -263,6 +341,14 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
     
     # Categorize GGUF files into model files and special files (mmproj, etc.)
     model_gguf_files, special_gguf_files = categorize_gguf_files(gguf_files)
+
+    mmproj_files = [f for f in special_gguf_files if 'mmproj' in f.lower()]
+    other_special_files = [f for f in special_gguf_files if f not in mmproj_files]
+    if len(mmproj_files) > 1:
+        selected_mmproj = select_smallest_sharded_group(repo_id, mmproj_files)
+        special_gguf_files = other_special_files + selected_mmproj
+    else:
+        special_gguf_files = other_special_files + mmproj_files
     
     if quantization:
         # Find model files matching the specific quantization
@@ -458,7 +544,7 @@ def main():
         quantization = args.quantization if not args.exclude_quantization else None
         exclude_quantizations = args.exclude_quantization
         if quantization:
-            local_dir = f"{model_name}-{args.quantization}"
+            local_dir = model_name
         else:
             local_dir = model_name
     
