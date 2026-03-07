@@ -16,14 +16,17 @@ ministral3_8b="/models/Ministral-3-8B-Instruct-2512-GGUF/Ministral-3-8B-Instruct
 devstral2_24b="/models/Devstral-Small-2-24B-Instruct-2512-GGUF/Devstral-Small-2-24B-Instruct-2512-UD-Q4_K_XL.gguf"
 mistral32_24b="/models/Mistral-Small-3.2-24B-Instruct-2506-GGUF/Mistral-Small-3.2-24B-Instruct-2506-UD-Q4_K_XL.gguf"
 
+lfm2_24b="/models/LFM2-24B-A2B-GGUF/LFM2-24B-A2B-Q4_K_M.gguf"
+lfm25_1_2b="/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gguf"
+
 hypernova_60b="/models/Hypernova-60B-2602-GGUF/Hypernova-60B-2602-GGUF.gguf" # 8tps
 
-MODEL=$ministral3_8b
+MODEL=$lfm25_1_2b
 
-SPEC_DRAFT_MODEL="$ministral3_3b" # $qwen35_08b
+SPEC_DRAFT_MODEL="" # $qwen35_08b
 SPEC_DRAFT_MAX="${SPEC_DRAFT_MAX:-}"
 SPEC_DRAFT_MIN="${SPEC_DRAFT_MIN:-}"
-SPEC_TYPE="${SPEC_TYPE:-ngram-cache}"
+SPEC_TYPE="${SPEC_TYPE:-}"
 
 usage() {
     echo "Usage: $0 [--intel|--vulkan] [server|--bench] [speculative options] [-- <extra llama.cpp args>]"
@@ -92,9 +95,9 @@ COMMON_ARGS=(
 
 MODEL_ARGS=(
     -m "$MODEL"
-    #--n-gpu-layers 99
-    #--n-cpu-moe 0
-    #--ctx-size 65000
+    --n-gpu-layers 10
+    --n-cpu-moe 0
+    --ctx-size 65000
     --threads 8
     #--n-predict -1
 )
