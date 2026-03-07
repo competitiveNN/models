@@ -196,7 +196,11 @@ class OVMSConfigManager:
                              device: Optional[str] = None,
                              source_model_path: Optional[str] = None,
                              performance_hint: Optional[str] = "CUMULATIVE_THROUGHPUT",
-                             inference_precision_hint: Optional[str] = None) -> bool:
+                             inference_precision_hint: Optional[str] = "f16",
+                             model_distribution_policy: Optional[str] = "PIPELINE_PARALLEL",
+                             execution_mode_hint: Optional[str] = "PERFORMANCE",
+                             scheduling_core_type: Optional[str] = "PCORE_ONLY",
+                             enable_cpu_pinning: Optional[bool] = False) -> bool:
         """Create a unique graph.pbtxt by copying a template and updating configuration."""
         p_template = self._map_path(template_path)
         
@@ -220,6 +224,15 @@ class OVMSConfigManager:
                 quote_char = match.group(1)
                 try:
                     plugin_json = json.loads(match.group(2))
+                    required_plugin_keys = {
+                        "PERFORMANCE_HINT",
+                        "KV_CACHE_PRECISION",
+                        "MODEL_DISTRIBUTION_POLICY",
+                        "EXECUTION_MODE_HINT",
+                        "SCHEDULING_CORE_TYPE",
+                        "INFERENCE_PRECISION_HINT",
+                        "ENABLE_CPU_PINNING",
+                    }
                     
                     # Set KV Cache Precision - default to u8
                     if kv_cache_precision and kv_cache_precision.lower() != "none":
@@ -234,14 +247,33 @@ class OVMSConfigManager:
                     # Set Inference Precision Hint
                     if inference_precision_hint and inference_precision_hint.lower() != "none":
                         plugin_json["INFERENCE_PRECISION_HINT"] = inference_precision_hint
-                    
-                    # Set Model Distribution Policy - default to PIPELINE_PARALLEL
-                    plugin_json["MODEL_DISTRIBUTION_POLICY"] = "PIPELINE_PARALLEL"
+
+                    # Set Model Distribution Policy
+                    if model_distribution_policy and str(model_distribution_policy).lower() != "none":
+                        plugin_json["MODEL_DISTRIBUTION_POLICY"] = str(model_distribution_policy).upper()
+
+                    # Set Execution Mode Hint
+                    if execution_mode_hint and str(execution_mode_hint).lower() != "none":
+                        plugin_json["EXECUTION_MODE_HINT"] = str(execution_mode_hint).upper()
+
+                    # Set Scheduling Core Type
+                    if scheduling_core_type and str(scheduling_core_type).lower() != "none":
+                        plugin_json["SCHEDULING_CORE_TYPE"] = str(scheduling_core_type).upper()
+
+                    # Set CPU pinning
+                    if enable_cpu_pinning is not None:
+                        plugin_json["ENABLE_CPU_PINNING"] = bool(enable_cpu_pinning)
+
+                    for k in required_plugin_keys:
+                        if k not in plugin_json:
+                            print(f"Warning: plugin_config missing required key '{k}' after updates")
                     
                     new_plugin_str = json.dumps(plugin_json)
                     content = content.replace(match.group(0), f"plugin_config: {quote_char}{new_plugin_str}{quote_char}")
                 except json.JSONDecodeError:
                     print("Warning: Could not parse plugin_config as JSON, skipping updates.")
+            else:
+                print("Warning: No plugin_config found in template graph; skipping plugin_config updates.")
 
             # 3. Update cache_size
             # If not provided, default to 0
@@ -308,7 +340,11 @@ class OVMSConfigManager:
                   kv_cache_precision: Optional[str] = "u8",
                   cache_size: Optional[int] = None,
                   performance_hint: Optional[str] = "CUMULATIVE_THROUGHPUT",
-                  inference_precision_hint: Optional[str] = None) -> None:
+                  inference_precision_hint: Optional[str] = "f16",
+                  model_distribution_policy: Optional[str] = "PIPELINE_PARALLEL",
+                  execution_mode_hint: Optional[str] = "PERFORMANCE",
+                  scheduling_core_type: Optional[str] = "PCORE_ONLY",
+                  enable_cpu_pinning: Optional[bool] = False) -> None:
         """Add a model to the configuration."""
         # Resolve real path and determine symlink target
         symlink_target = model_path
@@ -396,7 +432,11 @@ class OVMSConfigManager:
             if not self._create_unique_graph(template_graph_path, unique_graph_path, target_model_dir,
                                              kv_cache_precision, 
                                              cache_size, device, symlink_target,
-                                             performance_hint, inference_precision_hint):
+                                             performance_hint, inference_precision_hint,
+                                             model_distribution_policy,
+                                             execution_mode_hint,
+                                             scheduling_core_type,
+                                             enable_cpu_pinning):
                 print("Failed to create unique graph. Aborting configuration update.")
                 return
 
@@ -713,7 +753,22 @@ def main():
                            default="CUMULATIVE_THROUGHPUT",
                            help="Performance hint (default: CUMULATIVE_THROUGHPUT). Shortcuts: lat=LATENCY, thr=THROUGHPUT, cth=CUMULATIVE_THROUGHPUT")
     add_parser.add_argument("--inference-precision-hint", 
-                           help="Inference precision hint (e.g. f32, f16, bf16). Default: None (not set)")
+                           default="f16",
+                           help="Inference precision hint (e.g. f32, f16, bf16). Default: f16")
+
+    add_parser.add_argument("--model-distribution-policy",
+                           default="PIPELINE_PARALLEL",
+                           help="Model distribution policy. Default: PIPELINE_PARALLEL")
+    add_parser.add_argument("--execution-mode-hint",
+                           default="PERFORMANCE",
+                           help="Execution mode hint. Default: PERFORMANCE")
+    add_parser.add_argument("--scheduling-core-type",
+                           default="PCORE_ONLY",
+                           help="Scheduling core type. Default: PCORE_ONLY")
+    add_parser.add_argument("--enable-cpu-pinning", action="store_true", default=False,
+                           help="Enable CPU pinning (default: disabled)")
+    add_parser.add_argument("--disable-cpu-pinning", action="store_false", dest="enable_cpu_pinning",
+                           help="Disable CPU pinning")
     
     # Remove command
     remove_parser = subparsers.add_parser("remove", help="Remove a model or graph from the configuration")
@@ -755,7 +810,11 @@ def main():
         manager.add_model(args.path, args.name, args.llm, args.device, 
                          args.kv_cache_precision,
                          args.cache_size,
-                         args.performance_hint, args.inference_precision_hint)
+                         args.performance_hint, args.inference_precision_hint,
+                         args.model_distribution_policy,
+                         args.execution_mode_hint,
+                         args.scheduling_core_type,
+                         args.enable_cpu_pinning)
     elif args.command == "remove":
         manager.remove_model(args.name)
     elif args.command == "clear":

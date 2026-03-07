@@ -8,6 +8,7 @@ CONFIG_FILE="$SCRIPT_DIR/ovms_config.json"
 API_KEY=abc
 #TAG=latest-gpu
 TAG=latest-py
+mkdir -p "$SCRIPT_DIR/cache"
 
 docker run \
   --security-opt label=disable \
@@ -21,6 +22,7 @@ docker run \
   --rm \
   -v $MODELS_PATH:/models:rw \
   -v $CONFIG_FILE:/config.json:ro \
+  -v $SCRIPT_DIR/cache:/opt/cache:rw \
   openvino/model_server:$TAG \
   --config_path /config.json \
   --rest_port 8000

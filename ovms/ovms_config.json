@@ -1,16 +1,4 @@
 {
-  "model_config_list": [
-    {
-      "config": {
-        "name": "nemotron-cascade-14b-thinking-int4-asym-se-ov_model",
-        "base_path": "/models/ov/server/nemotron-cascade-14b-thinking-int4-asym-se-ov"
-      }
-    }
-  ],
-  "mediapipe_config_list": [
-    {
-      "name": "nemotron-cascade-14b-thinking-int4-asym-se-ov",
-      "graph_path": "/models/ov/server/nemotron-cascade-14b-thinking-int4-asym-se-ov/graph.pbtxt"
-    }
-  ]
+  "model_config_list": [],
+  "mediapipe_config_list": []
 }

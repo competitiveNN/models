@@ -1,8 +1,8 @@
-#!/bin/bash
-
 MODELS_PATH="$HOME/data/models/gguf"
 #MODEL="/models/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-UD-Q4_K_XL.gguf"
-MODEL="/models/unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf"
+#MODEL="/models/unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf"
+#MODEL="/models/Hypernova-60B-2602-GGUF/Hypernova-60B-2602-GGUF.gguf"
+MODEL="/models/unsloth/Qwen3.5-35B-A3B-GGUF-UD-Q4_K_XL/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf"
 #MODEL="/models/unsloth/Magistral-Small-2509-GGUF-UD-Q4_K_XL/Magistral-Small-2509-UD-Q4_K_XL.gguf"
 #MODEL="/models/unsloth/Magistral-Small-2509-GGUF-UD-Q4_K_XL/Magistral-Small-2509-UD-Q4_K_XL.gguf"
 #MODEL="/models/unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF-UD-Q4_K_XL/Mistral-Small-3.2-24B-Instruct-2506-UD-Q4_K_XL.gguf"
@@ -11,6 +11,7 @@ MODEL="/models/unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-UD-Q4_
 #MODEL="/models/unsloth/Ministral-3-8B-Instruct-2512-GGUF-UD-Q4_K_XL/Ministral-3-8B-Instruct-2512-UD-Q4_K_XL.gguf"
 
 DEVICES="--device /dev/dri/card0 --device /dev/dri/renderD128 --device /dev/dri/card1 --device /dev/dri/renderD129 --device /dev/accel"
+APIKEY=abc
 IMAGE="llama-cpp-intel"
 MODE="bench"
 
@@ -33,8 +34,11 @@ COMMON_ARGS=(
 
 MODEL_ARGS=(
     -m "$MODEL"
-    --n-gpu-layers 99
-    --n-cpu-moe 0
+    #--n-gpu-layers 0
+    #--n-cpu-moe 99
+    --ctx-size 2048
+    --threads 20
+    --n-predict -1
 )
 
 DOCKER_ARGS=("${COMMON_ARGS[@]}")

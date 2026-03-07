@@ -15,6 +15,7 @@ gpt-oss-20b
 qwen3-30b-a3b
 qwen3-vl-8b
 qwen3-vl-4b
+qwen3.5-27b
 
 # gemma3
 gemma3-4b
@@ -29,3 +30,7 @@ phi4-mm
 # deepseek
 deepseek-ocr
 deepseek-ocr-2
+
+# compactify
+hypernova-60b (gpt-oss-120b)
+
