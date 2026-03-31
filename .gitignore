@@ -6,3 +6,7 @@ image.png
 .windsurf
 .windsurf/
 node_modules
+llama.cpp-setup/llama.cpp/*
+vllm-setup/vllm/*
+honcho-setup/honcho/*
+ovms/model_server/*
