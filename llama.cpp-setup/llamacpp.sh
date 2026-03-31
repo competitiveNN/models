@@ -6,6 +6,7 @@ MODE="bench"
 
 qwen35_08b="/models/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-UD-Q4_K_XL.gguf"
 qwen3_4b="/models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf"
+qwen3_8b="/models/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf"
 qwen35_9b="/models/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf"
 qwen35_27b="/models/Qwen3.5-27B-GGUF/Qwen3.5-27B-UD-Q4_K_XL.gguf"
 qwen35_35b="/models/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf" # 8tps
@@ -20,8 +21,10 @@ lfm2_24b="/models/LFM2-24B-A2B-GGUF/LFM2-24B-A2B-Q4_K_M.gguf"
 lfm25_1_2b="/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gguf"
 
 hypernova_60b="/models/Hypernova-60B-2602-GGUF/Hypernova-60B-2602-GGUF.gguf" # 8tps
+phi3_2b="/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf" 
 
-MODEL=$lfm25_1_2b
+
+MODEL=$qwen35_08b
 
 SPEC_DRAFT_MODEL="" # $qwen35_08b
 SPEC_DRAFT_MAX="${SPEC_DRAFT_MAX:-}"
@@ -54,6 +57,7 @@ while [[ "$#" -gt 0 ]]; do
     case $1 in
         --vulkan) IMAGE="llama-cpp-vulkan"; shift ;;
         --intel) IMAGE="llama-cpp-intel"; shift ;;
+        --ov) IMAGE="llama-cpp-openvino"; shift ;;
         server) MODE="server"; shift ;;
         --bench) MODE="bench"; shift ;;
         --draft-model)
@@ -97,7 +101,7 @@ MODEL_ARGS=(
     -m "$MODEL"
     --n-gpu-layers 10
     --n-cpu-moe 0
-    --ctx-size 65000
+    --ctx-size 16384
     --threads 8
     #--n-predict -1
 )

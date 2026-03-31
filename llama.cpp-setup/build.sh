@@ -22,5 +22,6 @@ build_image() {
     fi
 }
 
+#build_image "llama-cpp-openvino" ".devops/openvino.Dockerfile" ""
 build_image "llama-cpp-intel" ".devops/intel.Dockerfile" "--build-arg=GGML_SYCL_F16=ON"
-build_image "llama-cpp-vulkan" ".devops/vulkan.Dockerfile" ""
+#build_image "llama-cpp-vulkan" ".devops/vulkan.Dockerfile" ""

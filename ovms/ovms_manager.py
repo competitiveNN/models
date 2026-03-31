@@ -344,7 +344,10 @@ class OVMSConfigManager:
                   model_distribution_policy: Optional[str] = "PIPELINE_PARALLEL",
                   execution_mode_hint: Optional[str] = "PERFORMANCE",
                   scheduling_core_type: Optional[str] = "PCORE_ONLY",
-                  enable_cpu_pinning: Optional[bool] = False) -> None:
+                  enable_cpu_pinning: Optional[bool] = False,
+                  draft_model_path: Optional[str] = None,
+                  num_assistant_tokens: int = 5,
+                  draft_device: Optional[str] = None) -> None:
         """Add a model to the configuration."""
         # Resolve real path and determine symlink target
         symlink_target = model_path
@@ -371,49 +374,57 @@ class OVMSConfigManager:
             model_name = self._parse_model_name(basename)
             print(f"Generated model name: {model_name}")
 
-        # Setup server directory structure
-        server_root = "/models/ov/server"
-        target_model_dir = os.path.join(server_root, model_name)
-        version_dir = os.path.join(target_model_dir, "1")
-        
-        host_model_dir = self._map_path(target_model_dir)
-        host_version_dir = self._map_path(version_dir)
-        
-        # Create directory and symlink
-        host_model_dir.mkdir(parents=True, exist_ok=True)
-        if host_version_dir.exists() or host_version_dir.is_symlink():
-            if host_version_dir.is_symlink():
-                host_version_dir.unlink()
+        def _create_managed_symlink(source_path: str, t_dir: str) -> str:
+            v_dir = os.path.join(t_dir, "1")
+            
+            h_dir = self._map_path(t_dir)
+            h_v_dir = self._map_path(v_dir)
+            
+            h_dir.mkdir(parents=True, exist_ok=True)
+            if h_v_dir.exists() or h_v_dir.is_symlink():
+                if h_v_dir.is_symlink():
+                    h_v_dir.unlink()
+                else:
+                    shutil.rmtree(h_v_dir)
+                    
+            if source_path.startswith("/models/"):
+                c_abs_src = os.path.normpath(source_path)
             else:
-                shutil.rmtree(host_version_dir)
-        
-        # Calculate relative symlink target mimicking 'ln -sr'
-        # We need to calculate the relative path from target_model_dir to symlink_target
-        # using their absolute representation in the container's view.
-        
-        # 1. Get container-absolute source path
-        if symlink_target.startswith("/models/"):
-            container_abs_src = os.path.normpath(symlink_target)
-        else:
-            host_abs_src = os.path.abspath(symlink_target)
-            host_models_root = str(os.path.abspath(self.host_models_path))
-            if host_abs_src.startswith(host_models_root):
-                container_abs_src = "/models" + host_abs_src[len(host_models_root):]
-            else:
-                container_abs_src = host_abs_src
-        
-        # 2. Get container-absolute link parent path
-        container_abs_parent = os.path.normpath(target_model_dir)
-        
-        # 3. Calculate relative path
-        rel_symlink_target = os.path.relpath(container_abs_src, container_abs_parent)
+                h_abs_src = os.path.abspath(source_path)
+                h_m_root = str(os.path.abspath(self.host_models_path))
+                if h_abs_src.startswith(h_m_root):
+                    c_abs_src = "/models" + h_abs_src[len(h_m_root):]
+                else:
+                    c_abs_src = h_abs_src
+                    
+            c_abs_parent = os.path.normpath(t_dir)
+            rel_target = os.path.relpath(c_abs_src, c_abs_parent)
+            
+            os.symlink(rel_target, h_v_dir)
+            print(f"✓ Created relative symlink {v_dir} -> {rel_target}")
+            return v_dir
 
+        target_model_dir = os.path.join("/models/ov/server", model_name)
         try:
-            os.symlink(rel_symlink_target, host_version_dir)
-            print(f"✓ Created relative symlink {version_dir} -> {rel_symlink_target}")
+            _create_managed_symlink(symlink_target, target_model_dir)
         except Exception as e:
             print(f"Error creating symlink: {e}")
             return
+            
+        managed_draft_path = None
+        if draft_model_path:
+            try:
+                # Also create a managed symlink for the draft model
+                draft_symlink_target = draft_model_path.rstrip('/')
+                # If the user passed a path ending in /1, we link to its parent
+                if draft_symlink_target.endswith("/1"):
+                    draft_symlink_target = os.path.dirname(draft_symlink_target)
+                    
+                draft_target_dir = os.path.join(target_model_dir, "draft")
+                managed_draft_path = _create_managed_symlink(draft_symlink_target, draft_target_dir)
+            except Exception as e:
+                print(f"Error creating draft symlink: {e}")
+                return
         
         # Ensure list keys exist
         if "model_config_list" not in self.config:
@@ -452,6 +463,12 @@ class OVMSConfigManager:
             }
             if device:
                 model_config["config"]["target_device"] = device
+                
+            if managed_draft_path:
+                draft_base_path = os.path.dirname(managed_draft_path)
+                model_config["config"]["draft_model_path"] = draft_base_path
+                model_config["config"]["num_assistant_tokens"] = num_assistant_tokens
+                model_config["config"]["draft_device"] = draft_device or device or "HETERO:GPU.1,GPU.0,CPU,NPU"
 
             # Clean up existing conflicting names
             self.config["model_config_list"] = [
@@ -769,6 +786,9 @@ def main():
                            help="Enable CPU pinning (default: disabled)")
     add_parser.add_argument("--disable-cpu-pinning", action="store_false", dest="enable_cpu_pinning",
                            help="Disable CPU pinning")
+    add_parser.add_argument("--draft-model-path", help="Path to draft model for speculative decoding")
+    add_parser.add_argument("--num-assistant-tokens", type=int, default=5, help="Number of assistant tokens for speculative decoding (default: 5)")
+    add_parser.add_argument("--draft-device", help="Device for draft model (e.g. NPU, CPU, GPU)")
     
     # Remove command
     remove_parser = subparsers.add_parser("remove", help="Remove a model or graph from the configuration")
@@ -814,7 +834,10 @@ def main():
                          args.model_distribution_policy,
                          args.execution_mode_hint,
                          args.scheduling_core_type,
-                         args.enable_cpu_pinning)
+                         args.enable_cpu_pinning,
+                         args.draft_model_path,
+                         args.num_assistant_tokens,
+                         args.draft_device)
     elif args.command == "remove":
         manager.remove_model(args.name)
     elif args.command == "clear":

@@ -7,12 +7,14 @@ MODELS_PATH="${MODELS_PATH:-$HOME/data/models}"
 CONFIG_FILE="$SCRIPT_DIR/ovms_config.json"
 API_KEY=abc
 #TAG=latest-gpu
-TAG=latest-py
+#TAG=latest-py
+#TAG=weekly
+#TAG=2025.4.1-py
+TAG=local
 mkdir -p "$SCRIPT_DIR/cache"
 
 docker run \
   --security-opt label=disable \
-  --user $(id -u):$(id -g) \
   --env API_KEY=$API_KEY \
   --net=host \
   --device /dev/dri \
