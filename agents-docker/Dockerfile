@@ -79,7 +79,7 @@ RUN uv venv /opt/hermes-venv --python 3.11 \
 # ── RTK AI (installed to /opt) ──────────────────────────────────────────────
 ENV RTK_CODE=/opt/rtk
 
-RUN git clone --branch main \
+RUN git clone --branch master \
     https://github.com/rtk-ai/rtk.git ${RTK_CODE}
 
 WORKDIR ${RTK_CODE}
