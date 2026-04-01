@@ -10,3 +10,4 @@ llama.cpp-setup/llama.cpp/*
 vllm-setup/vllm/*
 honcho-setup/honcho/*
 ovms/model_server/*
+!.gitkeep
