@@ -96,6 +96,12 @@ if [[ "$REDIS_PORT" != "6379" ]]; then
 	sed -i "s/- 6379:6379/- ${REDIS_PORT}:6379/" "$COMPOSE_FILE"
 fi
 
+# Add :z label to redis volume for SELinux compatibility
+sed -i 's|- ./redis-data:/data$|- ./redis-data:/data:z|' "$COMPOSE_FILE"
+
+mkdir -p redis-data
+chmod 777 redis-data
+
 log "Starting PostgreSQL (pgvector) and Redis..."
 docker compose up -d database redis
 
@@ -113,13 +119,14 @@ for i in $(seq 1 30); do
 done
 
 log "Waiting for Redis to be ready..."
-for i in $(seq 1 15); do
+for i in $(seq 1 30); do
 	if docker compose exec -T redis redis-cli ping &>/dev/null; then
 		ok "Redis is ready."
 		break
 	fi
-	if [[ "$i" -eq 15 ]]; then
+	if [[ "$i" -eq 30 ]]; then
 		err "Redis did not become ready in time."
+		docker compose logs redis 2>&1 | tail -20 >&2
 		exit 1
 	fi
 	sleep 1

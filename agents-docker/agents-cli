@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── agents-cli: launch the multi-agent Docker container ──────────────────────
+# Runs as root inside the container. In rootless Docker, container UID 0
+# maps to the host user's UID, so bind-mounted files are accessible with
+# correct ownership.
+
+IMAGE_NAME="${IMAGE_NAME:-agents-cli}"
+CONTAINER_NAME="agents-cli-$$"
+
+# ── Colors ───────────────────────────────────────────────────────────────────
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+log()  { echo -e "${CYAN}▸${NC} $*"; }
+
+# ── Help ─────────────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    cat <<'EOF'
+agents-cli — launch the multi-agent CLI container
+
+Usage:
+  agents-cli                       Open interactive shell
+  agents-cli <agent> [args...]     Run a specific agent
+  agents-cli --help                Show this help
+
+Bind-mounted paths (host → container):
+  ~/dev                           → /root/dev
+  ~/.config/github-copilot        → /root/.config/github-copilot
+  ~/.copilot                      → /root/.copilot
+  ~/.gemini                       → /root/.gemini
+  ~/.config/opencode              → /root/.config/opencode
+  ~/.qwen                         → /root/.qwen
+  ~/.config/kilo                  → /root/.config/kilo
+  ~/.hermes                       → /root/.hermes
+  ~/.ssh                          → /root/.ssh          (read-only)
+  ~/.gitconfig                    → /root/.gitconfig    (read-only)
+
+Environment:
+  IMAGE_NAME    Override image (default: agents-cli)
+
+Note: On rootless Docker, container root UID 0 maps to your host user UID,
+      so bind-mounted files retain correct ownership and permissions.
+EOF
+    exit 0
+fi
+
+# ── Preflight ────────────────────────────────────────────────────────────────
+command -v docker &>/dev/null || { echo "docker not found"; exit 1; }
+
+if ! docker image inspect "${IMAGE_NAME}:latest" &>/dev/null; then
+    log "Image ${IMAGE_NAME}:latest not found. Building..."
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    "${SCRIPT_DIR}/build.sh"
+fi
+
+# ── Build mount flags ────────────────────────────────────────────────────────
+MOUNTS=()
+
+mount_if_exists() {
+    local src="$1" dst="$2" mode="${3:-rw}"
+    [[ -e "$src" ]] && MOUNTS+=(-v "${src}:${dst}:${mode}")
+}
+
+# Agent configs
+mount_if_exists "$HOME/.config/github-copilot"  "/root/.config/github-copilot"
+mount_if_exists "$HOME/.copilot"                "/root/.copilot"
+mount_if_exists "$HOME/.gemini"                 "/root/.gemini"
+mount_if_exists "$HOME/.config/opencode"        "/root/.config/opencode"
+mount_if_exists "$HOME/.qwen"                   "/root/.qwen"
+mount_if_exists "$HOME/.config/kilo"            "/root/.config/kilo"
+mount_if_exists "$HOME/.hermes"                 "/root/.hermes"
+
+# Dev workspace
+mount_if_exists "$HOME/dev"                     "/root/dev"
+
+# Current working directory
+mount_if_exists "$(pwd)"                       "/root/cwd"
+
+# Auth (read-only)
+mount_if_exists "$HOME/.ssh"                    "/root/.ssh"            "ro"
+mount_if_exists "$HOME/.gitconfig"              "/root/.gitconfig"      "ro"
+
+# ── Pass through API key env vars ────────────────────────────────────────────
+DOCKER_ENV=()
+pass_env() {
+    local val="${!1:-}"
+    [[ -n "$val" ]] && DOCKER_ENV+=(-e "$1") || true
+}
+
+pass_env OPENAI_API_KEY          || true
+pass_env ANTHROPIC_API_KEY       || true
+pass_env GEMINI_API_KEY          || true
+pass_env GOOGLE_API_KEY          || true
+pass_env GITHUB_TOKEN            || true
+pass_env COPILOT_TOKEN           || true
+pass_env KILO_API_KEY            || true
+pass_env OPENROUTER_API_KEY      || true
+pass_env HERMES_API_KEY          || true
+pass_env XAI_API_KEY             || true
+pass_env MISTRAL_API_KEY         || true
+pass_env DEEPSEEK_API_KEY        || true
+pass_env GROQ_API_KEY            || true
+pass_env TOGETHER_API_KEY        || true
+pass_env FIREWORKS_API_KEY       || true
+pass_env AWS_ACCESS_KEY_ID       || true
+pass_env AWS_SECRET_ACCESS_KEY   || true
+pass_env AWS_REGION              || true
+pass_env AZURE_OPENAI_API_KEY    || true
+pass_env AZURE_OPENAI_ENDPOINT   || true
+
+# ── Launch ───────────────────────────────────────────────────────────────────
+log "Launching ${IMAGE_NAME}:latest"
+
+# Build docker args as a list to handle empty arrays cleanly
+DOCKER_ARGS=(--rm -it --name "${CONTAINER_NAME}" --network host -w /root/cwd)
+DOCKER_ARGS+=(--security-opt label=disable)
+DOCKER_ARGS+=("${MOUNTS[@]}")
+[[ ${#DOCKER_ENV[@]} -gt 0 ]] && DOCKER_ARGS+=("${DOCKER_ENV[@]}")
+DOCKER_ARGS+=("${IMAGE_NAME}:latest")
+DOCKER_ARGS+=("$@")
+
+exec docker run "${DOCKER_ARGS[@]}"

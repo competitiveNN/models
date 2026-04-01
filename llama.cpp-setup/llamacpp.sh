@@ -99,7 +99,7 @@ COMMON_ARGS=(
 
 MODEL_ARGS=(
     -m "$MODEL"
-    --n-gpu-layers 10
+    --n-gpu-layers 9999
     --n-cpu-moe 0
     --ctx-size 16384
     --threads 8
