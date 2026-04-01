@@ -76,17 +76,14 @@ RUN uv venv /opt/hermes-venv --python 3.11 \
     && VIRTUAL_ENV=/opt/hermes-venv uv pip install -e "." \
     && ln -sf /opt/hermes-venv/bin/hermes /usr/local/bin/hermes
 
-# ── RTK AI (installed to /opt) ──────────────────────────────────────────────
-ENV RTK_CODE=/opt/rtk
+# ── RTK AI (CLI tool, installed via install script) ──────────────────────────
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
 
-RUN git clone --branch master \
-    https://github.com/rtk-ai/rtk.git ${RTK_CODE}
-
-WORKDIR ${RTK_CODE}
-
-RUN uv venv /opt/rtk-venv --python 3.11 \
-    && VIRTUAL_ENV=/opt/rtk-venv uv pip install -e "." \
-    && ln -sf /opt/rtk-venv/bin/rtk /usr/local/bin/rtk
+# ── Initialize RTK for all supported agents ──────────────────────────────────
+RUN rtk init -g --auto-patch \
+    && rtk init -g --gemini --auto-patch \
+    && rtk init -g --opencode --auto-patch \
+    && rtk init -g --copilot --auto-patch
 
 # ── Create config directory structure ────────────────────────────────────────
 ENV HERMES_HOME=/root/.hermes
