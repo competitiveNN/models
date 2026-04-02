@@ -10,6 +10,9 @@ ARG OPENCODE_AI_VERSION=latest
 ARG QWEN_CODE_VERSION=latest
 ARG KILO_CLI_VERSION=latest
 ARG HERMES_AGENT_BRANCH=main
+ARG CONTAINER_USER=agent
+ARG CONTAINER_UID=1001
+ARG CONTAINER_GID=1001
 ARG BUILD_DATE
 
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
@@ -23,11 +26,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates jq ripgrep ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# ── uv (fast Python package manager, needed by hermes) ──────────────────────
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && ln -sf /root/.local/bin/uv /usr/local/bin/uv
+# ── Create user before any package installation ─────────────────────────────
+RUN groupadd -g ${CONTAINER_GID} ${CONTAINER_USER} || true \
+    && useradd -m -u ${CONTAINER_UID} -g ${CONTAINER_GID} -G wheel ${CONTAINER_USER} || true
 
-# ── npm agents (installed globally) ─────────────────────────────────────────
+# ── Make /opt writable by container user ─────────────────────────────────────
+RUN chmod 777 /opt
+
+# ── Set home directory env var ─────────────────────────────────────────────
+ENV CONTAINER_HOME=/home/${CONTAINER_USER}
+ENV HOME=${CONTAINER_HOME}
+
+# ── Switch to user for tool installations ──────────────────────────────────────
+USER ${CONTAINER_UID}
+WORKDIR ${CONTAINER_HOME}
+
+# ── Configure npm for user-global installs ─────────────────────────────────────
+ENV NPM_CONFIG_PREFIX=${CONTAINER_HOME}/.npm-global
+ENV NPM_CONFIG_CACHE=${CONTAINER_HOME}/.npm-cache
+RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE}
+
+
+# ── npm agents (installed globally as user) ───────────────────────────────────
 
 # 1. GitHub Copilot CLI
 RUN if [ "$COPILOT_VERSION" = "latest" ]; then \
@@ -64,7 +84,12 @@ RUN if [ "$KILO_CLI_VERSION" = "latest" ]; then \
         npm install -g "@kilocode/cli@${KILO_CLI_VERSION}"; \
     fi
 
-# ── Hermes Agent (Python-based, installed to /opt) ──────────────────────────
+# ── uv (Python package manager, needed by hermes) ────────────────────────────
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+ENV PATH="${CONTAINER_HOME}/.local/bin:${PATH}"
+
+# ── Hermes Agent (Python-based, installed to /opt) ────────────────────────────
 ENV HERMES_CODE=/opt/hermes-agent
 
 RUN git clone --branch ${HERMES_AGENT_BRANCH} \
@@ -74,7 +99,7 @@ WORKDIR ${HERMES_CODE}
 
 RUN uv venv /opt/hermes-venv --python 3.11 \
     && VIRTUAL_ENV=/opt/hermes-venv uv pip install -e "." \
-    && ln -sf /opt/hermes-venv/bin/hermes /usr/local/bin/hermes
+    && ln -sf /opt/hermes-venv/bin/hermes ${CONTAINER_HOME}/.local/bin/hermes
 
 # ── RTK AI (CLI tool, installed via install script) ──────────────────────────
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
@@ -86,15 +111,15 @@ RUN rtk init -g --auto-patch \
     && rtk init -g --copilot --auto-patch
 
 # ── Create config directory structure ────────────────────────────────────────
-ENV HERMES_HOME=/root/.hermes
+ENV HERMES_HOME=${CONTAINER_HOME}/.hermes
 
-RUN mkdir -p /root/.hermes/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session} \
-    && mkdir -p /root/.config \
+RUN mkdir -p ${CONTAINER_HOME}/.hermes/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session} \
+    && mkdir -p ${CONTAINER_HOME}/.config \
     && if [ -f ${HERMES_CODE}/.env.example ]; then \
-        cp ${HERMES_CODE}/.env.example /root/.hermes/.env; \
+        cp ${HERMES_CODE}/.env.example ${CONTAINER_HOME}/.hermes/.env; \
        fi \
     && if [ -f ${HERMES_CODE}/cli-config.yaml.example ]; then \
-        cp ${HERMES_CODE}/cli-config.yaml.example /root/.hermes/config.yaml; \
+        cp ${HERMES_CODE}/cli-config.yaml.example ${CONTAINER_HOME}/.hermes/config.yaml; \
        fi
 
 # ── Verify all agents are installed ─────────────────────────────────────────
@@ -116,16 +141,16 @@ RUN echo "{ \
     \"gemini\":    \"$(gemini --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo 'unknown')\", \
     \"opencode\":  \"$(opencode --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo 'unknown')\", \
     \"qwen\":      \"$(qwen --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo 'unknown')\", \
-    "kilo":      "$(kilo --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo 'unknown')", \
-    "hermes":    "$(hermes --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo 'unknown')", \
-    "rtk":       "$(rtk --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo 'unknown')" \
+    \"kilo\":      \"$(kilo --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo 'unknown')\", \
+    \"hermes\":    \"$(hermes --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo 'unknown')\", \
+    \"rtk\":       \"$(rtk --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo 'unknown')\" \
   } \
-}" > /etc/agents.json
+}"> ${CONTAINER_HOME}/agents.json
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chown=1001:1001 entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-WORKDIR /root
+WORKDIR ${CONTAINER_HOME}
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["bash"]

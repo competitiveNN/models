@@ -2,23 +2,25 @@
 set -euo pipefail
 
 # ── agents-cli: launch the multi-agent Docker container ──────────────────────
-# Runs as root inside the container. In rootless Docker, container UID 0
-# maps to the host user's UID, so bind-mounted files are accessible with
-# correct ownership.
+# Runs as user 1000 inside the container. Agent settings are mounted
+# to mirror the host paths.
 
 IMAGE_NAME="${IMAGE_NAME:-agents-cli}"
 CONTAINER_NAME="agents-cli-$$"
+AGENTS_VOLUME="${AGENTS_VOLUME:-agents-cli-config}"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 NC='\033[0m'
 
+CONTAINER_HOME="${CONTAINER_HOME:-$HOME}"
+
 log()  { echo -e "${CYAN}▸${NC} $*"; }
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    cat <<'EOF'
+    cat <<EOF
 agents-cli — launch the multi-agent CLI container
 
 Usage:
@@ -26,23 +28,19 @@ Usage:
   agents-cli <agent> [args...]     Run a specific agent
   agents-cli --help                Show this help
 
+Volumes:
+  agents-config    → ${CONTAINER_HOME}/.config (agent settings)
+
 Bind-mounted paths (host → container):
-  ~/dev                           → /root/dev
-  ~/.config/github-copilot        → /root/.config/github-copilot
-  ~/.copilot                      → /root/.copilot
-  ~/.gemini                       → /root/.gemini
-  ~/.config/opencode              → /root/.config/opencode
-  ~/.qwen                         → /root/.qwen
-  ~/.config/kilo                  → /root/.config/kilo
-  ~/.hermes                       → /root/.hermes
-  ~/.ssh                          → /root/.ssh          (read-only)
-  ~/.gitconfig                    → /root/.gitconfig    (read-only)
+  ~/dev                           → ${CONTAINER_HOME}/dev
+  ~/.ssh                          → ${CONTAINER_HOME}/.ssh          (read-only)
+  ~/.gitconfig                    → ${CONTAINER_HOME}/.gitconfig    (read-only)
 
 Environment:
-  IMAGE_NAME    Override image (default: agents-cli)
-
-Note: On rootless Docker, container root UID 0 maps to your host user UID,
-      so bind-mounted files retain correct ownership and permissions.
+  IMAGE_NAME         Override image (default: agents-cli)
+  CONTAINER_HOME     Container home dir (default: ${CONTAINER_HOME})
+  AGENTS_VOLUME      Volume name for agent configs (default: agents-cli-config)
+  (also passes through API keys from host)
 EOF
     exit 0
 fi
@@ -64,24 +62,20 @@ mount_if_exists() {
     [[ -e "$src" ]] && MOUNTS+=(-v "${src}:${dst}:${mode}")
 }
 
-# Agent configs
-mount_if_exists "$HOME/.config/github-copilot"  "/root/.config/github-copilot"
-mount_if_exists "$HOME/.copilot"                "/root/.copilot"
-mount_if_exists "$HOME/.gemini"                 "/root/.gemini"
-mount_if_exists "$HOME/.config/opencode"        "/root/.config/opencode"
-mount_if_exists "$HOME/.qwen"                   "/root/.qwen"
-mount_if_exists "$HOME/.config/kilo"            "/root/.config/kilo"
-mount_if_exists "$HOME/.hermes"                 "/root/.hermes"
+CONTAINER_HOME="${CONTAINER_HOME:-$HOME}"
+
+# Agents config volume (dedicated volume for all agent configs)
+MOUNTS+=(-v "${AGENTS_VOLUME}:${CONTAINER_HOME}/.config")
 
 # Dev workspace
-mount_if_exists "$HOME/dev"                     "/root/dev"
+mount_if_exists "$HOME/dev"                     "${CONTAINER_HOME}/dev"
 
 # Current working directory
-mount_if_exists "$(pwd)"                       "/root/cwd"
+mount_if_exists "$(pwd)"                       "${CONTAINER_HOME}/cwd"
 
 # Auth (read-only)
-mount_if_exists "$HOME/.ssh"                    "/root/.ssh"            "ro"
-mount_if_exists "$HOME/.gitconfig"              "/root/.gitconfig"      "ro"
+mount_if_exists "$HOME/.ssh"                    "${CONTAINER_HOME}/.ssh"            "ro"
+mount_if_exists "$HOME/.gitconfig"              "${CONTAINER_HOME}/.gitconfig"      "ro"
 
 # ── Pass through API key env vars ────────────────────────────────────────────
 DOCKER_ENV=()
@@ -115,7 +109,7 @@ pass_env AZURE_OPENAI_ENDPOINT   || true
 log "Launching ${IMAGE_NAME}:latest"
 
 # Build docker args as a list to handle empty arrays cleanly
-DOCKER_ARGS=(--rm -it --name "${CONTAINER_NAME}" --network host -w /root/cwd)
+DOCKER_ARGS=(--rm -it --name "${CONTAINER_NAME}" --network host -w "${CONTAINER_HOME}/cwd")
 DOCKER_ARGS+=(--security-opt label=disable)
 DOCKER_ARGS+=("${MOUNTS[@]}")
 [[ ${#DOCKER_ENV[@]} -gt 0 ]] && DOCKER_ARGS+=("${DOCKER_ENV[@]}")

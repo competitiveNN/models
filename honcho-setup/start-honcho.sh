@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HONCHO_DIR="${HONCHO_DIR:-$HOME/honcho}"
+HONCHO_DIR="${HONCHO_DIR:-$HOME/dev/models/honcho-setup/honcho}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 REDIS_PORT="${REDIS_PORT:-6379}"
 API_PORT="${API_PORT:-8000}"

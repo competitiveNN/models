@@ -13,6 +13,7 @@ if [ -t 0 ] && [ "$1" = "bash" ]; then
 	echo "  │  qwen       - Qwen Code                         │"
 	echo "  │  kilo       - Kilo CLI                           │"
 	echo "  │  hermes     - Hermes Agent                       │"
+	echo "  │  rtk        - RTK Token Optimizer               │"
 	echo "  ├─────────────────────────────────────────────────┤"
 	echo "  │  cat /etc/agents.json  — installed versions      │"
 	echo "  └─────────────────────────────────────────────────┘"

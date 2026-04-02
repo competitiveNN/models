@@ -113,13 +113,21 @@ else
 	QWEN_CODE_VERSION=latest
 	KILO_CLI_VERSION=latest
 	HERMES_AGENT_BRANCH=main
+	CONTAINER_USER=agent
+	CONTAINER_UID=1001
+	CONTAINER_GID=1001
 fi
+
+# Set defaults if not already set
+CONTAINER_USER="${CONTAINER_USER:-agent}"
+CONTAINER_UID="${CONTAINER_UID:-1001}"
+CONTAINER_GID="${CONTAINER_GID:-1001}"
 
 # ── Generate tags ────────────────────────────────────────────────────────────
 TIMESTAMP_TAG="$(date -u +%Y%m%d-%H%M%S)"
 DATE_TAG="$(date -u +%Y%m%d)"
 
-# ── Build args ───────────────────────────────────────────────────────────────
+# ── Build args ────────────────────────────────────────────────────────────────
 BUILD_ARGS=(
 	--build-arg "COPILOT_VERSION=${COPILOT_VERSION:-latest}"
 	--build-arg "GEMINI_CLI_VERSION=${GEMINI_CLI_VERSION:-latest}"
@@ -127,6 +135,9 @@ BUILD_ARGS=(
 	--build-arg "QWEN_CODE_VERSION=${QWEN_CODE_VERSION:-latest}"
 	--build-arg "KILO_CLI_VERSION=${KILO_CLI_VERSION:-latest}"
 	--build-arg "HERMES_AGENT_BRANCH=${HERMES_AGENT_BRANCH:-main}"
+	--build-arg "CONTAINER_USER=${CONTAINER_USER}"
+	--build-arg "CONTAINER_UID=${CONTAINER_UID}"
+	--build-arg "CONTAINER_GID=${CONTAINER_GID}"
 	--build-arg "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 )
 
