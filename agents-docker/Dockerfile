@@ -19,6 +19,8 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}"
 
 # ── System dependencies ─────────────────────────────────────────────────────
 ENV DEBIAN_FRONTEND=noninteractive
+ENV TERM=xterm-256color
+ENV COLORTERM=truecolor
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip python3-dev \
@@ -27,8 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Create user before any package installation ─────────────────────────────
-RUN groupadd -g ${CONTAINER_GID} ${CONTAINER_USER} || true \
-    && useradd -m -u ${CONTAINER_UID} -g ${CONTAINER_GID} -G wheel ${CONTAINER_USER} || true
+RUN groupadd -g ${CONTAINER_GID} ${CONTAINER_USER} 2>/dev/null || true \
+    && useradd -m -u ${CONTAINER_UID} -g ${CONTAINER_GID} -d /home/${CONTAINER_USER} -s /bin/bash ${CONTAINER_USER}
 
 # ── Make /opt writable by container user ─────────────────────────────────────
 RUN chmod 777 /opt
@@ -44,6 +46,7 @@ WORKDIR ${CONTAINER_HOME}
 # ── Configure npm for user-global installs ─────────────────────────────────────
 ENV NPM_CONFIG_PREFIX=${CONTAINER_HOME}/.npm-global
 ENV NPM_CONFIG_CACHE=${CONTAINER_HOME}/.npm-cache
+ENV PATH="${CONTAINER_HOME}/.npm-global/bin:${CONTAINER_HOME}/.local/bin:${PATH}"
 RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE}
 
 
@@ -105,7 +108,8 @@ RUN uv venv /opt/hermes-venv --python 3.11 \
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
 
 # ── Initialize RTK for all supported agents ──────────────────────────────────
-RUN rtk init -g --auto-patch \
+RUN mkdir -p ${CONTAINER_HOME}/.gemini ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config/opencode \
+    && rtk init -g --auto-patch \
     && rtk init -g --gemini --auto-patch \
     && rtk init -g --opencode --auto-patch \
     && rtk init -g --copilot --auto-patch

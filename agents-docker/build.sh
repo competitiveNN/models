@@ -205,6 +205,12 @@ if $DRY_RUN; then
 fi
 
 log "Building image..."
+
+# Stop and remove any existing containers using this image
+log "Cleaning up existing containers..."
+docker ps -a --filter "ancestor=${IMAGE_NAME}:latest" --format '{{.ID}}' |
+	xargs -r docker rm -f 2>/dev/null || true
+
 "${DOCKER_CMD[@]}"
 
 ok "Image built: ${IMAGE_NAME}:${TIMESTAMP_TAG}"

@@ -14,7 +14,7 @@ CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-CONTAINER_HOME="${CONTAINER_HOME:-$HOME}"
+CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
 
 log()  { echo -e "${CYAN}▸${NC} $*"; }
 
@@ -29,7 +29,12 @@ Usage:
   agents-cli --help                Show this help
 
 Volumes:
-  agents-config    → ${CONTAINER_HOME}/.config (agent settings)
+  agents-cli-config        → ${CONTAINER_HOME}/.config
+  agents-cli-config-gemini → ${CONTAINER_HOME}/.gemini
+  agents-cli-config-copilot→ ${CONTAINER_HOME}/.copilot
+  agents-cli-config-qwen   → ${CONTAINER_HOME}/.qwen
+  agents-cli-config-hermes → ${CONTAINER_HOME}/.hermes
+  agents-cli-config-local  → ${CONTAINER_HOME}/.local
 
 Bind-mounted paths (host → container):
   ~/dev                           → ${CONTAINER_HOME}/dev
@@ -54,6 +59,18 @@ if ! docker image inspect "${IMAGE_NAME}:latest" &>/dev/null; then
     "${SCRIPT_DIR}/build.sh"
 fi
 
+# ── Initialize volumes with correct ownership ────────────────────────────────
+CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
+VOLUMES=("${AGENTS_VOLUME}" "${AGENTS_VOLUME}-gemini" "${AGENTS_VOLUME}-copilot" "${AGENTS_VOLUME}-qwen" "${AGENTS_VOLUME}-hermes" "${AGENTS_VOLUME}-local")
+
+for vol in "${VOLUMES[@]}"; do
+    if ! docker volume inspect "$vol" &>/dev/null; then
+        docker volume create "$vol" >/dev/null
+        # Set correct ownership
+        docker run --rm -v "$vol:/data" alpine chown -R 1001:1001 /data 2>/dev/null || true
+    fi
+done
+
 # ── Build mount flags ────────────────────────────────────────────────────────
 MOUNTS=()
 
@@ -62,16 +79,23 @@ mount_if_exists() {
     [[ -e "$src" ]] && MOUNTS+=(-v "${src}:${dst}:${mode}")
 }
 
-CONTAINER_HOME="${CONTAINER_HOME:-$HOME}"
+CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
 
 # Agents config volume (dedicated volume for all agent configs)
 MOUNTS+=(-v "${AGENTS_VOLUME}:${CONTAINER_HOME}/.config")
+
+# Agent-specific config directories
+MOUNTS+=(-v "${AGENTS_VOLUME}-gemini:${CONTAINER_HOME}/.gemini")
+MOUNTS+=(-v "${AGENTS_VOLUME}-copilot:${CONTAINER_HOME}/.copilot")
+MOUNTS+=(-v "${AGENTS_VOLUME}-qwen:${CONTAINER_HOME}/.qwen")
+MOUNTS+=(-v "${AGENTS_VOLUME}-hermes:${CONTAINER_HOME}/.hermes")
+MOUNTS+=(-v "${AGENTS_VOLUME}-local:${CONTAINER_HOME}/.local")
 
 # Dev workspace
 mount_if_exists "$HOME/dev"                     "${CONTAINER_HOME}/dev"
 
 # Current working directory
-mount_if_exists "$(pwd)"                       "${CONTAINER_HOME}/cwd"
+mount_if_exists "$(pwd)"                       "/project"
 
 # Auth (read-only)
 mount_if_exists "$HOME/.ssh"                    "${CONTAINER_HOME}/.ssh"            "ro"
@@ -109,7 +133,7 @@ pass_env AZURE_OPENAI_ENDPOINT   || true
 log "Launching ${IMAGE_NAME}:latest"
 
 # Build docker args as a list to handle empty arrays cleanly
-DOCKER_ARGS=(--rm -it --name "${CONTAINER_NAME}" --network host -w "${CONTAINER_HOME}/cwd")
+DOCKER_ARGS=(--rm -it --init --name "${CONTAINER_NAME}" --network host -w /project)
 DOCKER_ARGS+=(--security-opt label=disable)
 DOCKER_ARGS+=("${MOUNTS[@]}")
 [[ ${#DOCKER_ENV[@]} -gt 0 ]] && DOCKER_ARGS+=("${DOCKER_ENV[@]}")
