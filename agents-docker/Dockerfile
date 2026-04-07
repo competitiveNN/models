@@ -9,7 +9,6 @@ ENV TERM=xterm-256color
 ENV COLORTERM=truecolor
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-venv python3-pip python3-dev \
     build-essential libffi-dev \
     git curl ca-certificates jq ripgrep ffmpeg \
     && rm -rf /var/lib/apt/lists/*
@@ -38,12 +37,15 @@ ENV NPM_CONFIG_PREFIX=${CONTAINER_HOME}/.npm-global
 ENV NPM_CONFIG_CACHE=${CONTAINER_HOME}/.npm-cache
 ENV NPM_PREFIX=${CONTAINER_HOME}/.npm-global
 ENV PATH="${CONTAINER_HOME}/.npm-global/bin:${CONTAINER_HOME}/.local/bin:${PATH}"
-RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} \
-    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.npm-global ${CONTAINER_HOME}/.npm-cache
+RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/bin \
+    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.npm-global ${CONTAINER_HOME}/.npm-cache ${CONTAINER_HOME}/.local
 
 # ── uv (Python package manager) ──────────────────────────────────────────────
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="${CONTAINER_HOME}/.local/bin:${PATH}"
+
+# Install Python 3.11 via uv
+RUN uv python install 3.11
 
 # ── RTK (installed at base level, used by setup-agent.sh) ────────────────────
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
@@ -56,12 +58,15 @@ RUN chmod +x /usr/local/bin/setup-agent.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# ── Volumes for persistence ─────────────────────────────────────────────────
+VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local", "/home/agent/.cache"]
+
 # ── Config directory skeleton ────────────────────────────────────────────────
 ENV HERMES_HOME=${CONTAINER_HOME}/.hermes
 
 RUN mkdir -p ${CONTAINER_HOME}/.hermes/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session} \
-    && mkdir -p ${CONTAINER_HOME}/.gemini ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config/opencode ${CONTAINER_HOME}/.qwen \
-    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.gemini ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.qwen
+    && mkdir -p ${CONTAINER_HOME}/.gemini ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config/opencode ${CONTAINER_HOME}/.qwen ${CONTAINER_HOME}/.cache \
+    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.gemini ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.qwen ${CONTAINER_HOME}/.cache
 
 USER ${CONTAINER_UID}
 WORKDIR /project

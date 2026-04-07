@@ -26,6 +26,7 @@ agents-cli — launch the multi-agent CLI container
 Usage:
   agents-cli                       Open interactive shell
   agents-cli <agent> [args...]     Run a specific agent
+  agents-cli --cleanup             Remove all agent volumes (WARNING: destroys data)
   agents-cli --help                Show this help
 
 Volumes:
@@ -35,6 +36,9 @@ Volumes:
   agents-cli-config-qwen   → ${CONTAINER_HOME}/.qwen
   agents-cli-config-hermes → ${CONTAINER_HOME}/.hermes
   agents-cli-config-local  → ${CONTAINER_HOME}/.local
+  agents-cli-config-npm-global → ${CONTAINER_HOME}/.npm-global
+  agents-cli-config-npm-cache  → ${CONTAINER_HOME}/.npm-cache
+  agents-cli-config-cache      → ${CONTAINER_HOME}/.cache
 
 Bind-mounted paths (host → container):
   ~/dev                           → ${CONTAINER_HOME}/dev
@@ -50,6 +54,12 @@ EOF
     exit 0
 fi
 
+# ── Cleanup ──────────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "--cleanup" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    exec "${SCRIPT_DIR}/cleanup-volumes.sh" "$@"
+fi
+
 # ── Preflight ────────────────────────────────────────────────────────────────
 command -v docker &>/dev/null || { echo "docker not found"; exit 1; }
 
@@ -61,7 +71,7 @@ fi
 
 # ── Initialize volumes with correct ownership ────────────────────────────────
 CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
-VOLUMES=("${AGENTS_VOLUME}" "${AGENTS_VOLUME}-gemini" "${AGENTS_VOLUME}-copilot" "${AGENTS_VOLUME}-qwen" "${AGENTS_VOLUME}-hermes" "${AGENTS_VOLUME}-local")
+VOLUMES=("${AGENTS_VOLUME}" "${AGENTS_VOLUME}-gemini" "${AGENTS_VOLUME}-copilot" "${AGENTS_VOLUME}-qwen" "${AGENTS_VOLUME}-hermes" "${AGENTS_VOLUME}-local" "${AGENTS_VOLUME}-npm-global" "${AGENTS_VOLUME}-npm-cache" "${AGENTS_VOLUME}-cache")
 
 for vol in "${VOLUMES[@]}"; do
     if ! docker volume inspect "$vol" &>/dev/null; then
@@ -90,6 +100,9 @@ MOUNTS+=(-v "${AGENTS_VOLUME}-copilot:${CONTAINER_HOME}/.copilot")
 MOUNTS+=(-v "${AGENTS_VOLUME}-qwen:${CONTAINER_HOME}/.qwen")
 MOUNTS+=(-v "${AGENTS_VOLUME}-hermes:${CONTAINER_HOME}/.hermes")
 MOUNTS+=(-v "${AGENTS_VOLUME}-local:${CONTAINER_HOME}/.local")
+MOUNTS+=(-v "${AGENTS_VOLUME}-npm-global:${CONTAINER_HOME}/.npm-global")
+MOUNTS+=(-v "${AGENTS_VOLUME}-npm-cache:${CONTAINER_HOME}/.npm-cache")
+MOUNTS+=(-v "${AGENTS_VOLUME}-cache:${CONTAINER_HOME}/.cache")
 
 # Dev workspace
 mount_if_exists "$HOME/dev"                     "${CONTAINER_HOME}/dev"
