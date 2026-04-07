@@ -133,7 +133,7 @@ pass_env AZURE_OPENAI_ENDPOINT   || true
 log "Launching ${IMAGE_NAME}:latest"
 
 # Build docker args as a list to handle empty arrays cleanly
-DOCKER_ARGS=(--rm -it --init --name "${CONTAINER_NAME}" --network host -w /project)
+DOCKER_ARGS=(--rm -it --init --name "${CONTAINER_NAME}" --network host --userns=keep-id -w /project)
 DOCKER_ARGS+=(--security-opt label=disable)
 DOCKER_ARGS+=("${MOUNTS[@]}")
 [[ ${#DOCKER_ENV[@]} -gt 0 ]] && DOCKER_ARGS+=("${DOCKER_ENV[@]}")

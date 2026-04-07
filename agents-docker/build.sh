@@ -33,8 +33,6 @@ Options:
   -n, --name NAME       Image name (default: agents-cli)
   -t, --tag TAG         Extra tag to apply (default: none)
   -f, --force           Build with --no-cache (full rebuild)
-  -u, --update AGENT    Force-rebuild a single agent layer
-                         (copilot | gemini | opencode | qwen | kilo | hermes)
       --push            Push the image after building
       --dry-run         Print the build command without running it
       --no-cleanup      Keep old images after building (default: delete old)
@@ -46,9 +44,11 @@ Environment variables:
 Examples:
   $(basename "$0")                          # Build with cache
   $(basename "$0") -f                       # Full rebuild, no cache
-  $(basename "$0") -u gemini                # Rebuild only the gemini layer
-  $(basename "$0") -t v2 -u kilo -u hermes  # Tag as v2, rebuild kilo+hermes
+  $(basename "$0") -t v2                    # Tag as v2
   $(basename "$0") --push                   # Build and push to registry
+
+Note: Agents are no longer baked into the image. After starting a container,
+run setup-agent.sh inside to install agents into the shared volume.
 EOF
 	exit 0
 }
@@ -59,7 +59,6 @@ DRY_RUN=false
 PUSH=false
 CLEANUP=true
 EXTRA_TAG=""
-BUILD_AGENTS=()
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -74,10 +73,6 @@ while [[ $# -gt 0 ]]; do
 	-f | --force)
 		FORCE=true
 		shift
-		;;
-	-u | --update)
-		BUILD_AGENTS+=("$2")
-		shift 2
 		;;
 	--push)
 		PUSH=true
@@ -100,28 +95,22 @@ done
 command -v docker &>/dev/null || die "docker not found in PATH"
 [[ -f "$DOCKERFILE" ]] || die "Dockerfile not found at $DOCKERFILE"
 
-# ── Load versions ────────────────────────────────────────────────────────────
+# ── Load versions (for reference only — agents are installed at runtime) ─────
 if [[ -f "$VERSIONS_FILE" ]]; then
-	log "Loading versions from $VERSIONS_FILE"
+	log "Loading versions from $VERSIONS_FILE (for reference only)"
 	# shellcheck source=/dev/null
 	source "$VERSIONS_FILE"
 else
-	warn "No versions.env found — using 'latest' for all agents"
-	COPILOT_VERSION=latest
-	GEMINI_CLI_VERSION=latest
-	OPENCODE_AI_VERSION=latest
-	QWEN_CODE_VERSION=latest
-	KILO_CLI_VERSION=latest
-	HERMES_AGENT_BRANCH=main
+	warn "No versions.env found"
 	CONTAINER_USER=agent
-	CONTAINER_UID=1001
-	CONTAINER_GID=1001
+	CONTAINER_UID=$(id -u)
+	CONTAINER_GID=$(id -g)
 fi
 
 # Set defaults if not already set
 CONTAINER_USER="${CONTAINER_USER:-agent}"
-CONTAINER_UID="${CONTAINER_UID:-1001}"
-CONTAINER_GID="${CONTAINER_GID:-1001}"
+CONTAINER_UID="${CONTAINER_UID:-$(id -u)}"
+CONTAINER_GID="${CONTAINER_GID:-$(id -g)}"
 
 # ── Generate tags ────────────────────────────────────────────────────────────
 TIMESTAMP_TAG="$(date -u +%Y%m%d-%H%M%S)"
@@ -129,38 +118,11 @@ DATE_TAG="$(date -u +%Y%m%d)"
 
 # ── Build args ────────────────────────────────────────────────────────────────
 BUILD_ARGS=(
-	--build-arg "COPILOT_VERSION=${COPILOT_VERSION:-latest}"
-	--build-arg "GEMINI_CLI_VERSION=${GEMINI_CLI_VERSION:-latest}"
-	--build-arg "OPENCODE_AI_VERSION=${OPENCODE_AI_VERSION:-latest}"
-	--build-arg "QWEN_CODE_VERSION=${QWEN_CODE_VERSION:-latest}"
-	--build-arg "KILO_CLI_VERSION=${KILO_CLI_VERSION:-latest}"
-	--build-arg "HERMES_AGENT_BRANCH=${HERMES_AGENT_BRANCH:-main}"
 	--build-arg "CONTAINER_USER=${CONTAINER_USER}"
 	--build-arg "CONTAINER_UID=${CONTAINER_UID}"
 	--build-arg "CONTAINER_GID=${CONTAINER_GID}"
 	--build-arg "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 )
-
-# ── Cache busting for targeted agent updates ─────────────────────────────────
-# Docker caches layers by their instruction. To force-rebuild from a specific
-# layer onward we inject a unique bust arg that changes the FROM or first
-# agent layer. This is a pragmatic approach — for full control use --force.
-if [[ ${#BUILD_AGENTS[@]} -gt 0 ]]; then
-	log "Forcing rebuild of: ${BUILD_AGENTS[*]}"
-	BUST_KEY="$(
-		IFS=,
-		echo "${BUILD_AGENTS[*]}"
-	)-$(date +%s)"
-	BUILD_ARGS+=(--build-arg "CACHE_BUST=${BUST_KEY}")
-	# Insert a CACHE_BUST ARG in the Dockerfile context — we pass it as
-	# a build-arg. The Dockerfile doesn't USE it, but any layer after the
-	# first changed build-arg won't match cache. To target specific agents
-	# we rebuild from scratch for those agents. In practice, use --force
-	# for a clean rebuild or rely on the fact that changing a build-arg
-	# invalidates all subsequent layers.
-	FORCE=true
-	warn "Targeted update forces --no-cache for layers after the changed agent."
-fi
 
 if $FORCE; then
 	BUILD_ARGS+=(--no-cache)
@@ -179,12 +141,8 @@ echo -e "${CYAN}│${NC}  Force:    ${FORCE}"
 echo -e "${CYAN}│${NC}  Push:     ${PUSH}"
 echo -e "${CYAN}│${NC}  Cleanup:  ${CLEANUP}"
 echo -e "${CYAN}├──────────────────────────────────────────────────┤${NC}"
-echo -e "${CYAN}│${NC}  copilot   = ${COPILOT_VERSION:-latest}"
-echo -e "${CYAN}│${NC}  gemini    = ${GEMINI_CLI_VERSION:-latest}"
-echo -e "${CYAN}│${NC}  opencode  = ${OPENCODE_AI_VERSION:-latest}"
-echo -e "${CYAN}│${NC}  qwen      = ${QWEN_CODE_VERSION:-latest}"
-echo -e "${CYAN}│${NC}  kilo      = ${KILO_CLI_VERSION:-latest}"
-echo -e "${CYAN}│${NC}  hermes    = ${HERMES_AGENT_BRANCH:-main} (branch)"
+echo -e "${CYAN}│${NC}  Agents are NOT pre-installed."
+echo -e "${CYAN}│${NC}  Run setup-agent.sh inside the container to install."
 echo -e "${CYAN}└──────────────────────────────────────────────────┘${NC}"
 echo ""
 
@@ -233,15 +191,21 @@ fi
 # ── Cleanup old images ───────────────────────────────────────────────────────
 if $CLEANUP; then
 	log "Cleaning up old images..."
-	docker images --format '{{.Repository}}:{{.Tag}}' "${IMAGE_NAME}" |
-		grep -v ":latest" |
-		grep -v ":${TIMESTAMP_TAG}" |
-		grep -v ":${EXTRA_TAG}" |
-		xargs -r docker rmi || true
+	docker images --filter "reference=${IMAGE_NAME}" --format '{{.ID}} {{.Repository}}:{{.Tag}}' |
+		grep -v ":latest$" |
+		grep -v ":${TIMESTAMP_TAG}$" |
+		grep -v ":${EXTRA_TAG}$" |
+		awk '{print $1}' |
+		sort -u |
+		xargs -r docker rmi -f 2>/dev/null || true
 	ok "Cleanup complete"
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
-ok "Done. Run with:  docker run -it ${IMAGE_NAME}:latest"
+ok "Done. Run with persistent volumes:"
+echo "  docker run -it -v \$(pwd)/agents-data:/home/agent ${IMAGE_NAME}:latest"
+echo ""
+ok "Then run setup-agent.sh inside the container to install agents."
+echo "Agents and their data will persist in the agents-data volume."
 echo ""
