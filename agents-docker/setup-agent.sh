@@ -50,6 +50,12 @@ PERSISTENT_SHARE="${CONTAINER_HOME}/.local/share"
 # ── Ensure directories exist ─────────────────────────────────────────────────
 mkdir -p "${NPM_BIN}" "${LOCAL_BIN}" "${PERSISTENT_NPM}" "${PERSISTENT_NODE_CACHE}" "${PERSISTENT_LOCAL}/bin" "${PERSISTENT_CACHE}" "${PERSISTENT_SHARE}"
 
+# ── Create symlinks for installed agents ──────────────────────────────────────
+# Recreate symlinks on every run in case volumes were mounted
+if [[ -d "${PERSISTENT_SHARE}/soulforge" ]]; then
+	ln -sf "${PERSISTENT_SHARE}/soulforge" "${CONTAINER_HOME}/.soulforge" 2>/dev/null || true
+fi
+
 # ── Agent installers ─────────────────────────────────────────────────────────
 
 install_copilot() {
@@ -163,9 +169,8 @@ install_soulforge() {
 	local version="${1:-latest}"
 	log "Installing SoulForge Agent (${version})..."
 
-	# Link soulforge data to persistent volume
+	# Create soulforge directories in persistent volume
 	mkdir -p "${PERSISTENT_SHARE}/soulforge" "${PERSISTENT_CACHE}/soulforge"
-	ln -sf "${PERSISTENT_SHARE}/soulforge" "${CONTAINER_HOME}/.soulforge" 2>/dev/null || true
 
 	# Create temp directory for download
 	local TMP_DIR
