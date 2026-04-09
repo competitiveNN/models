@@ -27,4 +27,14 @@ if [ -t 0 ] && [ "$1" = "bash" ]; then
 	echo ""
 fi
 
+# ── Recreate symlinks for installed agents ───────────────────────────────────
+# This ensures symlinks persist across container restarts
+
+CONTAINER_HOME="${HOME:-/home/agent}"
+
+# Recreate SoulForge symlink if installed
+if [[ -d "${CONTAINER_HOME}/.local/share/soulforge" ]]; then
+    ln -sf "${CONTAINER_HOME}/.local/share/soulforge" "${CONTAINER_HOME}/.soulforge" 2>/dev/null || true
+fi
+
 exec "$@"
