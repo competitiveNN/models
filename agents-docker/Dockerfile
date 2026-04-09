@@ -10,7 +10,7 @@ ENV COLORTERM=truecolor
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev \
-    git curl ca-certificates jq ripgrep ffmpeg sudo \
+    git curl ca-certificates jq ripgrep ffmpeg sudo direnv \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Create user ──────────────────────────────────────────────────────────────

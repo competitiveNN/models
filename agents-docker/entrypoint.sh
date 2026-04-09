@@ -37,4 +37,13 @@ if [[ -d "${CONTAINER_HOME}/.local/share/soulforge" ]]; then
     ln -sf "${CONTAINER_HOME}/.local/share/soulforge" "${CONTAINER_HOME}/.soulforge" 2>/dev/null || true
 fi
 
+# ── Setup direnv for bash sessions ───────────────────────────────────────────
+# Enable direnv hook for automatic environment loading
+if command -v direnv &>/dev/null && [[ -f "${CONTAINER_HOME}/.bashrc" ]]; then
+    # Check if direnv hook is already in .bashrc
+    if ! grep -q 'direnv hook bash' "${CONTAINER_HOME}/.bashrc" 2>/dev/null; then
+        echo 'eval "$(direnv hook bash)"' >> "${CONTAINER_HOME}/.bashrc"
+    fi
+fi
+
 exec "$@"
