@@ -27,7 +27,6 @@ if [[ "${1:-}" != "--confirm" ]]; then
     echo ""
     echo "This script will remove the following Docker volumes:"
     echo "  - ${AGENTS_VOLUME} (agent configs)"
-    echo "  - ${AGENTS_VOLUME}-gemini (Gemini configs)"
     echo "  - ${AGENTS_VOLUME}-copilot (Copilot configs)"
     echo "  - ${AGENTS_VOLUME}-qwen (Qwen configs)"
     echo "  - ${AGENTS_VOLUME}-hermes (Hermes configs)"
@@ -50,7 +49,6 @@ docker ps -a -q --filter "ancestor=agents-cli:latest" | xargs -r docker rm || tr
 # ── Remove volumes ───────────────────────────────────────────────────────────
 VOLUMES=(
     "${AGENTS_VOLUME}"
-    "${AGENTS_VOLUME}-gemini"
     "${AGENTS_VOLUME}-copilot"
     "${AGENTS_VOLUME}-qwen"
     "${AGENTS_VOLUME}-hermes"

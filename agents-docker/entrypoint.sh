@@ -16,7 +16,6 @@ if [ -t 0 ] && [ "$1" = "bash" ]; then
   echo "  │                                                  │"
   echo "  │    setup-agent.sh all          — all agents      │"
   echo "  │    setup-agent.sh copilot      — Copilot CLI     │"
-  echo "  │    setup-agent.sh gemini       — Gemini CLI      │"
   echo "  │    setup-agent.sh opencode     — OpenCode AI     │"
   echo "  │    setup-agent.sh qwen         — Qwen Code       │"
   echo "  │    setup-agent.sh kilo         — Kilo CLI        │"

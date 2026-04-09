@@ -31,7 +31,6 @@ Usage:
 
 Volumes:
   agents-cli-config        → ${CONTAINER_HOME}/.config
-  agents-cli-config-gemini → ${CONTAINER_HOME}/.gemini
   agents-cli-config-copilot→ ${CONTAINER_HOME}/.copilot
   agents-cli-config-qwen   → ${CONTAINER_HOME}/.qwen
   agents-cli-config-hermes → ${CONTAINER_HOME}/.hermes
@@ -71,7 +70,7 @@ fi
 
 # ── Initialize volumes with correct ownership ────────────────────────────────
 CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
-VOLUMES=("${AGENTS_VOLUME}" "${AGENTS_VOLUME}-gemini" "${AGENTS_VOLUME}-copilot" "${AGENTS_VOLUME}-qwen" "${AGENTS_VOLUME}-hermes" "${AGENTS_VOLUME}-local" "${AGENTS_VOLUME}-npm-global" "${AGENTS_VOLUME}-npm-cache" "${AGENTS_VOLUME}-cache")
+VOLUMES=("${AGENTS_VOLUME}" "${AGENTS_VOLUME}-copilot" "${AGENTS_VOLUME}-qwen" "${AGENTS_VOLUME}-hermes" "${AGENTS_VOLUME}-local" "${AGENTS_VOLUME}-npm-global" "${AGENTS_VOLUME}-npm-cache" "${AGENTS_VOLUME}-cache")
 
 for vol in "${VOLUMES[@]}"; do
     if ! docker volume inspect "$vol" &>/dev/null; then
@@ -95,7 +94,6 @@ CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
 MOUNTS+=(-v "${AGENTS_VOLUME}:${CONTAINER_HOME}/.config")
 
 # Agent-specific config directories
-MOUNTS+=(-v "${AGENTS_VOLUME}-gemini:${CONTAINER_HOME}/.gemini")
 MOUNTS+=(-v "${AGENTS_VOLUME}-copilot:${CONTAINER_HOME}/.copilot")
 MOUNTS+=(-v "${AGENTS_VOLUME}-qwen:${CONTAINER_HOME}/.qwen")
 MOUNTS+=(-v "${AGENTS_VOLUME}-hermes:${CONTAINER_HOME}/.hermes")

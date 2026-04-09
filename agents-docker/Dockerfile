@@ -37,7 +37,7 @@ ENV NPM_CONFIG_PREFIX=${CONTAINER_HOME}/.npm-global
 ENV NPM_CONFIG_CACHE=${CONTAINER_HOME}/.npm-cache
 ENV NPM_PREFIX=${CONTAINER_HOME}/.npm-global
 ENV PATH="${CONTAINER_HOME}/.npm-global/bin:${CONTAINER_HOME}/.local/bin:${PATH}"
-RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/bin \
+RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/bin ${CONTAINER_HOME}/.local/share \
     && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.npm-global ${CONTAINER_HOME}/.npm-cache ${CONTAINER_HOME}/.local
 
 # ── uv (Python package manager) ──────────────────────────────────────────────
@@ -65,8 +65,8 @@ VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local
 ENV HERMES_HOME=${CONTAINER_HOME}/.hermes
 
 RUN mkdir -p ${CONTAINER_HOME}/.hermes/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session} \
-    && mkdir -p ${CONTAINER_HOME}/.gemini ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config/opencode ${CONTAINER_HOME}/.qwen ${CONTAINER_HOME}/.cache \
-    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.gemini ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.qwen ${CONTAINER_HOME}/.cache
+    && mkdir -p ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config/opencode ${CONTAINER_HOME}/.qwen ${CONTAINER_HOME}/.cache \
+    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.qwen ${CONTAINER_HOME}/.cache
 
 USER ${CONTAINER_UID}
 WORKDIR /project
