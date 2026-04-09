@@ -10,7 +10,7 @@ ENV COLORTERM=truecolor
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev \
-    git curl ca-certificates jq ripgrep ffmpeg \
+    git curl ca-certificates jq ripgrep ffmpeg sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Create user ──────────────────────────────────────────────────────────────
@@ -22,7 +22,9 @@ RUN if getent passwd ${CONTAINER_UID} >/dev/null 2>&1; then \
         deluser --remove-home "$(getent passwd ${CONTAINER_UID} | cut -d: -f1)" 2>/dev/null || true; \
     fi \
     && groupadd -g ${CONTAINER_GID} ${CONTAINER_USER} 2>/dev/null || true \
-    && useradd -m -u ${CONTAINER_UID} -g ${CONTAINER_GID} -d /home/${CONTAINER_USER} -s /bin/bash ${CONTAINER_USER}
+    && useradd -m -u ${CONTAINER_UID} -g ${CONTAINER_GID} -d /home/${CONTAINER_USER} -s /bin/bash ${CONTAINER_USER} \
+    && usermod -aG sudo ${CONTAINER_USER} \
+    && echo "${CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get" >> /etc/sudoers
 
 # ── Make /opt and /project writable ──────────────────────────────────────────
 RUN chmod 777 /opt \
