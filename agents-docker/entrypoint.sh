@@ -32,8 +32,8 @@ fi
 
 CONTAINER_HOME="${HOME:-/home/agent}"
 
-# Recreate SoulForge symlink if the local volume is mounted
-if [[ -d "${CONTAINER_HOME}/.local" ]]; then
+# Recreate SoulForge symlink if installed
+if [[ -d "${CONTAINER_HOME}/.local/share/soulforge" ]]; then
     ln -sf "${CONTAINER_HOME}/.local/share/soulforge" "${CONTAINER_HOME}/.soulforge" 2>/dev/null || true
 fi
 

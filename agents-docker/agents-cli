@@ -80,6 +80,11 @@ for vol in "${VOLUMES[@]}"; do
     fi
 done
 
+# Check if SoulForge is installed and prepare symlink
+if docker run --rm -v "${AGENTS_VOLUME}-local:/data" alpine test -d /data/share/soulforge >/dev/null 2>&1; then
+    log "SoulForge detected in volume, symlink will be created on container startup"
+fi
+
 # ── Build mount flags ────────────────────────────────────────────────────────
 MOUNTS=()
 
