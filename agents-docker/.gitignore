@@ -1,0 +1,21 @@
+# SoulForge runtime data
+.soulforge/
+
+# Agent configuration and data directories
+.gemini/
+.copilot/
+.qwen/
+.hermes/
+.local/
+.npm-global/
+.npm-cache/
+.cache/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
