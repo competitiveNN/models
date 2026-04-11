@@ -5,9 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 MODEL_PATH="$HOME/data/models"
 MODEL=""
-IMAGE=intel/vllm
+#IMAGE=intel/vllm
 #IMAGE=localhost/vllm-xpu-env:latest
-#IMAGE=intel/llm-scaler-vllm
+IMAGE=intel/llm-scaler-vllm
 CONFIG="$SCRIPT_DIR/vllm.yaml"
 ENTRYPOINT="$SCRIPT_DIR/entrypoint.sh"
 
@@ -22,7 +22,7 @@ docker run --security-opt label=disable \
 -v "$ENTRYPOINT":/vllm.sh \
 --ipc=host \
 --privileged \
---entrypoint /bin/bash \
-$IMAGE \
--lic "vllm serve --config /config.yaml"
+--entrypoint /vllm.sh \
+$IMAGE #\
+#-lic "vllm serve --config /config.yaml"
 
