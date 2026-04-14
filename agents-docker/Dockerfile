@@ -67,8 +67,8 @@ VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local
 ENV HERMES_HOME=${CONTAINER_HOME}/.hermes
 
 RUN mkdir -p ${CONTAINER_HOME}/.hermes/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session} \
-    && mkdir -p ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config/opencode ${CONTAINER_HOME}/.qwen ${CONTAINER_HOME}/.cache \
-    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.qwen ${CONTAINER_HOME}/.cache
+    && mkdir -p ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config/opencode ${CONTAINER_HOME}/.cache \
+    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.cache
 
 USER ${CONTAINER_UID}
 WORKDIR /project

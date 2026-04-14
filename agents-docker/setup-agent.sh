@@ -6,7 +6,6 @@ set -euo pipefail
 # Usage:
 #   setup-agent.sh copilot [VERSION]
 #   setup-agent.sh opencode [VERSION]
-#   setup-agent.sh qwen    [VERSION]
 #   setup-agent.sh kilo    [VERSION]
 #   setup-agent.sh hermes  [BRANCH]
 #   setup-agent.sh soulforge [VERSION]
@@ -62,7 +61,7 @@ install_copilot() {
 	fi
 	# Create wrapper script for copilot
 	mkdir -p "${LOCAL_BIN}"
-	cat > "${LOCAL_BIN}/copilot" <<EOF
+	cat >"${LOCAL_BIN}/copilot" <<EOF
 #!/usr/bin/env bash
 NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/@github/copilot/npm-loader.js" "\$@"
 EOF
@@ -81,30 +80,13 @@ install_opencode() {
 	fi
 	# Create wrapper script for opencode
 	mkdir -p "${LOCAL_BIN}"
-	cat > "${LOCAL_BIN}/opencode" <<EOF
+	cat >"${LOCAL_BIN}/opencode" <<EOF
 #!/usr/bin/env bash
 NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/opencode-ai/bin/opencode" "\$@"
 EOF
 	chmod +x "${LOCAL_BIN}/opencode"
 	ok "OpenCode installed: $(${LOCAL_BIN}/opencode --version 2>&1 | head -1)"
 	init_rtk --opencode --auto-patch
-}
-
-install_qwen() {
-	local version="${1:-latest}"
-	log "Installing Qwen Code (${version})..."
-	if [[ "$version" == "latest" ]]; then
-		npm install --prefix "${PERSISTENT_NPM}" @qwen-code/qwen-code
-	else
-		npm install --prefix "${PERSISTENT_NPM}" "@qwen-code/qwen-code@${version}"
-	fi
-	# Create wrapper script for qwen
-	cat > "${LOCAL_BIN}/qwen" <<EOF
-#!/usr/bin/env bash
-NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/@qwen-code/qwen-code/cli.js" "\$@"
-EOF
-	chmod +x "${LOCAL_BIN}/qwen"
-	ok "Qwen installed: $(${LOCAL_BIN}/qwen --version 2>&1 | head -1)"
 }
 
 install_kilo() {
@@ -117,7 +99,7 @@ install_kilo() {
 	fi
 	# Create wrapper script for kilo
 	mkdir -p "${LOCAL_BIN}"
-	cat > "${LOCAL_BIN}/kilo" <<EOF
+	cat >"${LOCAL_BIN}/kilo" <<EOF
 #!/usr/bin/env bash
 NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/@kilocode/cli/bin/kilo" "\$@"
 EOF
@@ -184,12 +166,13 @@ install_soulforge() {
 
 	local arch=""
 	case "$(uname -m)" in
-		x86_64)  arch="x64" ;;
-		aarch64) arch="arm64" ;;
-		armv7l) arch="armv7" ;;
-		*)
-			warn "Unsupported architecture: $(uname -m)"
-			return 1
+	x86_64) arch="x64" ;;
+	aarch64) arch="arm64" ;;
+	armv7l) arch="armv7" ;;
+	*)
+		warn "Unsupported architecture: $(uname -m)"
+		return 1
+		;;
 	esac
 
 	# Download latest release
@@ -306,7 +289,6 @@ Usage: setup-agent.sh <agent> [version]
 Agents:
   copilot     GitHub Copilot CLI
   opencode    OpenCode AI
-  qwen        Qwen Code
   kilo        Kilo CLI
   hermes      Hermes Agent (Python)
   soulforge   SoulForge Agent (TypeScript/Bun)
@@ -337,7 +319,6 @@ fi
 case "$AGENT" in
 copilot) install_copilot "$VERSION" ;;
 opencode) install_opencode "$VERSION" ;;
-qwen) install_qwen "$VERSION" ;;
 kilo) install_kilo "$VERSION" ;;
 hermes) install_hermes "$VERSION" ;;
 soulforge) install_soulforge "$VERSION" ;;
@@ -345,7 +326,6 @@ all)
 	log "Installing all agents..."
 	install_copilot "$VERSION"
 	install_opencode "$VERSION"
-	install_qwen "$VERSION"
 	install_kilo "$VERSION"
 	install_hermes "$VERSION"
 	install_soulforge "$VERSION"

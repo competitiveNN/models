@@ -22,23 +22,22 @@ ok() { echo -e "${GREEN}✓${NC} $*"; }
 
 # ── Safety check ─────────────────────────────────────────────────────────────
 if [[ "${1:-}" != "--confirm" ]]; then
-    echo ""
-    echo -e "${RED}WARNING: This will permanently delete all agent configurations and data!${NC}"
-    echo ""
-    echo "This script will remove the following Docker volumes:"
-    echo "  - ${AGENTS_VOLUME} (agent configs)"
-    echo "  - ${AGENTS_VOLUME}-copilot (Copilot configs)"
-    echo "  - ${AGENTS_VOLUME}-qwen (Qwen configs)"
-    echo "  - ${AGENTS_VOLUME}-hermes (Hermes configs)"
-    echo "  - ${AGENTS_VOLUME}-local (local data & binaries)"
-    echo "  - ${AGENTS_VOLUME}-npm-global (npm packages)"
-    echo "  - ${AGENTS_VOLUME}-npm-cache (npm cache)"
-    echo "  - ${AGENTS_VOLUME}-cache (general cache)"
-    echo ""
-    echo "Run with --confirm to proceed:"
-    echo "  $0 --confirm"
-    echo ""
-    exit 1
+	echo ""
+	echo -e "${RED}WARNING: This will permanently delete all agent configurations and data!${NC}"
+	echo ""
+	echo "This script will remove the following Docker volumes:"
+	echo "  - ${AGENTS_VOLUME} (agent configs)"
+	echo "  - ${AGENTS_VOLUME}-copilot (Copilot configs)"
+	echo "  - ${AGENTS_VOLUME}-hermes (Hermes configs)"
+	echo "  - ${AGENTS_VOLUME}-local (local data & binaries)"
+	echo "  - ${AGENTS_VOLUME}-npm-global (npm packages)"
+	echo "  - ${AGENTS_VOLUME}-npm-cache (npm cache)"
+	echo "  - ${AGENTS_VOLUME}-cache (general cache)"
+	echo ""
+	echo "Run with --confirm to proceed:"
+	echo "  $0 --confirm"
+	echo ""
+	exit 1
 fi
 
 # ── Stop any running containers ──────────────────────────────────────────────
@@ -48,24 +47,23 @@ docker ps -a -q --filter "ancestor=agents-cli:latest" | xargs -r docker rm || tr
 
 # ── Remove volumes ───────────────────────────────────────────────────────────
 VOLUMES=(
-    "${AGENTS_VOLUME}"
-    "${AGENTS_VOLUME}-copilot"
-    "${AGENTS_VOLUME}-qwen"
-    "${AGENTS_VOLUME}-hermes"
-    "${AGENTS_VOLUME}-local"
-    "${AGENTS_VOLUME}-npm-global"
-    "${AGENTS_VOLUME}-npm-cache"
-    "${AGENTS_VOLUME}-cache"
+	"${AGENTS_VOLUME}"
+	"${AGENTS_VOLUME}-copilot"
+	"${AGENTS_VOLUME}-hermes"
+	"${AGENTS_VOLUME}-local"
+	"${AGENTS_VOLUME}-npm-global"
+	"${AGENTS_VOLUME}-npm-cache"
+	"${AGENTS_VOLUME}-cache"
 )
 
 log "Removing Docker volumes..."
 for vol in "${VOLUMES[@]}"; do
-    if docker volume inspect "$vol" &>/dev/null; then
-        log "Removing volume: $vol"
-        docker volume rm "$vol" || warn "Failed to remove volume: $vol"
-    else
-        log "Volume not found: $vol"
-    fi
+	if docker volume inspect "$vol" &>/dev/null; then
+		log "Removing volume: $vol"
+		docker volume rm "$vol" || warn "Failed to remove volume: $vol"
+	else
+		log "Volume not found: $vol"
+	fi
 done
 
 # ── Clean up dangling resources ──────────────────────────────────────────────
