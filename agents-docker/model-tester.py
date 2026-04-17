@@ -16,14 +16,22 @@ from typing import List, Dict, Tuple
 API_ENDPOINT = (
     "https://integrate.api.nvidia.com/v1/chat/completions"  # NVIDIA Developer Build API
 )
-API_KEY = (
-    "nvapi-your-nvidia-api-key"  # NVIDIA API key (get from https://build.nvidia.com/)
-)
+API_KEY = "PLACEHOLDER_API_KEY"  # NVIDIA API key (get from https://build.nvidia.com/)
 MODELS = [
     "meta/llama3-70b-instruct",
     "meta/llama3-8b-instruct",
     "nvidia/llama3-70b-instruct",
     "mistralai/mistral-7b-instruct-v0.3",
+    "google/gemma-4-31b-it",
+    "qwen/qwen3.5-397b-a17b",
+    "moonshotai/kimi-k2.5",
+    "z-ai/glm5",
+    "minimaxai/minimax-m2.7",
+    "nvidia/nemotron-3-super-120b-a12b",
+    "stepfun-ai/step-3.5-flash",
+    "qwen/qwen3-next-80b-a3b-thinking",
+    "qwen/qwen3.5-122b-a10b",
+    "deepseek-ai/deepseek-v3_2",
 ]
 
 # Test prompt - keep it short for consistent measurements
