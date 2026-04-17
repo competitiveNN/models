@@ -3,11 +3,12 @@
 Model Responsiveness Tester for NVIDIA Developer Build API
 
 Tests TTFT (Time To First Token) and TPS (Tokens Per Second) for NVIDIA models.
-Get your API key from: https://build.nvidia.com/
+Set NVIDIA_API_KEY environment variable with your API key from: https://build.nvidia.com/
 """
 
 import time
 import json
+import os
 import requests
 import argparse
 from typing import List, Dict, Tuple
@@ -16,7 +17,7 @@ from typing import List, Dict, Tuple
 API_ENDPOINT = (
     "https://integrate.api.nvidia.com/v1/chat/completions"  # NVIDIA Developer Build API
 )
-API_KEY = "PLACEHOLDER_API_KEY"  # NVIDIA API key (get from https://build.nvidia.com/)
+API_KEY = os.getenv("NVIDIA_API_KEY", "")  # NVIDIA API key from environment variable
 MODELS = [
     "google/gemma-4-31b-it",
     "qwen/qwen3.5-397b-a17b",
@@ -187,7 +188,9 @@ def main():
         default=API_ENDPOINT,
         help=f"API endpoint (default: {API_ENDPOINT})",
     )
-    parser.add_argument("--api-key", default=API_KEY, help="API key")
+    parser.add_argument(
+        "--api-key", default=API_KEY, help="API key (overrides NVIDIA_API_KEY env var)"
+    )
     parser.add_argument("--models", nargs="+", default=MODELS, help="Models to test")
     parser.add_argument("--prompt", default=TEST_PROMPT, help="Test prompt")
     parser.add_argument(
@@ -198,9 +201,16 @@ def main():
 
     # Update globals from args
     API_ENDPOINT = args.endpoint
-    API_KEY = args.api_key
+    API_KEY = args.api_key or API_KEY  # Use arg if provided, otherwise env var
     TEST_PROMPT = args.prompt
     MAX_TOKENS = args.max_tokens
+
+    # Validate API key is set
+    if not API_KEY:
+        print("❌ NVIDIA_API_KEY environment variable not set!")
+        print("💡 Get your API key from: https://build.nvidia.com/")
+        print("💡 Set it with: export NVIDIA_API_KEY=your-api-key-here")
+        exit(1)
 
     print("🚀 NVIDIA Model Responsiveness Tester")
     print(f"📍 Endpoint: {API_ENDPOINT}")
