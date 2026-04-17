@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Model Responsiveness Tester for OpenAI-compatible APIs
+Model Responsiveness Tester for NVIDIA Developer Build API
 
-Tests TTFT (Time To First Token) and TPS (Tokens Per Second) for multiple models.
+Tests TTFT (Time To First Token) and TPS (Tokens Per Second) for NVIDIA models.
+Get your API key from: https://build.nvidia.com/
 """
 
 import time
@@ -12,13 +13,17 @@ import argparse
 from typing import List, Dict, Tuple
 
 # Global configuration - modify these as needed
-API_ENDPOINT = "http://localhost:8000/v1/chat/completions"  # OpenAI-compatible endpoint
-API_KEY = "sk-test-key"  # API key (or set via environment)
+API_ENDPOINT = (
+    "https://integrate.api.nvidia.com/v1/chat/completions"  # NVIDIA Developer Build API
+)
+API_KEY = (
+    "nvapi-your-nvidia-api-key"  # NVIDIA API key (get from https://build.nvidia.com/)
+)
 MODELS = [
-    "qwen3.5-9b",
-    "mistral-7b-instruct",
-    "codellama-7b-instruct",
-    "deepseek-coder-6.7b",
+    "meta/llama3-70b-instruct",
+    "meta/llama3-8b-instruct",
+    "nvidia/llama3-70b-instruct",
+    "mistralai/mistral-7b-instruct-v0.3",
 ]
 
 # Test prompt - keep it short for consistent measurements
@@ -125,7 +130,7 @@ def main():
     global API_ENDPOINT, API_KEY, TEST_PROMPT, MAX_TOKENS
 
     parser = argparse.ArgumentParser(
-        description="Test model responsiveness for OpenAI-compatible APIs"
+        description="Test model responsiveness for NVIDIA Developer Build API"
     )
     parser.add_argument(
         "--endpoint",
@@ -147,11 +152,12 @@ def main():
     TEST_PROMPT = args.prompt
     MAX_TOKENS = args.max_tokens
 
-    print("🚀 Model Responsiveness Tester")
+    print("🚀 NVIDIA Model Responsiveness Tester")
     print(f"📍 Endpoint: {API_ENDPOINT}")
     print(f"📝 Prompt: {TEST_PROMPT}")
     print(f"🎯 Max tokens: {MAX_TOKENS}")
     print(f"🤖 Models to test: {', '.join(args.models)}")
+    print(f"🔑 API Key: {'*' * 8 + API_KEY[-4:] if len(API_KEY) > 12 else API_KEY}")
 
     results = []
     for model in args.models:
