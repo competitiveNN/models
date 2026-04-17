@@ -110,7 +110,7 @@ def make_streaming_request(
 
     try:
         with requests.post(
-            endpoint, headers=headers, json=payload, stream=True, timeout=60
+            endpoint, headers=headers, json=payload, stream=True, timeout=10
         ) as response:
             response.raise_for_status()
 
