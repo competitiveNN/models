@@ -11,6 +11,9 @@
 .npm-cache/
 .cache/
 
+# Environment files
+.envrc
+
 # OS generated files
 .DS_Store
 .DS_Store?

@@ -34,6 +34,7 @@ MODELS = [
 # Test prompt - keep it short for consistent measurements
 TEST_PROMPT = "Write a simple hello world function in Python."
 MAX_TOKENS = 100  # Limit response length for testing
+TIMEOUT = 20  # Request timeout in seconds
 
 
 def validate_endpoint(api_key: str, endpoint: str, models_to_test: List[str]) -> bool:
@@ -45,7 +46,7 @@ def validate_endpoint(api_key: str, endpoint: str, models_to_test: List[str]) ->
 
     try:
         print("🔍 Validating endpoint and API key...")
-        response = requests.get(models_url, headers=headers, timeout=10)
+        response = requests.get(models_url, headers=headers, timeout=TIMEOUT)
         response.raise_for_status()
 
         data = response.json()
@@ -110,7 +111,7 @@ def make_streaming_request(
 
     try:
         with requests.post(
-            endpoint, headers=headers, json=payload, stream=True, timeout=10
+            endpoint, headers=headers, json=payload, stream=True, timeout=TIMEOUT
         ) as response:
             response.raise_for_status()
 
@@ -135,7 +136,6 @@ def make_streaming_request(
                                     if ttft is None:
                                         # First token received
                                         ttft = current_time - start_time
-                                        print(".3f")
                                     token_count += 1
 
                                     last_token_time = current_time
@@ -171,14 +171,14 @@ def test_model(model: str, api_key: str, endpoint: str) -> Dict[str, float]:
         print(f"❌ Model {model} failed to respond")
         return {"ttft": float("inf"), "tps": 0.0, "tokens": 0}
 
-    print(".1f")
-    print(".1f")
+    print(f"TTFT: {ttft * 1000:.1f} ms")
+    print(f"TPS: {tps:.1f} tokens/sec")
     return {"ttft": ttft, "tps": tps, "tokens": tokens}
 
 
 def main():
     # Declare globals that will be modified
-    global API_ENDPOINT, API_KEY, TEST_PROMPT, MAX_TOKENS
+    global API_ENDPOINT, API_KEY, TEST_PROMPT, MAX_TOKENS, TIMEOUT
 
     parser = argparse.ArgumentParser(
         description="Test model responsiveness for NVIDIA Developer Build API"
@@ -196,6 +196,9 @@ def main():
     parser.add_argument(
         "--max-tokens", type=int, default=MAX_TOKENS, help="Max tokens to generate"
     )
+    parser.add_argument(
+        "--timeout", type=int, default=TIMEOUT, help="Request timeout in seconds"
+    )
 
     args = parser.parse_args()
 
@@ -204,6 +207,7 @@ def main():
     API_KEY = args.api_key or API_KEY  # Use arg if provided, otherwise env var
     TEST_PROMPT = args.prompt
     MAX_TOKENS = args.max_tokens
+    TIMEOUT = args.timeout
 
     # Validate API key is set
     if not API_KEY:
@@ -216,6 +220,7 @@ def main():
     print(f"📍 Endpoint: {API_ENDPOINT}")
     print(f"📝 Prompt: {TEST_PROMPT}")
     print(f"🎯 Max tokens: {MAX_TOKENS}")
+    print(f"⏱️  Timeout: {TIMEOUT}s")
     print(f"🤖 Models to test: {', '.join(args.models)}")
     print(f"🔑 API Key: {'*' * 8 + API_KEY[-4:] if len(API_KEY) > 12 else API_KEY}")
 
@@ -230,12 +235,15 @@ def main():
         result["model"] = model
         results.append(result)
 
+    # Sort results by TTFT (ascending, failed models last)
+    results.sort(key=lambda x: x["ttft"] if x["ttft"] != float("inf") else float("inf"))
+
     # Summary table
-    print(f"\n{'=' * 60}")
+    print(f"\n{'=' * 80}")
     print("📊 SUMMARY RESULTS")
-    print(f"{'=' * 60}")
-    print("<20")
-    print("-" * 60)
+    print(f"{'=' * 80}")
+    print(f"{'Model':<45} {'TTFT (ms)':>12} {'TPS':>10} {'Tokens':>8}")
+    print("-" * 80)
 
     for result in results:
         model = result["model"]
@@ -244,11 +252,11 @@ def main():
         tokens = result["tokens"]
 
         if ttft == float("inf"):
-            print("<20")
+            print(f"{model:<45} {'FAILED':>12} {'-':>10} {'-':>8}")
         else:
-            print("<20")
+            print(f"{model:<45} {ttft * 1000:>12.1f} {tps:>10.1f} {tokens:>8}")
 
-    print(f"{'=' * 60}")
+    print(f"{'=' * 80}")
 
 
 if __name__ == "__main__":
