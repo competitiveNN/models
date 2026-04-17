@@ -18,10 +18,6 @@ API_ENDPOINT = (
 )
 API_KEY = "PLACEHOLDER_API_KEY"  # NVIDIA API key (get from https://build.nvidia.com/)
 MODELS = [
-    "meta/llama3-70b-instruct",
-    "meta/llama3-8b-instruct",
-    "nvidia/llama3-70b-instruct",
-    "mistralai/mistral-7b-instruct-v0.3",
     "google/gemma-4-31b-it",
     "qwen/qwen3.5-397b-a17b",
     "moonshotai/kimi-k2.5",
@@ -37,6 +33,52 @@ MODELS = [
 # Test prompt - keep it short for consistent measurements
 TEST_PROMPT = "Write a simple hello world function in Python."
 MAX_TOKENS = 100  # Limit response length for testing
+
+
+def validate_endpoint(api_key: str, endpoint: str, models_to_test: List[str]) -> bool:
+    """
+    Validate that the endpoint is working and supports the required models.
+    """
+    headers = {"Authorization": f"Bearer {api_key}"}
+    models_url = endpoint.replace("/chat/completions", "/models")
+
+    try:
+        print("🔍 Validating endpoint and API key...")
+        response = requests.get(models_url, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        data = response.json()
+        available_models = [model["id"] for model in data.get("data", [])]
+
+        print(f"✅ Endpoint reachable. Found {len(available_models)} available models.")
+
+        # Check if our test models are available
+        missing_models = []
+        for model in models_to_test:
+            if model not in available_models:
+                missing_models.append(model)
+
+        if missing_models:
+            print(f"⚠️  Warning: {len(missing_models)} requested models not available:")
+            for model in missing_models[:5]:  # Show first 5
+                print(f"   - {model}")
+            if len(missing_models) > 5:
+                print(f"   ... and {len(missing_models) - 5} more")
+
+        return True
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Endpoint validation failed: {e}")
+        if "401" in str(e):
+            print("💡 Check your API key - authentication failed")
+        elif "403" in str(e):
+            print("💡 Check your API permissions - access denied")
+        elif "404" in str(e):
+            print("💡 Models endpoint not found - API may not support model listing")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error during validation: {e}")
+        return False
 
 
 def make_streaming_request(
@@ -166,6 +208,11 @@ def main():
     print(f"🎯 Max tokens: {MAX_TOKENS}")
     print(f"🤖 Models to test: {', '.join(args.models)}")
     print(f"🔑 API Key: {'*' * 8 + API_KEY[-4:] if len(API_KEY) > 12 else API_KEY}")
+
+    # Validate endpoint before starting tests
+    if not validate_endpoint(API_KEY, API_ENDPOINT, args.models):
+        print("💥 Cannot proceed with tests due to endpoint/API issues.")
+        exit(1)
 
     results = []
     for model in args.models:
