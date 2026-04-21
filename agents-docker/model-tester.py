@@ -22,7 +22,7 @@ MODELS = [
     "google/gemma-4-31b-it",
     "qwen/qwen3.5-397b-a17b",
     "moonshotai/kimi-k2.5",
-    "z-ai/glm5",
+    "z-ai/glm-5.1",
     "minimaxai/minimax-m2.7",
     "nvidia/nemotron-3-super-120b-a12b",
     "stepfun-ai/step-3.5-flash",
@@ -192,6 +192,7 @@ def main():
         "--api-key", default=API_KEY, help="API key (overrides NVIDIA_API_KEY env var)"
     )
     parser.add_argument("--models", nargs="+", default=MODELS, help="Models to test")
+    parser.add_argument("--model", help="Single model to test (overrides --models)")
     parser.add_argument("--prompt", default=TEST_PROMPT, help="Test prompt")
     parser.add_argument(
         "--max-tokens", type=int, default=MAX_TOKENS, help="Max tokens to generate"
@@ -201,6 +202,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Determine models to test
+    models_to_test = [args.model] if args.model else args.models
 
     # Update globals from args
     API_ENDPOINT = args.endpoint
@@ -221,16 +225,16 @@ def main():
     print(f"📝 Prompt: {TEST_PROMPT}")
     print(f"🎯 Max tokens: {MAX_TOKENS}")
     print(f"⏱️  Timeout: {TIMEOUT}s")
-    print(f"🤖 Models to test: {', '.join(args.models)}")
+    print(f"🤖 Models to test: {', '.join(models_to_test)}")
     print(f"🔑 API Key: {'*' * 8 + API_KEY[-4:] if len(API_KEY) > 12 else API_KEY}")
 
     # Validate endpoint before starting tests
-    if not validate_endpoint(API_KEY, API_ENDPOINT, args.models):
+    if not validate_endpoint(API_KEY, API_ENDPOINT, models_to_test):
         print("💥 Cannot proceed with tests due to endpoint/API issues.")
         exit(1)
 
     results = []
-    for model in args.models:
+    for model in models_to_test:
         result = test_model(model, API_KEY, API_ENDPOINT)
         result["model"] = model
         results.append(result)
