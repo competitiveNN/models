@@ -115,6 +115,9 @@ mount_if_exists "$(pwd)"                       "/project"
 mount_if_exists "$HOME/.ssh"                    "${CONTAINER_HOME}/.ssh"            "ro"
 mount_if_exists "$HOME/.gitconfig"              "${CONTAINER_HOME}/.gitconfig"      "ro"
 
+# Julia configuration
+mount_if_exists "$HOME/.julia/config"           "${CONTAINER_HOME}/.julia/config"   "rw"
+
 # ── Pass through API key env vars ────────────────────────────────────────────
 DOCKER_ENV=()
 pass_env() {
