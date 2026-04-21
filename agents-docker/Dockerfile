@@ -49,9 +49,6 @@ ENV PATH="${CONTAINER_HOME}/.local/bin:${PATH}"
 # Install Python 3.11 via uv
 RUN uv python install 3.11
 
-# ── Julia via juliaup ─────────────────────────────────────────────────────────
-RUN curl -fsSL https://install.julialang.org | sh -s -y
-
 # ── RTK (installed at base level, used by setup-agent.sh) ────────────────────
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
 
@@ -73,7 +70,11 @@ RUN mkdir -p ${CONTAINER_HOME}/.hermes/{cron,sessions,logs,pairing,hooks,image_c
     && mkdir -p ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config/opencode ${CONTAINER_HOME}/.cache \
     && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.cache
 
+USER root
+RUN mkdir -p /home/agent/.julia/juliaup && chown -R ${CONTAINER_UID}:${CONTAINER_GID} /home/agent/.julia
+
 USER ${CONTAINER_UID}
+RUN curl -fsSL https://install.julialang.org | sh -s -- -y
 WORKDIR /project
 
 ENTRYPOINT ["entrypoint.sh"]
