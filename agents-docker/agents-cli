@@ -42,6 +42,7 @@ Bind-mounted paths (host → container):
   ~/dev                           → ${CONTAINER_HOME}/dev
   ~/.ssh                          → ${CONTAINER_HOME}/.ssh          (read-only)
   ~/.gitconfig                    → ${CONTAINER_HOME}/.gitconfig    (read-only)
+  ~/.julia/config                 → ${CONTAINER_HOME}/.julia/config   (read-write)
 
 Environment:
   IMAGE_NAME         Override image (default: agents-cli)
