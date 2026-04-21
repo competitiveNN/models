@@ -38,7 +38,7 @@ ENV HOME=${CONTAINER_HOME}
 ENV NPM_CONFIG_PREFIX=${CONTAINER_HOME}/.npm-global
 ENV NPM_CONFIG_CACHE=${CONTAINER_HOME}/.npm-cache
 ENV NPM_PREFIX=${CONTAINER_HOME}/.npm-global
-ENV PATH="${CONTAINER_HOME}/.npm-global/bin:${CONTAINER_HOME}/.local/bin:${PATH}"
+ENV PATH="${CONTAINER_HOME}/.npm-global/bin:${CONTAINER_HOME}/.local/bin:${CONTAINER_HOME}/.juliaup/bin:${PATH}"
 RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/bin ${CONTAINER_HOME}/.local/share \
     && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.npm-global ${CONTAINER_HOME}/.npm-cache ${CONTAINER_HOME}/.local
 
@@ -48,6 +48,9 @@ ENV PATH="${CONTAINER_HOME}/.local/bin:${PATH}"
 
 # Install Python 3.11 via uv
 RUN uv python install 3.11
+
+# ── Julia via juliaup ─────────────────────────────────────────────────────────
+RUN curl -fsSL https://install.julialang.org | sh
 
 # ── RTK (installed at base level, used by setup-agent.sh) ────────────────────
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
