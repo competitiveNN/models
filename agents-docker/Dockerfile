@@ -50,7 +50,7 @@ ENV PATH="${CONTAINER_HOME}/.local/bin:${PATH}"
 RUN uv python install 3.11
 
 # ── Julia via juliaup ─────────────────────────────────────────────────────────
-RUN curl -fsSL https://install.julialang.org | sh
+RUN curl -fsSL https://install.julialang.org | sh -s -y
 
 # ── RTK (installed at base level, used by setup-agent.sh) ────────────────────
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
