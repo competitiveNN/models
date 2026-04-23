@@ -133,6 +133,51 @@ class AgentWatchdog:
         self._send_input("continue\n")
         time.sleep(self.config.debounce_period)
 
+    def _set_pty_raw_mode(self):
+        """Set PTY to raw mode for transparent input/output forwarding."""
+        if self.fd is None:
+            return
+
+        try:
+            # Get current PTY attributes
+            attrs = termios.tcgetattr(self.fd)
+
+            # Set raw mode attributes (similar to cfmakeraw)
+            # Input flags
+            attrs[0] &= ~(
+                termios.IGNBRK
+                | termios.BRKINT
+                | termios.PARMRK
+                | termios.ISTRIP
+                | termios.INLCR
+                | termios.IGNCR
+                | termios.ICRNL
+                | termios.IXON
+            )
+
+            # Output flags
+            attrs[1] &= ~termios.OPOST
+
+            # Control flags
+            attrs[2] &= ~(termios.CSIZE | termios.PARENB)
+            attrs[2] |= termios.CS8
+
+            # Local flags
+            attrs[3] &= ~(
+                termios.ECHO
+                | termios.ECHONL
+                | termios.ICANON
+                | termios.ISIG
+                | termios.IEXTEN
+            )
+
+            # Set the attributes
+            termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
+
+            logger.debug("Set PTY to raw mode")
+        except Exception as e:
+            logger.warning(f"Could not set PTY to raw mode: {e}")
+
     def _set_pty_size(self):
         """Set PTY window size to match current terminal size."""
         if self.fd is None:
@@ -241,6 +286,9 @@ class AgentWatchdog:
             self.last_output_time = time.time()
             self.pid = pid
             self.fd = fd
+
+            # Set PTY to raw mode for transparent forwarding
+            self._set_pty_raw_mode()
 
             # Set PTY window size to match current terminal
             self._set_pty_size()
