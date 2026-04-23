@@ -266,6 +266,11 @@ class AgentWatchdog:
         try:
             self._old_termios = termios.tcgetattr(sys.stdin.fileno())
             tty.setraw(sys.stdin.fileno())
+            # Set stdin to non-blocking mode for responsive input
+            import fcntl
+
+            flags = fcntl.fcntl(sys.stdin.fileno(), fcntl.F_GETFL)
+            fcntl.fcntl(sys.stdin.fileno(), fcntl.F_SETFL, flags | os.O_NONBLOCK)
         except Exception as e:
             logger.warning(f"Could not set raw mode: {e}")
 
@@ -293,16 +298,36 @@ class AgentWatchdog:
             # Set PTY window size to match current terminal
             self._set_pty_size()
 
-            # Main monitoring loop with direct select-based I/O
+            # Main monitoring loop
             buffer = ""
 
             while self.running:
                 try:
-                    # Use select to monitor PTY and stdin
-                    rlist, _, _ = select.select([fd, sys.stdin.fileno()], [], [], 0.1)
+                    # Use select to monitor PTY (stdin is non-blocking)
+                    rlist, _, _ = select.select(
+                        [fd], [], [], 0.01
+                    )  # Very short timeout
+
+                    # Always try to read from stdin (non-blocking)
+                    try:
+                        user_input = os.read(sys.stdin.fileno(), 1024)
+                        if user_input:
+                            # Forward to PTY immediately
+                            os.write(fd, user_input)
+                    except BlockingIOError:
+                        # No input available
+                        pass
+                    except EOFError:
+                        # User pressed Ctrl+D
+                        logger.info("EOF on stdin, shutting down...")
+                        self.running = False
+                        break
+                    except OSError:
+                        # Stdin closed
+                        break
 
                     # Handle PTY output (agent output)
-                    if fd in rlist:
+                    if rlist:  # PTY has data
                         try:
                             data = os.read(fd, 4096)
                             if data:
@@ -331,19 +356,27 @@ class AgentWatchdog:
                         except OSError:
                             # PTY closed
                             break
-
-                    # Handle stdin input (user input)
-                    if sys.stdin.fileno() in rlist:
-                        try:
-                            user_input = os.read(sys.stdin.fileno(), 1024)
-                            if user_input:
-                                # Forward to PTY
-                                os.write(fd, user_input)
-                        except EOFError:
-                            # User pressed Ctrl+D
-                            logger.info("EOF on stdin, shutting down...")
-                            self.running = False
+                        except OSError:
+                            # PTY closed
                             break
+
+                    # Handle stdin input (user input) - non-blocking read
+                    try:
+                        user_input = os.read(sys.stdin.fileno(), 1024)
+                        if user_input:
+                            # Forward to PTY
+                            os.write(fd, user_input)
+                    except BlockingIOError:
+                        # No input available, continue
+                        pass
+                    except EOFError:
+                        # User pressed Ctrl+D
+                        logger.info("EOF on stdin, shutting down...")
+                        self.running = False
+                        break
+                    except OSError:
+                        # Stdin closed or other error
+                        break
 
                     # Check for inactivity timeout
                     current_time = time.time()
