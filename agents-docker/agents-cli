@@ -64,9 +64,9 @@ fi
 command -v docker &>/dev/null || { echo "docker not found"; exit 1; }
 
 if ! docker image inspect "${IMAGE_NAME}:latest" &>/dev/null; then
-    log "Image ${IMAGE_NAME}:latest not found. Building..."
-    SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    "${SCRIPT_DIR}/build.sh"
+    echo "Error: Docker image '${IMAGE_NAME}:latest' not found."
+    echo "Please build it first: ./build.sh"
+    exit 1
 fi
 
 # ── Initialize volumes with correct ownership ────────────────────────────────
