@@ -14,6 +14,9 @@ import select
 import tty
 import termios
 import threading
+import fcntl
+import struct
+import termios as termios_module
 from typing import Optional, Pattern, List
 from dataclasses import dataclass
 
@@ -125,9 +128,14 @@ class AgentWatchdog:
                 logger.error(f"Error terminating process: {e}")
 
     def _signal_handler(self, signum, frame):
-        """Handle termination signals gracefully."""
-        logger.info(f"Received signal {signum}, shutting down...")
+        """Handle termination signals."""
+        logger.info(f"Received signal {signum}")
         self.running = False
+
+    def _window_resize_handler(self, signum, frame):
+        """Handle window resize signals."""
+        if self.process and self.process.isalive():
+            self._set_pty_size()
         self._cleanup()
         sys.exit(0)
 
@@ -145,6 +153,7 @@ class AgentWatchdog:
         atexit.register(self._cleanup)
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGWINCH, self._window_resize_handler)
 
         # Save original terminal settings and set raw mode
         try:
@@ -158,6 +167,9 @@ class AgentWatchdog:
             self.process = ptyprocess.PtyProcessUnicode.spawn(self.command, echo=True)
             self.running = True
             self.last_output_time = time.time()
+
+            # Set PTY window size to match current terminal
+            self._set_pty_size()
 
             # Create threads for input/output handling
             input_thread = threading.Thread(target=self._input_handler, daemon=True)
@@ -272,6 +284,22 @@ class AgentWatchdog:
                     break
         except Exception as e:
             logger.error(f"Output handler failed: {e}")
+
+    def _set_pty_size(self):
+        """Set PTY window size to match current terminal size."""
+        try:
+            # Get current terminal size
+            size = os.get_terminal_size()
+            rows, cols = size.lines, size.columns
+
+            # Set PTY window size
+            # TIOCSWINSZ ioctl to set window size
+            winsize = struct.pack("HHHH", rows, cols, 0, 0)
+            fcntl.ioctl(self.process.fd, termios_module.TIOCSWINSZ, winsize)
+
+            logger.debug(f"Set PTY size to {cols}x{rows}")
+        except Exception as e:
+            logger.warning(f"Could not set PTY size: {e}")
 
     def _send_input(self, text: str):
         """Send input to the agent process."""
