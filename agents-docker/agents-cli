@@ -56,7 +56,7 @@ fi
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--cleanup" ]]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     exec "${SCRIPT_DIR}/cleanup-volumes.sh" "$@"
 fi
 
@@ -65,7 +65,7 @@ command -v docker &>/dev/null || { echo "docker not found"; exit 1; }
 
 if ! docker image inspect "${IMAGE_NAME}:latest" &>/dev/null; then
     log "Image ${IMAGE_NAME}:latest not found. Building..."
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     "${SCRIPT_DIR}/build.sh"
 fi
 
