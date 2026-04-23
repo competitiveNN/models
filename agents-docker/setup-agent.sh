@@ -322,6 +322,7 @@ opencode) install_opencode "$VERSION" ;;
 kilo) install_kilo "$VERSION" ;;
 hermes) install_hermes "$VERSION" ;;
 soulforge) install_soulforge "$VERSION" ;;
+watchdog) install_watchdog ;;
 all)
 	log "Installing all agents..."
 	install_copilot "$VERSION"
