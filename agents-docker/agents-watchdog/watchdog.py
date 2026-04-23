@@ -11,6 +11,8 @@ import signal
 import logging
 import atexit
 import select
+import tty
+import termios
 from typing import Optional, Pattern, List
 from dataclasses import dataclass
 
@@ -68,6 +70,7 @@ class AgentWatchdog:
         self._debounce_until: float = (
             0.0  # Timestamp until which to ignore pattern matches
         )
+        self._old_termios = None  # Save original terminal settings
 
         self._setup_logging()
         self._compile_patterns()
@@ -101,6 +104,15 @@ class AgentWatchdog:
 
     def _cleanup(self):
         """Cleanup on exit."""
+        # Restore terminal settings
+        if self._old_termios is not None:
+            try:
+                termios.tcsetattr(
+                    sys.stdin.fileno(), termios.TCSADRAIN, self._old_termios
+                )
+            except Exception as e:
+                logger.error(f"Error restoring terminal settings: {e}")
+
         if self.process and self.process.isalive():
             logger.info("Terminating agent process...")
             try:
@@ -132,6 +144,13 @@ class AgentWatchdog:
         atexit.register(self._cleanup)
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+
+        # Save original terminal settings and set raw mode
+        try:
+            self._old_termios = termios.tcgetattr(sys.stdin.fileno())
+            tty.setraw(sys.stdin.fileno())
+        except Exception as e:
+            logger.warning(f"Could not set raw mode: {e}")
 
         try:
             # Start the process in a PTY
@@ -211,9 +230,9 @@ class AgentWatchdog:
                             # Check if user typed something on stdin
                             if sys.stdin.fileno() in rlist:
                                 try:
-                                    user_input = sys.stdin.read(
-                                        1
-                                    )  # Read one char at a time
+                                    user_input = os.read(
+                                        sys.stdin.fileno(), 1024
+                                    ).decode("utf-8", errors="ignore")
                                     if user_input:
                                         self.process.write(user_input)
                                 except EOFError:
