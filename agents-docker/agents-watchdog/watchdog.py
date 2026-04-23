@@ -298,24 +298,62 @@ class AgentWatchdog:
             # Set PTY window size to match current terminal
             self._set_pty_size()
 
-            # Main monitoring loop
+            # Main monitoring loop - optimized for TUI performance
             buffer = ""
 
             while self.running:
                 try:
-                    # Use select to monitor PTY (stdin is non-blocking)
+                    # Use select with minimal timeout for responsive I/O
                     rlist, _, _ = select.select(
-                        [fd], [], [], 0.01
-                    )  # Very short timeout
+                        [fd], [], [], 0.001
+                    )  # 1ms timeout for minimal latency
 
-                    # Always try to read from stdin (non-blocking)
+                    # Handle PTY output immediately (highest priority for TUI rendering)
+                    if rlist:  # PTY has data
+                        try:
+                            # Read in larger chunks but process immediately
+                            data = os.read(fd, 8192)  # Larger buffer to reduce syscalls
+                            if data:
+                                # For TUI performance, output immediately without heavy processing
+                                if self.config.echo:
+                                    # Write binary data directly for minimal latency
+                                    sys.stdout.buffer.write(data)
+                                    sys.stdout.flush()
+
+                                # Only process text for pattern matching when needed
+                                if self.config.continue_patterns:
+                                    output = data.decode("utf-8", errors="ignore")
+                                    buffer += output
+                                    self.last_output_time = time.time()
+
+                                    # Limit buffer size but don't truncate mid-pattern
+                                    if len(buffer) > self.config.max_buffer_size:
+                                        # Keep last part for pattern matching
+                                        buffer = buffer[-self.config.max_buffer_size :]
+
+                                    # Check patterns less frequently to reduce overhead
+                                    if (
+                                        len(buffer) > 100
+                                    ):  # Only check after accumulating some output
+                                        if self._match_pattern(buffer):
+                                            logger.info("Continue prompt detected")
+                                            self._handle_continue_prompt()
+                                            buffer = ""  # Clear buffer after handling
+                            else:
+                                # EOF from PTY - process exited
+                                break
+                        except OSError:
+                            # PTY closed
+                            break
+
+                    # Handle stdin input (lower priority)
                     try:
                         user_input = os.read(sys.stdin.fileno(), 1024)
                         if user_input:
                             # Forward to PTY immediately
                             os.write(fd, user_input)
                     except BlockingIOError:
-                        # No input available
+                        # No input available - this is normal
                         pass
                     except EOFError:
                         # User pressed Ctrl+D
@@ -325,6 +363,27 @@ class AgentWatchdog:
                     except OSError:
                         # Stdin closed
                         break
+
+                    # Check inactivity timeout (lowest priority)
+                    current_time = time.time()
+                    if (
+                        self.config.inactivity_timeout > 0
+                        and current_time - self.last_output_time
+                        > self.config.inactivity_timeout
+                    ):
+                        logger.warning(
+                            f"No output for {current_time - self.last_output_time:.1f}s, agent may be stuck"
+                        )
+                        self._send_input_to_pty(fd, "\n")
+                        time.sleep(self.config.debounce_period)
+
+                except KeyboardInterrupt:
+                    logger.info("Keyboard interrupt received")
+                    self.running = False
+                    break
+                except Exception as e:
+                    logger.error(f"Unexpected error in watchdog loop: {e}")
+                    break
 
                     # Handle PTY output (agent output)
                     if rlist:  # PTY has data
