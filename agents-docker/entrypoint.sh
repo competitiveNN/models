@@ -20,7 +20,6 @@ if [ -t 0 ] && [ "$1" = "bash" ]; then
 	echo "  │    setup-agent.sh kilo         — Kilo CLI        │"
 	echo "  │    setup-agent.sh hermes       — Hermes Agent    │"
 	echo "  │    setup-agent.sh soulforge    — SoulForge Agent │"
-	echo "  │    setup-agent.sh watchdog     — Watchdog utility│"
 	echo "  │                                                  │"
 	echo "  │  See setup-agent.sh --help for more.             │"
 	echo "  └─────────────────────────────────────────────────┘"
