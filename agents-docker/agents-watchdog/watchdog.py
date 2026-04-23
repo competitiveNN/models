@@ -13,6 +13,7 @@ import atexit
 import select
 import tty
 import termios
+import threading
 from typing import Optional, Pattern, List
 from dataclasses import dataclass
 
@@ -131,7 +132,7 @@ class AgentWatchdog:
         sys.exit(0)
 
     def run(self):
-        """Main watchdog loop."""
+        """Main watchdog loop using threaded approach for better performance."""
         if not HAS_PTYPROCESS:
             raise RuntimeError(
                 "ptyprocess is required. Install with: pip install ptyprocess"
@@ -158,111 +159,20 @@ class AgentWatchdog:
             self.running = True
             self.last_output_time = time.time()
 
-            # Main monitoring loop
-            buffer = ""
+            # Create threads for input/output handling
+            input_thread = threading.Thread(target=self._input_handler, daemon=True)
+            output_thread = threading.Thread(target=self._output_handler, daemon=True)
 
+            input_thread.start()
+            output_thread.start()
+
+            # Wait for process to finish
             while self.running and self.process.isalive():
-                try:
-                    # Check if we're in a debounce period
-                    current_time = time.time()
-                    if self._debounce_until > 0:
-                        if current_time < self._debounce_until:
-                            # Still in debounce period - read but don't pattern match
-                            # Still need to read to prevent buffer overflow
-                            try:
-                                # Use select for non-blocking read with timeout
-                                rlist, _, _ = select.select(
-                                    [self.process.fd, sys.stdin.fileno()], [], [], 0.1
-                                )
-                                if rlist:
-                                    chunk = self.process.read(1024)
-                                    if chunk:
-                                        buffer += chunk
-                                        self.last_output_time = time.time()
-                                        if self.config.echo:
-                                            sys.stdout.write(chunk)
-                                            sys.stdout.flush()
-                            except EOFError:
-                                break
-                            except Exception as e:
-                                logger.error(f"Error reading from process: {e}")
-                                break
-                            # Skip pattern matching during debounce
-                            continue
-                        else:
-                            # Debounce period ended - clear buffer and reset
-                            logger.debug("Debounce period ended, clearing buffer")
-                            buffer = ""
-                            self._debounce_until = 0.0
+                time.sleep(0.1)  # Main thread just waits
 
-                    # Check if there's output to read
-                    if self.process.isalive():
-                        # Read available output with timeout
-                        # Read available output with timeout
-                        try:
-                            # Use select to check if data is available (non-blocking with timeout)
-                            rlist, _, _ = select.select(
-                                [self.process.fd, sys.stdin.fileno()], [], [], 0.1
-                            )
-
-                            # Check if process has output
-                            if self.process.fd in rlist:
-                                chunk = self.process.read(1024)
-                                if chunk:
-                                    buffer += chunk
-                                    self.last_output_time = time.time()
-
-                                    # Enforce maximum buffer size
-                                    if len(buffer) > self.config.max_buffer_size:
-                                        buffer = buffer[-self.config.max_buffer_size :]
-
-                                    # Echo to stdout if needed
-                                    if self.config.echo:
-                                        sys.stdout.write(chunk)
-                                        sys.stdout.flush()
-
-                                    # Check for continue prompts
-                                    if self._match_pattern(buffer):
-                                        logger.info("Continue prompt detected")
-                                        self._handle_continue_prompt()
-                                        buffer = ""  # Clear buffer after handling
-
-                            # Check if user typed something on stdin
-                            if sys.stdin.fileno() in rlist:
-                                try:
-                                    user_input = os.read(
-                                        sys.stdin.fileno(), 1024
-                                    ).decode("utf-8", errors="ignore")
-                                    if user_input:
-                                        self.process.write(user_input)
-                                except EOFError:
-                                    logger.info("EOF on stdin, shutting down...")
-                                    self.running = False
-                                    break
-
-                        except EOFError:
-                            # Process closed
-                            break
-                        except Exception as e:
-                            logger.error(f"Error reading from process: {e}")
-                            break
-                        if self.config.inactivity_timeout > 0:
-                            idle_time = time.time() - self.last_output_time
-                            if idle_time > self.config.inactivity_timeout:
-                                logger.warning(
-                                    f"No output for {idle_time:.1f}s, agent may be stuck"
-                                )
-                                # Try to send newline to wake it up
-                                self._send_input("\n")
-                                time.sleep(self.config.debounce_period)
-
-                except KeyboardInterrupt:
-                    logger.info("Keyboard interrupt received")
-                    self.running = False
-                    break
-                except Exception as e:
-                    logger.error(f"Unexpected error in watchdog loop: {e}")
-                    break
+            # Wait for threads to finish
+            input_thread.join(timeout=1.0)
+            output_thread.join(timeout=1.0)
 
         finally:
             self._cleanup()
@@ -290,6 +200,78 @@ class AgentWatchdog:
 
         # Set debounce period - ignore further pattern matches for this duration
         self._debounce_until = time.time() + self.config.debounce_period
+
+    def _input_handler(self):
+        """Thread that forwards stdin to the PTY process."""
+        try:
+            while self.running and self.process and self.process.isalive():
+                try:
+                    # Read from stdin (blocking)
+                    user_input = os.read(sys.stdin.fileno(), 1024)
+                    if user_input:
+                        # Forward to PTY
+                        self.process.write(user_input.decode("utf-8", errors="ignore"))
+                except OSError:
+                    # stdin closed
+                    break
+                except Exception as e:
+                    logger.error(f"Error in input handler: {e}")
+                    break
+        except Exception as e:
+            logger.error(f"Input handler failed: {e}")
+
+    def _output_handler(self):
+        """Thread that monitors PTY output and checks for continue patterns."""
+        buffer = ""
+        try:
+            while self.running and self.process and self.process.isalive():
+                try:
+                    # Read from PTY (non-blocking)
+                    rlist, _, _ = select.select([self.process.fd], [], [], 0.1)
+                    if rlist:
+                        chunk = self.process.read(
+                            4096
+                        )  # Larger buffer for better performance
+                        if chunk:
+                            buffer += chunk
+                            self.last_output_time = time.time()
+
+                            # Enforce maximum buffer size
+                            if len(buffer) > self.config.max_buffer_size:
+                                buffer = buffer[-self.config.max_buffer_size :]
+
+                            # Echo to stdout if needed
+                            if self.config.echo:
+                                sys.stdout.write(chunk)
+                                sys.stdout.flush()
+
+                            # Check for continue prompts
+                            if self._match_pattern(buffer):
+                                logger.info("Continue prompt detected")
+                                self._handle_continue_prompt()
+                                buffer = ""  # Clear buffer after handling
+
+                    # Check for inactivity timeout
+                    current_time = time.time()
+                    if (
+                        self.config.inactivity_timeout > 0
+                        and current_time - self.last_output_time
+                        > self.config.inactivity_timeout
+                    ):
+                        logger.warning(
+                            f"No output for {current_time - self.last_output_time:.1f}s, agent may be stuck"
+                        )
+                        # Try to send newline to wake it up
+                        self._send_input("\n")
+                        time.sleep(self.config.debounce_period)
+
+                except EOFError:
+                    break
+                except Exception as e:
+                    logger.error(f"Error in output handler: {e}")
+                    break
+        except Exception as e:
+            logger.error(f"Output handler failed: {e}")
 
     def _send_input(self, text: str):
         """Send input to the agent process."""
