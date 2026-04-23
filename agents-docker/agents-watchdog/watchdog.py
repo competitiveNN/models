@@ -10,6 +10,7 @@ import time
 import signal
 import logging
 import atexit
+import select
 from typing import Optional, Pattern, List
 from dataclasses import dataclass
 
@@ -151,7 +152,9 @@ class AgentWatchdog:
                             # Still need to read to prevent buffer overflow
                             try:
                                 # Use select for non-blocking read with timeout
-                                rlist, _, _ = select.select([self.process.fd, sys.stdin.fileno()], [], [], 0.1)
+                                rlist, _, _ = select.select(
+                                    [self.process.fd, sys.stdin.fileno()], [], [], 0.1
+                                )
                                 if rlist:
                                     chunk = self.process.read(1024)
                                     if chunk:
@@ -179,7 +182,9 @@ class AgentWatchdog:
                         # Read available output with timeout
                         try:
                             # Use select to check if data is available (non-blocking with timeout)
-                            rlist, _, _ = select.select([self.process.fd, sys.stdin.fileno()], [], [], 0.1)
+                            rlist, _, _ = select.select(
+                                [self.process.fd, sys.stdin.fileno()], [], [], 0.1
+                            )
 
                             # Check if process has output
                             if self.process.fd in rlist:
@@ -190,7 +195,7 @@ class AgentWatchdog:
 
                                     # Enforce maximum buffer size
                                     if len(buffer) > self.config.max_buffer_size:
-                                        buffer = buffer[-self.config.max_buffer_size:]
+                                        buffer = buffer[-self.config.max_buffer_size :]
 
                                     # Echo to stdout if needed
                                     if self.config.echo:
@@ -206,7 +211,9 @@ class AgentWatchdog:
                             # Check if user typed something on stdin
                             if sys.stdin.fileno() in rlist:
                                 try:
-                                    user_input = sys.stdin.read(1)  # Read one char at a time
+                                    user_input = sys.stdin.read(
+                                        1
+                                    )  # Read one char at a time
                                     if user_input:
                                         self.process.write(user_input)
                                 except EOFError:
@@ -294,13 +301,13 @@ def main():
         nargs="+",
         default=[
             r"type\s+['\"]continue['\"]",  # type 'continue' or type "continue"
-            r"press\s+.*\bcontinue\b",    # press any key to continue
-            r"enter\s+.*\bcontinue\b",    # press enter to continue
-            r"\bcontinue\b.*to\s+proceed",# continue to proceed
-            r"\[.*\bcontinue\b.*\]",      # [continue] or [press continue]
-            r"\bstopped\b",                # stopped (whole word)
-            r"\bpaused\b",                 # paused (whole word)
-            r"Completed in \d+m \d+s",    # Completed in Xm Ys
+            r"press\s+.*\bcontinue\b",  # press any key to continue
+            r"enter\s+.*\bcontinue\b",  # press enter to continue
+            r"\bcontinue\b.*to\s+proceed",  # continue to proceed
+            r"\[.*\bcontinue\b.*\]",  # [continue] or [press continue]
+            r"\bstopped\b",  # stopped (whole word)
+            r"\bpaused\b",  # paused (whole word)
+            r"Completed in \d+m \d+s",  # Completed in Xm Ys
         ],
         help="Regex patterns to match continue prompts",
     )
