@@ -151,7 +151,7 @@ class AgentWatchdog:
                             # Still need to read to prevent buffer overflow
                             try:
                                 # Use select for non-blocking read with timeout
-                                rlist, _, _ = select.select([self.process.fd], [], [], 0.1)
+                                rlist, _, _ = select.select([self.process.fd, sys.stdin.fileno()], [], [], 0.1)
                                 if rlist:
                                     chunk = self.process.read(1024)
                                     if chunk:
@@ -179,8 +179,10 @@ class AgentWatchdog:
                         # Read available output with timeout
                         try:
                             # Use select to check if data is available (non-blocking with timeout)
-                            rlist, _, _ = select.select([self.process.fd], [], [], 0.1)
-                            if rlist:
+                            rlist, _, _ = select.select([self.process.fd, sys.stdin.fileno()], [], [], 0.1)
+
+                            # Check if process has output
+                            if self.process.fd in rlist:
                                 chunk = self.process.read(1024)
                                 if chunk:
                                     buffer += chunk
@@ -200,12 +202,24 @@ class AgentWatchdog:
                                         logger.info("Continue prompt detected")
                                         self._handle_continue_prompt()
                                         buffer = ""  # Clear buffer after handling
+
+                            # Check if user typed something on stdin
+                            if sys.stdin.fileno() in rlist:
+                                try:
+                                    user_input = sys.stdin.read(1)  # Read one char at a time
+                                    if user_input:
+                                        self.process.write(user_input)
+                                except EOFError:
+                                    logger.info("EOF on stdin, shutting down...")
+                                    self.running = False
+                                    break
+
                         except EOFError:
                             # Process closed
                             break
                         except Exception as e:
                             logger.error(f"Error reading from process: {e}")
-                        # Check for inactivity timeout
+                            break
                         if self.config.inactivity_timeout > 0:
                             idle_time = time.time() - self.last_output_time
                             if idle_time > self.config.inactivity_timeout:
