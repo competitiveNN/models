@@ -26,6 +26,7 @@ agents-cli — launch the multi-agent CLI container
 Usage:
   agents-cli                       Open interactive shell
   agents-cli <agent> [args...]     Run a specific agent
+  agents-cli watch <agent> [args...] Run agent with watchdog (auto-continue)
   agents-cli --cleanup             Remove all agent volumes (WARNING: destroys data)
   agents-cli --help                Show this help
 
@@ -147,7 +148,16 @@ pass_env AWS_REGION              || true
 pass_env AZURE_OPENAI_API_KEY    || true
 pass_env AZURE_OPENAI_ENDPOINT   || true
 
-# ── Launch ───────────────────────────────────────────────────────────────────
+
+# ── Watch mode ───────────────────────────────────────
+# If the first argument is "watch", prepend "watchdog" to the agent command
+WATCH_MODE=0
+if [[ "${1:-}" == "watch" ]]; then
+    WATCH_MODE=1
+    shift  # Remove "watch" from arguments
+    log "Watch mode enabled - wrapping agent with watchdog"
+fi
+
 log "Launching ${IMAGE_NAME}:latest"
 
 # Build docker args as a list to handle empty arrays cleanly
@@ -156,6 +166,12 @@ DOCKER_ARGS+=(--security-opt label=disable)
 DOCKER_ARGS+=("${MOUNTS[@]}")
 [[ ${#DOCKER_ENV[@]} -gt 0 ]] && DOCKER_ARGS+=("${DOCKER_ENV[@]}")
 DOCKER_ARGS+=("${IMAGE_NAME}:latest")
-DOCKER_ARGS+=("$@")
+
+# Add watchdog prefix if in watch mode
+if [[ ${WATCH_MODE} -eq 1 ]]; then
+    DOCKER_ARGS+=(watchdog "$@")
+else
+    DOCKER_ARGS+=("$@")
+fi
 
 exec docker run "${DOCKER_ARGS[@]}"
