@@ -13,12 +13,21 @@ import atexit
 import select
 import tty
 import termios
-import threading
 import fcntl
 import struct
 import termios as termios_module
 from typing import Optional, Pattern, List
 from dataclasses import dataclass
+
+# Use built-in pty module for direct terminal control
+try:
+    import pty
+    import termios
+    import tty
+
+    HAS_PTY = True
+except ImportError:
+    HAS_PTY = False
 
 try:
     import ptyprocess
@@ -26,16 +35,6 @@ try:
     HAS_PTYPROCESS = True
 except ImportError:
     HAS_PTYPROCESS = False
-
-# Try to import built-in pty as fallback
-try:
-    import pty
-    import termios
-    import tty
-
-    HAS_BUILTIN_PTY = True
-except ImportError:
-    HAS_BUILTIN_PTY = False
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +65,8 @@ class AgentWatchdog:
     def __init__(self, command: List[str], config: WatchdogConfig):
         self.command = command
         self.config = config
-        self.process: Optional[ptyprocess.PtyProcessUnicode] = None
+        self.pid = None  # Child process PID
+        self.fd = None  # PTY file descriptor
         self.running = False
         self.last_output_time = 0.0
         self.auto_continue_count = 0
@@ -117,13 +117,23 @@ class AgentWatchdog:
             except Exception as e:
                 logger.error(f"Error restoring terminal settings: {e}")
 
-        if self.process and self.process.isalive():
-            logger.info("Terminating agent process...")
+        # Close PTY file descriptor
+        if self.fd is not None:
             try:
-                self.process.terminate()
+                os.close(self.fd)
+            except Exception as e:
+                logger.error(f"Error closing PTY: {e}")
+
+        # Terminate child process
+        if self.pid is not None:
+            try:
+                os.kill(self.pid, signal.SIGTERM)
                 time.sleep(0.5)
-                if self.process.isalive():
-                    self.process.kill()
+                try:
+                    os.kill(self.pid, 0)  # Check if still alive
+                    os.kill(self.pid, signal.SIGKILL)  # Force kill if still running
+                except OSError:
+                    pass  # Process already exited
             except Exception as e:
                 logger.error(f"Error terminating process: {e}")
 
@@ -140,11 +150,9 @@ class AgentWatchdog:
         sys.exit(0)
 
     def run(self):
-        """Main watchdog loop using threaded approach for better performance."""
-        if not HAS_PTYPROCESS:
-            raise RuntimeError(
-                "ptyprocess is required. Install with: pip install ptyprocess"
-            )
+        """Main watchdog loop using direct PTY control for reliable terminal monitoring."""
+        if not HAS_PTY:
+            raise RuntimeError("pty module is required for terminal monitoring")
 
         logger.info(f"Starting agent: {' '.join(self.command)}")
         logger.info(f"Watching for patterns: {self.config.continue_patterns}")
@@ -163,28 +171,105 @@ class AgentWatchdog:
             logger.warning(f"Could not set raw mode: {e}")
 
         try:
-            # Start the process in a PTY
-            self.process = ptyprocess.PtyProcessUnicode.spawn(self.command, echo=True)
+            # Use pty.fork() for direct PTY control
+            pid, fd = pty.fork()
+
+            if pid == 0:
+                # Child process: execute the agent command
+                try:
+                    os.execvp(self.command[0], self.command)
+                except Exception as e:
+                    logger.error(f"Failed to execute command: {e}")
+                    sys.exit(1)
+
+            # Parent process: monitor the PTY
             self.running = True
             self.last_output_time = time.time()
+            self.pid = pid
+            self.fd = fd
 
             # Set PTY window size to match current terminal
             self._set_pty_size()
 
-            # Create threads for input/output handling
-            input_thread = threading.Thread(target=self._input_handler, daemon=True)
-            output_thread = threading.Thread(target=self._output_handler, daemon=True)
+            # Main monitoring loop with direct select-based I/O
+            buffer = ""
 
-            input_thread.start()
-            output_thread.start()
+            while self.running:
+                try:
+                    # Use select to monitor PTY and stdin
+                    rlist, _, _ = select.select([fd, sys.stdin.fileno()], [], [], 0.1)
 
-            # Wait for process to finish
-            while self.running and self.process.isalive():
-                time.sleep(0.1)  # Main thread just waits
+                    # Handle PTY output (agent output)
+                    if fd in rlist:
+                        try:
+                            data = os.read(fd, 4096)
+                            if data:
+                                # Decode and process output
+                                output = data.decode("utf-8", errors="ignore")
+                                buffer += output
+                                self.last_output_time = time.time()
 
-            # Wait for threads to finish
-            input_thread.join(timeout=1.0)
-            output_thread.join(timeout=1.0)
+                                # Enforce buffer size limit
+                                if len(buffer) > self.config.max_buffer_size:
+                                    buffer = buffer[-self.config.max_buffer_size :]
+
+                                # Echo to stdout
+                                if self.config.echo:
+                                    sys.stdout.write(output)
+                                    sys.stdout.flush()
+
+                                # Check for continue patterns
+                                if self._match_pattern(buffer):
+                                    logger.info("Continue prompt detected")
+                                    self._handle_continue_prompt()
+                                    buffer = ""  # Clear buffer after handling
+                            else:
+                                # EOF from PTY - process exited
+                                break
+                        except OSError:
+                            # PTY closed
+                            break
+
+                    # Handle stdin input (user input)
+                    if sys.stdin.fileno() in rlist:
+                        try:
+                            user_input = os.read(sys.stdin.fileno(), 1024)
+                            if user_input:
+                                # Forward to PTY
+                                os.write(fd, user_input)
+                        except EOFError:
+                            # User pressed Ctrl+D
+                            logger.info("EOF on stdin, shutting down...")
+                            self.running = False
+                            break
+
+                    # Check for inactivity timeout
+                    current_time = time.time()
+                    if (
+                        self.config.inactivity_timeout > 0
+                        and current_time - self.last_output_time
+                        > self.config.inactivity_timeout
+                    ):
+                        logger.warning(
+                            f"No output for {current_time - self.last_output_time:.1f}s, agent may be stuck"
+                        )
+                        # Try to send newline to wake it up
+                        self._send_input_to_pty(fd, "\n")
+                        time.sleep(self.config.debounce_period)
+
+                except KeyboardInterrupt:
+                    logger.info("Keyboard interrupt received")
+                    self.running = False
+                    break
+                except Exception as e:
+                    logger.error(f"Unexpected error in watchdog loop: {e}")
+                    break
+
+            # Wait for child process to finish
+            try:
+                os.waitpid(pid, 0)
+            except OSError:
+                pass  # Process already exited
 
         finally:
             self._cleanup()
@@ -213,89 +298,19 @@ class AgentWatchdog:
         # Set debounce period - ignore further pattern matches for this duration
         self._debounce_until = time.time() + self.config.debounce_period
 
-    def _input_handler(self):
-        """Thread that forwards stdin to the PTY process."""
-        try:
-            while self.running and self.process and self.process.isalive():
-                try:
-                    # Read from stdin (blocking)
-                    user_input = os.read(sys.stdin.fileno(), 1024)
-                    if user_input:
-                        # Forward to PTY
-                        self.process.write(user_input.decode("utf-8", errors="ignore"))
-                except OSError:
-                    # stdin closed
-                    break
-                except Exception as e:
-                    logger.error(f"Error in input handler: {e}")
-                    break
-        except Exception as e:
-            logger.error(f"Input handler failed: {e}")
-
-    def _output_handler(self):
-        """Thread that monitors PTY output and checks for continue patterns."""
-        buffer = ""
-        try:
-            while self.running and self.process and self.process.isalive():
-                try:
-                    # Read from PTY (non-blocking)
-                    rlist, _, _ = select.select([self.process.fd], [], [], 0.1)
-                    if rlist:
-                        chunk = self.process.read(
-                            4096
-                        )  # Larger buffer for better performance
-                        if chunk:
-                            buffer += chunk
-                            self.last_output_time = time.time()
-
-                            # Enforce maximum buffer size
-                            if len(buffer) > self.config.max_buffer_size:
-                                buffer = buffer[-self.config.max_buffer_size :]
-
-                            # Echo to stdout if needed
-                            if self.config.echo:
-                                sys.stdout.write(chunk)
-                                sys.stdout.flush()
-
-                            # Check for continue prompts
-                            if self._match_pattern(buffer):
-                                logger.info("Continue prompt detected")
-                                self._handle_continue_prompt()
-                                buffer = ""  # Clear buffer after handling
-
-                    # Check for inactivity timeout
-                    current_time = time.time()
-                    if (
-                        self.config.inactivity_timeout > 0
-                        and current_time - self.last_output_time
-                        > self.config.inactivity_timeout
-                    ):
-                        logger.warning(
-                            f"No output for {current_time - self.last_output_time:.1f}s, agent may be stuck"
-                        )
-                        # Try to send newline to wake it up
-                        self._send_input("\n")
-                        time.sleep(self.config.debounce_period)
-
-                except EOFError:
-                    break
-                except Exception as e:
-                    logger.error(f"Error in output handler: {e}")
-                    break
-        except Exception as e:
-            logger.error(f"Output handler failed: {e}")
-
     def _set_pty_size(self):
         """Set PTY window size to match current terminal size."""
+        if self.fd is None:
+            return
+
         try:
             # Get current terminal size
             size = os.get_terminal_size()
             rows, cols = size.lines, size.columns
 
-            # Set PTY window size
-            # TIOCSWINSZ ioctl to set window size
+            # Set PTY window size using ioctl
             winsize = struct.pack("HHHH", rows, cols, 0, 0)
-            fcntl.ioctl(self.process.fd, termios_module.TIOCSWINSZ, winsize)
+            fcntl.ioctl(self.fd, termios_module.TIOCSWINSZ, winsize)
 
             logger.debug(f"Set PTY size to {cols}x{rows}")
         except Exception as e:
@@ -303,10 +318,15 @@ class AgentWatchdog:
 
     def _send_input(self, text: str):
         """Send input to the agent process."""
+        self._send_input_to_pty(self.fd, text)
+
+    def _send_input_to_pty(self, fd, text: str):
+        """Send input to the PTY."""
+        if fd is None:
+            return
         try:
-            if self.process and self.process.isalive():
-                self.process.write(text)
-                logger.debug(f"Sent: {text.strip()}")
+            os.write(fd, text.encode("utf-8"))
+            logger.debug(f"Sent: {text.strip()}")
         except Exception as e:
             logger.error(f"Error sending input: {e}")
 
