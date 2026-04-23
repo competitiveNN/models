@@ -150,15 +150,18 @@ class AgentWatchdog:
                             # Still in debounce period - read but don't pattern match
                             # Still need to read to prevent buffer overflow
                             try:
-                                chunk = self.process.read(1024, timeout=0.1)
-                                if chunk:
-                                    buffer += chunk
-                                    self.last_output_time = time.time()
-                                    if self.config.echo:
-                                        sys.stdout.write(chunk)
-                                        sys.stdout.flush()
-                            except ptyprocess.ptyprocess.TimeoutExpectation:
-                                pass
+                                # Use select for non-blocking read with timeout
+                                rlist, _, _ = select.select([self.process.fd], [], [], 0.1)
+                                if rlist:
+                                    chunk = self.process.read(1024)
+                                    if chunk:
+                                        buffer += chunk
+                                        self.last_output_time = time.time()
+                                        if self.config.echo:
+                                            sys.stdout.write(chunk)
+                                            sys.stdout.flush()
+                            except EOFError:
+                                break
                             except Exception as e:
                                 logger.error(f"Error reading from process: {e}")
                                 break
@@ -173,8 +176,12 @@ class AgentWatchdog:
                     # Check if there's output to read
                     if self.process.isalive():
                         # Read available output with timeout
-                            try:
-                                chunk = self.process.read(1024, timeout=0.1)
+                        # Read available output with timeout
+                        try:
+                            # Use select to check if data is available (non-blocking with timeout)
+                            rlist, _, _ = select.select([self.process.fd], [], [], 0.1)
+                            if rlist:
+                                chunk = self.process.read(1024)
                                 if chunk:
                                     buffer += chunk
                                     self.last_output_time = time.time()
@@ -193,23 +200,21 @@ class AgentWatchdog:
                                         logger.info("Continue prompt detected")
                                         self._handle_continue_prompt()
                                         buffer = ""  # Clear buffer after handling
-                            except ptyprocess.ptyprocess.TimeoutExpectation:
-                                # No data available, continue checking
-                                pass
-                            except Exception as e:
-                                logger.error(f"Error reading from process: {e}")
-                                break
-
-                    # Check for inactivity timeout
-                    if self.config.inactivity_timeout > 0:
-                        idle_time = time.time() - self.last_output_time
-                        if idle_time > self.config.inactivity_timeout:
-                            logger.warning(
-                                f"No output for {idle_time:.1f}s, agent may be stuck"
-                            )
-                            # Try to send newline to wake it up
-                            self._send_input("\n")
-                            time.sleep(self.config.debounce_period)
+                        except EOFError:
+                            # Process closed
+                            break
+                        except Exception as e:
+                            logger.error(f"Error reading from process: {e}")
+                        # Check for inactivity timeout
+                        if self.config.inactivity_timeout > 0:
+                            idle_time = time.time() - self.last_output_time
+                            if idle_time > self.config.inactivity_timeout:
+                                logger.warning(
+                                    f"No output for {idle_time:.1f}s, agent may be stuck"
+                                )
+                                # Try to send newline to wake it up
+                                self._send_input("\n")
+                                time.sleep(self.config.debounce_period)
 
                 except KeyboardInterrupt:
                     logger.info("Keyboard interrupt received")
