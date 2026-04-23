@@ -45,6 +45,33 @@ if command -v direnv &>/dev/null && [[ -f "${CONTAINER_HOME}/.bashrc" ]]; then
 	fi
 fi
 
+# ── Direnv environment loading for all commands ──────────────────────────────
+# Check if direnv is available and if we should load environment for this command
+if command -v direnv &>/dev/null && [[ $# -gt 0 ]]; then
+	# Find the nearest .envrc file by walking up the directory tree
+	find_envrc() {
+		local dir="$PWD"
+		while [[ "$dir" != "/" ]]; do
+			if [[ -f "$dir/.envrc" ]]; then
+				echo "$dir/.envrc"
+				return 0
+			fi
+			dir="$(dirname "$dir")"
+		done
+		return 1
+	}
 
+	# Check if this looks like an agent command (not setup, not bash, etc.)
+	# We want to load direnv for actual agent executions
+	if [[ "$1" != "bash" && "$1" != "setup-agent.sh" && "$1" != "watchdog" && "$1" != "direnv" ]]; then
+		envrc_path="$(find_envrc)"
+		if [[ -n "$envrc_path" ]]; then
+			envrc_dir="$(dirname "$envrc_path")"
+			echo "🔧 Loading direnv environment from $envrc_path"
+			# Use direnv exec to load the environment and run the command
+			exec direnv exec "$envrc_dir" "$@"
+		fi
+	fi
+fi
 
 exec "$@"
