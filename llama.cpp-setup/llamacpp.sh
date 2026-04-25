@@ -8,16 +8,12 @@ qwen35_08b="/models/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-UD-Q4_K_XL.gguf"
 qwen3_4b="/models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf"
 qwen3_8b="/models/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf"
 qwen35_9b="/models/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf"
-qwen35_27b="/models/Qwen3.5-27B-GGUF/Qwen3.5-27B-UD-Q4_K_XL.gguf"
 qwen35_122b="/models/Qwen3.5-122B-A10B-GGUF/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf"
 qwen36_35b_moe="/models/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
-glm_47_flash_23b="/models/GLM-4.7-Flash/GLM-4.7-Flash-REAP-23B-A3B-UD-Q4_K_XL.gguf"
-phi3_mini="/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf"
+qwen36_27b="/models/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf"
+
 gemma4_31b="/models/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q4_K_XL.gguf"
 gemma4_26b_a4b="/models/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf"
-
-ministral3_3b="/models/Ministral-3-3B-Instruct-2512-GGUF/Ministral-3-3B-Instruct-2512-UD-IQ2_XXS.gguf"
-ministral3_8b="/models/Ministral-3-8B-Instruct-2512-GGUF/Ministral-3-8B-Instruct-2512-UD-Q4_K_XL.gguf"
 
 lfm2_24b="/models/LFM2-24B-A2B-GGUF/LFM2-24B-A2B-Q4_K_M.gguf"
 lfm25_1_2b="/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gguf"
@@ -25,17 +21,19 @@ lfm25_1_2b="/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gg
 hypernova_60b="/models/Hypernova-60B-2602-GGUF/Hypernova-60B-2602-GGUF.gguf" # 8tps
 phi3_2b="/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf"
 
-MODEL=$qwen36_35b_moe
+MODEL=$gemma4_26b_a4b
 
 SPEC_DRAFT_MODEL="" # $qwen35_08b
 SPEC_DRAFT_MAX="${SPEC_DRAFT_MAX:-}"
 SPEC_DRAFT_MIN="${SPEC_DRAFT_MIN:-}"
 SPEC_TYPE="${SPEC_TYPE:-}"
+SPEC_NGRAM_SIZE_N="${SPEC_NGRAM_SIZE_N:-}"
 
 N_GPU_LAYERS="${N_GPU_LAYERS:-}"
 SELECTED_GPUS=()
 N_CPU_MOE="${N_CPU_MOE:-0}"
 DETECT="${DETECT:-}"
+PRESERVE_THINKING="${PRESERVE_THINKING:-}"
 
 usage() {
 	echo "Usage: $0 [--intel|--vulkan|--cpu|--ik] [server|--bench] [options] [-- <extra llama.cpp args>]"
@@ -44,6 +42,8 @@ usage() {
 	echo "  --ngl N                   Number of GPU layers (default: 9999 for GPU, 0 for CPU)"
 	echo "  --moe N                   Number of CPU MOE layers (default: 0)"
 	echo "  --detect                  Automatically detect memory and infer --n-gpu-layers"
+	echo "  --pthinking                Enable preserve_thinking in chat template (sets --chat-template-kwargs '{\"preserve_thinking\":true}')"
+	echo "  --spec-ngram-size-n N       Set ngram size for ngram spec decoding (e.g., 24)"
 }
 
 die() {
@@ -124,6 +124,10 @@ while [[ "$#" -gt 0 ]]; do
 		DETECT=1
 		shift
 		;;
+	--pthinking)
+		PRESERVE_THINKING=1
+		shift
+		;;
 	--gpus)
 		[[ -n "${2:-}" ]] || die "error: --gpus requires a value (e.g., 0,1 or 0)"
 		IFS=',' read -ra SELECTED_GPUS <<<"$2"
@@ -157,7 +161,12 @@ while [[ "$#" -gt 0 ]]; do
 		SPEC_TYPE="$2"
 		shift 2
 		;;
-	-h | --help)
+	--spec-ngram-size-n)
+		[[ -n "${2:-}" ]] || die "error: --spec-ngram-size-n requires a value"
+		SPEC_NGRAM_SIZE_N="$2"
+		shift 2
+		;;
+	--help)
 		usage
 		exit 0
 		;;
@@ -177,8 +186,8 @@ fi
 if [[ -n "$N_CPU_MOE" ]] && ! is_uint "$N_CPU_MOE"; then
 	die "error: --moe must be an integer"
 fi
-if [[ -n "$SPEC_DRAFT_MODEL" ]] && [[ "$SPEC_DRAFT_MODEL" != /* ]]; then
-	die "error: SPEC_DRAFT_MODEL/--draft-model must be an absolute path inside the container (e.g. /models/...)"
+if [[ -n "$SPEC_DRAFT_MODEL" ]] && [[ "$SPEC_DRAFT_MODEL" != "1" ]] && [[ "$SPEC_DRAFT_MODEL" != /* ]]; then
+	die "error: SPEC_DRAFT_MODEL/--draft-model must be an absolute path inside the container (e.g. /models/...) or 1 for spec decoding without draft model"
 fi
 
 if [[ -n "$DETECT" ]] && [[ -z "$CPU_MODE" ]]; then
@@ -230,9 +239,10 @@ if [[ -n "$CPU_MODE" ]]; then
 fi
 
 SPEC_ARGS=()
-if [[ -n "$SPEC_DRAFT_MODEL" ]]; then
+if [[ -n "$SPEC_DRAFT_MODEL" && "$SPEC_DRAFT_MODEL" != "1" ]]; then
 	SPEC_ARGS+=(--model-draft "$SPEC_DRAFT_MODEL")
 fi
+# If SPEC_DRAFT_MODEL is "1", skip --model-draft but still allow other spec args
 if [[ -n "$SPEC_DRAFT_MAX" ]]; then
 	SPEC_ARGS+=(--draft-max "$SPEC_DRAFT_MAX")
 fi
@@ -241,6 +251,9 @@ if [[ -n "$SPEC_DRAFT_MIN" ]]; then
 fi
 if [[ -n "$SPEC_TYPE" ]]; then
 	SPEC_ARGS+=(--spec-type "$SPEC_TYPE")
+fi
+if [[ -n "$SPEC_NGRAM_SIZE_N" ]]; then
+	SPEC_ARGS+=(--spec-ngram-size-n "$SPEC_NGRAM_SIZE_N")
 fi
 
 DOCKER_ARGS=("${COMMON_ARGS[@]}")
@@ -259,6 +272,9 @@ else
 	CMD_ARGS=(-m "$MODEL" "${SPEC_ARGS[@]}")
 	if [[ -n "$N_GPU_LAYERS" ]]; then
 		CMD_ARGS+=(--n-gpu-layers "$N_GPU_LAYERS")
+	fi
+	if [[ -n "$PRESERVE_THINKING" ]]; then
+		CMD_ARGS+=(--chat-template-kwargs '{"preserve_thinking": true}')
 	fi
 fi
 
