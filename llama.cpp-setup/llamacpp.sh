@@ -21,7 +21,7 @@ lfm25_1_2b="/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gg
 hypernova_60b="/models/Hypernova-60B-2602-GGUF/Hypernova-60B-2602-GGUF.gguf" # 8tps
 phi3_2b="/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf"
 
-MODEL=$gemma4_26b_a4b
+MODEL=$qwen36_35b_moe
 
 SPEC_DRAFT_MODEL="" # $qwen35_08b
 SPEC_DRAFT_MAX="${SPEC_DRAFT_MAX:-48}"
@@ -58,29 +58,61 @@ is_uint() {
 }
 
 calculate_ngl() {
-	# Automatic memory detection
-	NUM_GPUS=2
-	GPU_VRAM_MB=12216   # Actual from device info
-	SYSTEM_RAM_MB=65536 # 64GB system RAM
-	# Get model file path on host
-	HOST_MODEL_PATH="${MODELS_PATH}${MODEL#/models}"
-	MODEL_SIZE_BYTES=$(stat -f%z "$HOST_MODEL_PATH" 2>/dev/null || du -b "$HOST_MODEL_PATH" 2>/dev/null | cut -f1 || echo 0)
-	MODEL_SIZE_MB=$((MODEL_SIZE_BYTES / 1024 / 1024))
-	# From model info: 60 layers
-	NUM_LAYERS=60
-	LAYER_SIZE_MB=$((MODEL_SIZE_MB / NUM_LAYERS))
-	# Estimate initial NGL without KV
-	INITIAL_TOTAL_MB=$((GPU_VRAM_MB * NUM_GPUS - 1024)) # 1GB margin for other
-	NGL=$((INITIAL_TOTAL_MB / LAYER_SIZE_MB))
-	if ((NGL > NUM_LAYERS)); then NGL=$NUM_LAYERS; fi
-	# Estimate KV cache size (scales with context, based on 1280 MiB for 16384 ctx and 10 layers)
-	KV_MB=$((1280 * NGL / 10))
-	# Recalculate with KV
-	TOTAL_GPU_MB=$((GPU_VRAM_MB * NUM_GPUS - KV_MB - 1024))
-	NGL=$((TOTAL_GPU_MB / LAYER_SIZE_MB))
-	if ((NGL > NUM_LAYERS)); then NGL=$NUM_LAYERS; fi
-	if ((NGL < 1)); then NGL=1; fi
-	N_GPU_LAYERS=$NGL
+    # Automatic memory detection
+    NUM_GPUS=2
+    GPU_VRAM_MB=12216   # Actual from device info
+    SYSTEM_RAM_MB=65536 # 64GB system RAM
+    # Get model file path on host
+    HOST_MODEL_PATH="${MODELS_PATH}${MODEL#/models}"
+    MODEL_SIZE_BYTES=$(stat -f%z "$HOST_MODEL_PATH" 2>/dev/null || du -b "$HOST_MODEL_PATH" 2>/dev/null | cut -f1 || echo 0)
+    MODEL_SIZE_MB=$((MODEL_SIZE_BYTES / 1024 / 1024))
+
+    # Determine number of layers by reading model metadata
+    MODEL_DIR="${HOST_MODEL_PATH%/*}"  # Get directory containing the model file
+    README_FILE="$MODEL_DIR/README.md"
+
+    if [[ -f "$README_FILE" ]]; then
+        # Try to extract layer count from README.md
+        NUM_LAYERS=$(grep -i "Number of Layers:" "$README_FILE" | sed 's/.*: *\([0-9]*\).*/\1/' | head -1)
+        if [[ -n "$NUM_LAYERS" && "$NUM_LAYERS" =~ ^[0-9]+$ ]]; then
+            echo "Found layer count in README: $NUM_LAYERS" >&2
+        else
+            NUM_LAYERS=""
+        fi
+    fi
+
+    # Fallback: try to estimate from model size and typical layer sizes
+    if [[ -z "$NUM_LAYERS" ]]; then
+        # Rough estimation based on model size (MB) and typical layer sizes
+        # Most models have layers around 300-600MB each for Q4_K quantizations
+        AVG_LAYER_SIZE_MB=400  # Conservative estimate
+        ESTIMATED_LAYERS=$((MODEL_SIZE_MB / AVG_LAYER_SIZE_MB))
+
+        # Clamp to reasonable bounds
+        if ((ESTIMATED_LAYERS < 10)); then
+            NUM_LAYERS=10
+        elif ((ESTIMATED_LAYERS > 200)); then
+            NUM_LAYERS=200
+        else
+            NUM_LAYERS=$ESTIMATED_LAYERS
+        fi
+
+        echo "Warning: Could not find layer count in metadata, estimating $NUM_LAYERS layers from model size" >&2
+    fi
+
+    LAYER_SIZE_MB=$((MODEL_SIZE_MB / NUM_LAYERS))
+    # Estimate initial NGL without KV
+    INITIAL_TOTAL_MB=$((GPU_VRAM_MB * NUM_GPUS - 1024)) # 1GB margin for other
+    NGL=$((INITIAL_TOTAL_MB / LAYER_SIZE_MB))
+    if ((NGL > NUM_LAYERS)); then NGL=$NUM_LAYERS; fi
+    # Estimate KV cache size (scales with context, based on 1280 MiB for 16384 ctx and 10 layers)
+    KV_MB=$((1280 * NGL / 10))
+    # Recalculate with KV
+    TOTAL_GPU_MB=$((GPU_VRAM_MB * NUM_GPUS - KV_MB - 1024))
+    NGL=$((TOTAL_GPU_MB / LAYER_SIZE_MB))
+    if ((NGL > NUM_LAYERS)); then NGL=$NUM_LAYERS; fi
+    if ((NGL < 1)); then NGL=1; fi
+    N_GPU_LAYERS=$NGL
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -191,7 +223,10 @@ if [[ -n "$SPEC_DRAFT_MODEL" ]] && [[ "$SPEC_DRAFT_MODEL" != "1" ]] && [[ "$SPEC
 fi
 
 if [[ -n "$DETECT" ]] && [[ -z "$CPU_MODE" ]]; then
-	calculate_ngl
+    calculate_ngl
+    echo "Detected optimal N_GPU_LAYERS: $N_GPU_LAYERS"
+    echo "Use: ./llamacpp.sh --intel --ngl $N_GPU_LAYERS [other options]"
+    exit 0
 fi
 
 # Build DEVICES from SELECTED_GPUS; default to both if empty
@@ -215,25 +250,88 @@ COMMON_ARGS=(
 	${DEVICES:-}
 )
 
+# Function to parse context size with k/m suffixes
+parse_ctx_size() {
+	local value="$1"
+	if [[ "$value" =~ ^([0-9]+)([km]?)$ ]]; then
+		local num="${BASH_REMATCH[1]}"
+		local suffix="${BASH_REMATCH[2]}"
+		case "$suffix" in
+			k|K) echo $((num * 1024)) ;;
+			m|M) echo $((num * 1024 * 1024)) ;;
+			*) echo "$num" ;;
+		esac
+	else
+		echo "$value"
+	fi
+}
+
 MODEL_ARGS=(-m "$MODEL")
 
-if [[ -z "$CPU_MODE" ]]; then
-	if [[ -n "$N_GPU_LAYERS" ]]; then
-		MODEL_ARGS+=(--n-gpu-layers "$N_GPU_LAYERS")
+# Check if --fit-ctx or --fit-target are present in arguments
+USE_FIT_MODE=0
+FIT_CTX_SIZE=""
+MANUAL_CTX_SIZE=""
+for ((i=1; i<=$#; i++)); do
+	arg="${!i}"
+	if [[ "$arg" == "--fit-ctx" ]]; then
+		USE_FIT_MODE=1
+		next_i=$((i + 1))
+		if ((next_i <= $#)); then
+			next_arg="${!next_i}"
+			if [[ "$next_arg" != -* ]]; then
+				FIT_CTX_SIZE="$(parse_ctx_size "$next_arg")"
+			fi
+		fi
+	elif [[ "$arg" == "--fit-target" ]] || [[ "$arg" == "--fitt" ]]; then
+		USE_FIT_MODE=1
+	elif [[ "$arg" == "--ctx-size" ]] || [[ "$arg" == "-c" ]]; then
+		next_i=$((i + 1))
+		if ((next_i <= $#)); then
+			next_arg="${!next_i}"
+			if [[ "$next_arg" != -* ]]; then
+				MANUAL_CTX_SIZE="$(parse_ctx_size "$next_arg")"
+			fi
+		fi
 	fi
-else
-	MODEL_ARGS+=(--n-gpu-layers 0)
+done
+
+
+if [[ $USE_FIT_MODE -eq 0 ]]; then
+	if [[ -z "$CPU_MODE" ]]; then
+		if [[ -n "$N_GPU_LAYERS" ]]; then
+			MODEL_ARGS+=(--n-gpu-layers "$N_GPU_LAYERS")
+		fi
+	else
+		MODEL_ARGS+=(--n-gpu-layers 0)
+	fi
+
+	MODEL_ARGS+=(--n-cpu-moe "$N_CPU_MOE")
 fi
 
-MODEL_ARGS+=(--n-cpu-moe "$N_CPU_MOE" --ctx-size 16384 --threads 8)
+# Set ctx-size: manual > fit-ctx > default
+if [[ -n "$MANUAL_CTX_SIZE" ]]; then
+	MODEL_ARGS+=(--ctx-size "$MANUAL_CTX_SIZE")
+elif [[ -n "$FIT_CTX_SIZE" ]]; then
+	MODEL_ARGS+=(--ctx-size "$FIT_CTX_SIZE")
+elif [[ $USE_FIT_MODE -eq 0 ]]; then
+	MODEL_ARGS+=(--ctx-size 16384)
+fi
+MODEL_ARGS+=(--threads 8)
 
 if [[ -n "$CPU_MODE" ]]; then
 	MODEL_ARGS=(
 		-m "$MODEL"
 		--n-gpu-layers 0
-		--ctx-size 16384
-		--threads 8
 	)
+	if [[ -n "$MANUAL_CTX_SIZE" ]]; then
+		MODEL_ARGS+=(--ctx-size "$MANUAL_CTX_SIZE")
+	elif [[ -n "$FIT_CTX_SIZE" ]]; then
+		MODEL_ARGS+=(--ctx-size "$FIT_CTX_SIZE")
+	elif [[ $USE_FIT_MODE -eq 0 ]]; then
+		MODEL_ARGS+=(--ctx-size 16384)
+	fi
+	MODEL_ARGS+=(--threads 8)
 	# Disable SYCL backends that require GPU hardware
 	DOCKER_ARGS+=(-e GGML_BACKEND=cpu)
 fi
@@ -257,20 +355,20 @@ if [[ -n "$SPEC_NGRAM_SIZE_N" ]]; then
 fi
 
 DOCKER_ARGS=("${COMMON_ARGS[@]}")
-CMD_ARGS=("${MODEL_ARGS[@]}" "${SPEC_ARGS[@]}")
+CMD_ARGS=("${MODEL_ARGS[@]}")
 
 if [[ "$MODE" == "server" ]]; then
 	echo "Running in server mode..."
 	DOCKER_ARGS+=(-p 8000:8000)
 	# Append server-specific args
-	CMD_ARGS=("${CMD_ARGS[@]}" --host 0.0.0.0 --port 8000)
+	CMD_ARGS=("${CMD_ARGS[@]}" "${SPEC_ARGS[@]}" --host 0.0.0.0 --port 8000)
 else
 	echo "Running in benchmark mode..."
 	# Override entrypoint to llama-bench
 	DOCKER_ARGS+=(--entrypoint /app/llama-bench)
 	# Set bench-specific args
-	CMD_ARGS=(-m "$MODEL" "${SPEC_ARGS[@]}")
-	if [[ -n "$N_GPU_LAYERS" ]]; then
+	CMD_ARGS=(-m "$MODEL")
+	if [[ $USE_FIT_MODE -eq 0 && -n "$N_GPU_LAYERS" ]]; then
 		CMD_ARGS+=(--n-gpu-layers "$N_GPU_LAYERS")
 	fi
 	if [[ -n "$PRESERVE_THINKING" ]]; then
@@ -278,16 +376,31 @@ else
 	fi
 fi
 
-# Strip 'bench' or '--bench' from extra args if in bench mode
-if [[ "$MODE" == "bench" ]]; then
-	clean_args=()
-	for arg in "$@"; do
-		if [[ "$arg" != "bench" && "$arg" != "--bench" ]]; then
-			clean_args+=("$arg")
-		fi
-	done
-	set -- "${clean_args[@]}"
-fi
+# Strip processed arguments from extra args
+clean_args=()
+skip_next=0
+for arg in "$@"; do
+	if ((skip_next > 0)); then
+		((skip_next--))
+		continue
+	fi
+
+	case "$arg" in
+		"bench"|"--bench")
+			# Skip in bench mode
+			if [[ "$MODE" == "bench" ]]; then
+				continue
+			fi
+			;;
+		"--ctx-size"|"-c"|"--fit-ctx"|"--fit-target"|"--fitt")
+			# Skip these arguments and their values as they're processed
+			skip_next=1
+			continue
+			;;
+	esac
+	clean_args+=("$arg")
+done
+set -- "${clean_args[@]}"
 
 # Print the command passed to llama.cpp
 if [[ "$MODE" == "server" ]]; then
