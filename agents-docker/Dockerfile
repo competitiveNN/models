@@ -3,6 +3,9 @@ FROM node:22-bookworm
 LABEL maintainer="fra"
 LABEL description="Multi-agent CLI environment — agents installed at runtime via setup-agent.sh"
 
+# ── Bun (JavaScript runtime) ─────────────────────────────────────────────────
+RUN curl -fsSL https://bun.sh/install | bash
+
 # ── System dependencies ─────────────────────────────────────────────────────
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TERM=xterm-256color
@@ -39,7 +42,7 @@ ENV HOME=${CONTAINER_HOME}
 ENV NPM_CONFIG_PREFIX=${CONTAINER_HOME}/.npm-global
 ENV NPM_CONFIG_CACHE=${CONTAINER_HOME}/.npm-cache
 ENV NPM_PREFIX=${CONTAINER_HOME}/.npm-global
-ENV PATH="${CONTAINER_HOME}/.npm-global/bin:${CONTAINER_HOME}/.local/bin:${CONTAINER_HOME}/.juliaup/bin:${PATH}"
+ENV PATH="${CONTAINER_HOME}/.npm-global/bin:${CONTAINER_HOME}/.local/bin:${CONTAINER_HOME}/.juliaup/bin:${CONTAINER_HOME}/.bun/bin:${PATH}"
 RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/bin ${CONTAINER_HOME}/.local/share \
     && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.npm-global ${CONTAINER_HOME}/.npm-cache ${CONTAINER_HOME}/.local
 
