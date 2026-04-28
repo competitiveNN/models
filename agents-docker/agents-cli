@@ -180,7 +180,7 @@ if [[ -n "${KITTY_WINDOW_ID:-}" ]] || [[ "${TERM:-}" == "xterm-kitty" ]]; then
     # Get the project directory basename
     PROJECT_NAME="$(basename "$PWD")"
     # Set Kitty window title using escape sequence
-    printf '\e]2;%s\a' "agents-cli: ${PROJECT_NAME}"
+    printf '\e]2;%s\a' "${PROJECT_NAME}"
 fi
 
 exec docker run "${DOCKER_ARGS[@]}"
