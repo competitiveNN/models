@@ -10,3 +10,6 @@
 [submodule "openarc-setup/OpenArc"]
 	path = openarc-setup/OpenArc
 	url = https://github.com/SearchSavior/OpenArc.git
+[submodule "agents-docker/mnn_src"]
+	path = agents-docker/mnn_src
+	url = https://github.com/alibaba/MNN.git

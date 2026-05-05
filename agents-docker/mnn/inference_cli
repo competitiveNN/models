@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# MNN inference CLI wrapper
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MNN_SRC_DIR="${SCRIPT_DIR}/../mnn_src"
+VENV_DIR="${SCRIPT_DIR}/venv"
+
+# Activate venv if it exists
+if [[ -d "${VENV_DIR}" ]]; then
+    source "${VENV_DIR}/bin/activate"
+fi
+
+# Python inference script
+python3 -c "
+import sys
+sys.path.insert(0, '${MNN_SRC_DIR}')
+# Add MNN inference logic here
+print('MNN inference initialized')
+" "$@"
