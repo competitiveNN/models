@@ -12,6 +12,7 @@ import os
 import requests
 import argparse
 from typing import List, Dict, Tuple
+import concurrent.futures
 
 # Global configuration - modify these as needed
 API_ENDPOINT = (
@@ -21,14 +22,18 @@ API_KEY = os.getenv("NVIDIA_API_KEY", "")  # NVIDIA API key from environment var
 MODELS = [
     "google/gemma-4-31b-it",
     "qwen/qwen3.5-397b-a17b",
-    "moonshotai/kimi-k2.5",
+    "moonshotai/kimi-k2.6",
     "z-ai/glm-5.1",
     "minimaxai/minimax-m2.7",
     "nvidia/nemotron-3-super-120b-a12b",
     "stepfun-ai/step-3.5-flash",
     "qwen/qwen3-next-80b-a3b-thinking",
     "qwen/qwen3.5-122b-a10b",
-    "deepseek-ai/deepseek-v3_2",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "deepseek-ai/deepseek-v4-flash",
+    "deepseek-ai/deepseek-v4-pro",
+    "mistralai/mistral-medium-3.5-128b",
+    "mistralai/mistral-small-4-119b-2603"
 ]
 
 # Test prompt - keep it short for consistent measurements
@@ -189,16 +194,39 @@ def main():
         help=f"API endpoint (default: {API_ENDPOINT})",
     )
     parser.add_argument(
-        "--api-key", default=API_KEY, help="API key (overrides NVIDIA_API_KEY env var)"
+        "--api-key",
+        default=API_KEY,
+        help=f"API key (overrides NVIDIA_API_KEY env var, default: {API_KEY if API_KEY else '(from env)'})",
     )
-    parser.add_argument("--models", nargs="+", default=MODELS, help="Models to test")
+    parser.add_argument(
+        "--models",
+        nargs="+",
+        default=MODELS,
+        help=f"Models to test (default: {', '.join(MODELS)})",
+    )
     parser.add_argument("--model", help="Single model to test (overrides --models)")
-    parser.add_argument("--prompt", default=TEST_PROMPT, help="Test prompt")
     parser.add_argument(
-        "--max-tokens", type=int, default=MAX_TOKENS, help="Max tokens to generate"
+        "--prompt",
+        default=TEST_PROMPT,
+        help=f"Test prompt (default: \"{TEST_PROMPT}\")",
     )
     parser.add_argument(
-        "--timeout", type=int, default=TIMEOUT, help="Request timeout in seconds"
+        "--max-tokens",
+        type=int,
+        default=MAX_TOKENS,
+        help=f"Max tokens to generate (default: {MAX_TOKENS})",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=TIMEOUT,
+        help=f"Request timeout in seconds (default: {TIMEOUT})",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=4,
+        help="Number of concurrent model tests (default: 4)",
     )
 
     args = parser.parse_args()
@@ -227,6 +255,7 @@ def main():
     print(f"⏱️  Timeout: {TIMEOUT}s")
     print(f"🤖 Models to test: {', '.join(models_to_test)}")
     print(f"🔑 API Key: {'*' * 8 + API_KEY[-4:] if len(API_KEY) > 12 else API_KEY}")
+    print(f"🔄 Concurrency: {args.concurrency}")
 
     # Validate endpoint before starting tests
     if not validate_endpoint(API_KEY, API_ENDPOINT, models_to_test):
@@ -234,10 +263,20 @@ def main():
         exit(1)
 
     results = []
-    for model in models_to_test:
-        result = test_model(model, API_KEY, API_ENDPOINT)
-        result["model"] = model
-        results.append(result)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+        future_to_model = {
+            executor.submit(test_model, model, API_KEY, API_ENDPOINT): model
+            for model in models_to_test
+        }
+        for future in concurrent.futures.as_completed(future_to_model):
+            model = future_to_model[future]
+            try:
+                result = future.result()
+                result["model"] = model
+                results.append(result)
+            except Exception as exc:
+                print(f"Model {model} generated an exception: {exc}")
+                results.append({"model": model, "ttft": float("inf"), "tps": 0.0, "tokens": 0})
 
     # Sort results by TTFT (ascending, failed models last)
     results.sort(key=lambda x: x["ttft"] if x["ttft"] != float("inf") else float("inf"))

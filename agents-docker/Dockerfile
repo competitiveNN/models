@@ -43,7 +43,7 @@ ENV NPM_CONFIG_PREFIX=${CONTAINER_HOME}/.npm-global
 ENV NPM_CONFIG_CACHE=${CONTAINER_HOME}/.npm-cache
 ENV NPM_PREFIX=${CONTAINER_HOME}/.npm-global
 ENV PATH="${CONTAINER_HOME}/.npm-global/bin:${CONTAINER_HOME}/.local/bin:${CONTAINER_HOME}/.juliaup/bin:${CONTAINER_HOME}/.bun/bin:${PATH}"
-RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/bin ${CONTAINER_HOME}/.local/share \
+RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/bin ${CONTAINER_HOME}/.local/share/uv \
     && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.npm-global ${CONTAINER_HOME}/.npm-cache ${CONTAINER_HOME}/.local
 
 # ── uv (Python package manager) ──────────────────────────────────────────────
