@@ -9,6 +9,7 @@ Set NVIDIA_API_KEY environment variable with your API key from: https://build.nv
 import time
 import json
 import os
+import math
 import requests
 import argparse
 from typing import List, Dict, Tuple
@@ -172,9 +173,14 @@ def test_model(model: str, api_key: str, endpoint: str) -> Dict[str, float]:
 
     ttft, tps, tokens = make_streaming_request(model, TEST_PROMPT, api_key, endpoint)
 
-    if ttft == float("inf"):
+    # Use math.isinf for reliable infinity check
+    if math.isinf(ttft):
         print(f"❌ Model {model} failed to respond")
         return {"ttft": float("inf"), "tps": 0.0, "tokens": 0}
+
+    # Ensure tps is valid (handle edge case where generation_time is 0)
+    if math.isnan(tps) or tps < 0:
+        tps = 0.0
 
     print(f"TTFT: {ttft * 1000:.1f} ms")
     print(f"TPS: {tps:.1f} tokens/sec")
@@ -272,14 +278,30 @@ def main():
             model = future_to_model[future]
             try:
                 result = future.result()
-                result["model"] = model
+                # Only add model key if not already present
+                if "model" not in result:
+                    result["model"] = model
                 results.append(result)
             except Exception as exc:
                 print(f"Model {model} generated an exception: {exc}")
                 results.append({"model": model, "ttft": float("inf"), "tps": 0.0, "tokens": 0})
 
+    # Filter out duplicate failed results and ensure data integrity
+    seen_models = set()
+    clean_results = []
+    for r in results:
+        if r["model"] not in seen_models:
+            seen_models.add(r["model"])
+            # Ensure numeric values are valid
+            r["ttft"] = float("inf") if math.isinf(r["ttft"]) or math.isnan(r["ttft"]) else r["ttft"]
+            r["tps"] = 0.0 if math.isinf(r["tps"]) or math.isnan(r["tps"]) else max(0.0, r["tps"])
+            r["tokens"] = max(0, int(r["tokens"]))
+            clean_results.append(r)
+
+    results = clean_results
+
     # Sort results by TTFT (ascending, failed models last)
-    results.sort(key=lambda x: x["ttft"] if x["ttft"] != float("inf") else float("inf"))
+    results.sort(key=lambda x: x["ttft"] if not math.isinf(x["ttft"]) else float("inf"))
 
     # Summary table
     print(f"\n{'=' * 80}")
@@ -294,7 +316,7 @@ def main():
         tps = result["tps"]
         tokens = result["tokens"]
 
-        if ttft == float("inf"):
+        if math.isinf(ttft):
             print(f"{model:<45} {'FAILED':>12} {'-':>10} {'-':>8}")
         else:
             print(f"{model:<45} {ttft * 1000:>12.1f} {tps:>10.1f} {tokens:>8}")
