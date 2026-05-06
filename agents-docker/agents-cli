@@ -6,7 +6,7 @@ set -euo pipefail
 # to mirror the host paths.
 
 IMAGE_NAME="${IMAGE_NAME:-agents-cli}"
-CONTAINER_NAME="${IMAGE_NAME}-$$(basename $(pwd))"
+CONTAINER_NAME="${IMAGE_NAME}-$(basename "$PWD")"
 AGENTS_VOLUME="${AGENTS_VOLUME:-agents-cli-config}"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
