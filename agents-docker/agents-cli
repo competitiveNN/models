@@ -147,6 +147,7 @@ pass_env AWS_SECRET_ACCESS_KEY   || true
 pass_env AWS_REGION              || true
 pass_env AZURE_OPENAI_API_KEY    || true
 pass_env AZURE_OPENAI_ENDPOINT   || true
+pass_env TERM                    || true
 
 
 # ── Watch mode ───────────────────────────────────────
