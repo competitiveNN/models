@@ -3,9 +3,6 @@ FROM node:22-bookworm
 LABEL maintainer="fra"
 LABEL description="Multi-agent CLI environment — agents installed at runtime via setup-agent.sh"
 
-# ── Bun (JavaScript runtime) ─────────────────────────────────────────────────
-RUN curl -fsSL https://bun.sh/install | bash
-
 # ── System dependencies ─────────────────────────────────────────────────────
 ENV DEBIAN_FRONTEND=noninteractive
 ENV COLORTERM=truecolor
@@ -36,6 +33,12 @@ RUN chmod 777 /opt \
 # ── Home ─────────────────────────────────────────────────────────────────────
 ENV CONTAINER_HOME=/home/${CONTAINER_USER}
 ENV HOME=${CONTAINER_HOME}
+
+# ── Bun (JavaScript runtime) ─────────────────────────────────────────────────
+# Install bun to the agent's home directory
+ENV BUN_INSTALL="${CONTAINER_HOME}/.bun"
+RUN mkdir -p "${BUN_INSTALL}" && curl -fsSL https://bun.sh/install | bash && \
+    chown -R ${CONTAINER_UID}:${CONTAINER_GID} "${BUN_INSTALL}"
 
 # ── npm config ───────────────────────────────────────────────────────────────
 ENV NPM_CONFIG_PREFIX=${CONTAINER_HOME}/.npm-global
