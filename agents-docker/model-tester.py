@@ -132,6 +132,13 @@ def make_streaming_request(
 
                         try:
                             chunk = json.loads(data)
+                            
+                            # Some APIs (like DeepSeek) include usage info
+                            if "usage" in chunk and chunk["usage"]:
+                                usage = chunk["usage"]
+                                if "completion_tokens" in usage:
+                                    token_count = max(token_count, usage["completion_tokens"])
+
                             if "choices" in chunk and chunk["choices"]:
                                 delta = chunk["choices"][0].get("delta", {})
                                 content = delta.get("content", "")
@@ -154,8 +161,12 @@ def make_streaming_request(
         total_time = end_time - start_time
 
         if ttft is None:
-            # No tokens received
-            return float("inf"), 0.0, 0
+            # No tokens received via delta - check if we got any from usage
+            if token_count > 0:
+                print(f"INFO: {model} got {token_count} tokens from usage (no content delta)")
+                ttft = 0.001  # Minimal TTFT if we got tokens from usage
+            else:
+                return float("inf"), 0.0, 0
 
         generation_time = total_time - ttft
         tps = token_count / generation_time if generation_time > 0 else 0.0
