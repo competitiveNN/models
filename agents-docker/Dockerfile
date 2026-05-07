@@ -53,12 +53,6 @@ ENV PATH="${CONTAINER_HOME}/.local/bin:${PATH}"
 # Install Python 3.11 via uv
 RUN uv python install 3.11
 
-# ── Install watchdog utility ─────────────────────────────────────────────────
-COPY --chown=${CONTAINER_UID}:${CONTAINER_GID} agents-watchdog /opt/agents-watchdog
-RUN apt-get update && apt-get install -y --no-install-recommends python3-ptyprocess && \
-    ln -sf /opt/agents-watchdog/watchdog.py /usr/local/bin/watchdog && \
-    chmod +x /usr/local/bin/watchdog
-
 # ── RTK (installed at base level, used by setup-agent.sh) ────────────────────
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
 

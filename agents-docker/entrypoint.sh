@@ -61,9 +61,9 @@ if command -v direnv &>/dev/null && [[ $# -gt 0 ]]; then
 		return 1
 	}
 
-	# Check if this looks like an agent command (not setup, not bash, etc.)
-	# We want to load direnv for actual agent executions
-	if [[ "$1" != "bash" && "$1" != "setup-agent.sh" && "$1" != "watchdog" && "$1" != "direnv" ]]; then
+# Check if this looks like an agent command (not setup, not bash, etc.)
+  # We want to load direnv for actual agent executions
+  if [[ "$1" != "bash" && "$1" != "setup-agent.sh" && "$1" != "direnv" ]]; then
 		envrc_path="$(find_envrc)"
 		if [[ -n "$envrc_path" ]]; then
 			envrc_dir="$(dirname "$envrc_path")"

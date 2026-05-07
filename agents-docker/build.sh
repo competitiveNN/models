@@ -146,10 +146,6 @@ echo -e "${CYAN}│${NC}  Run setup-agent.sh inside the container to install."
 echo -e "${CYAN}└──────────────────────────────────────────────────┘${NC}"
 echo ""
 
-# Copy watchdog utility into build context
-log "Copying watchdog utility into build context..."
-cp -r "$SCRIPT_DIR/../agents-watchdog" "$SCRIPT_DIR/agents-watchdog"
-
 # ── Build ────────────────────────────────────────────────────────────────────
 DOCKER_CMD=(
 	docker build
