@@ -124,7 +124,7 @@ mount_if_exists "$HOME/.julia"                  "${CONTAINER_HOME}/.julia"      
 DOCKER_ENV=()
 pass_env() {
     local val="${!1:-}"
-    [[ -n "$val" ]] && DOCKER_ENV+=(-e "$1") || true
+    [[ -n "$val" ]] && DOCKER_ENV+=(-e "$1=$val") || true
 }
 
 pass_env OPENAI_API_KEY          || true
