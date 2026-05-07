@@ -14,7 +14,7 @@ ENV COLORTERM=truecolor
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev \
     git curl ca-certificates jq ripgrep ffmpeg sudo direnv vim-tiny tmux \
-    python3-dev python3-yaml python3-httpx \
+    python3-dev python3-yaml python3-httpx ncurses-base ncurses-bin \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Create user ──────────────────────────────────────────────────────────────
@@ -50,8 +50,14 @@ RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/b
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="${CONTAINER_HOME}/.local/bin:${PATH}"
 
-# Install Python 3.11 via uv
+# ── Install Python 3.11 via uv ─────────────────────────────────────────────
 RUN uv python install 3.11
+
+# ── Kitty terminfo ─────────────────────────────────────────────────────────────
+# Install kitty terminfo using tic (compile from source)
+RUN curl -fsSL https://raw.githubusercontent.com/kovidgoyal/kitty/master/terminfo/kitty | tic -x - && \
+    curl -fsSL https://raw.githubusercontent.com/kovidgoyal/kitty/master/terminfo/kitty+common | tic -x - && \
+    curl -fsSL https://raw.githubusercontent.com/kovidgoyal/kitty/master/terminfo/kitty+sets2 | tic -x -
 
 # ── RTK (installed at base level, used by setup-agent.sh) ────────────────────
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
