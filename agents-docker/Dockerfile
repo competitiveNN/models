@@ -8,7 +8,7 @@ RUN curl -fsSL https://bun.sh/install | bash
 
 # ── System dependencies ─────────────────────────────────────────────────────
 ENV DEBIAN_FRONTEND=noninteractive
-ENV TERM=xterm-256color
+ENV TERM=xterm-kitty
 ENV COLORTERM=truecolor
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
