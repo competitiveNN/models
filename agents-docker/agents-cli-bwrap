@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── agents-cli-bwrap: lightweight agent environment using bubblewrap ───────────
+# This is a Docker-free alternative that uses host directories directly.
+# No Docker daemon required — only bubblewrap (bwrap).
+
+CONTAINER_HOME="${CONTAINER_HOME:-/tmp/agent-home}"
+AGENTS_VOLUME="${AGENTS_VOLUME:-agents-cli-config}"
+
+# ── Colors ───────────────────────────────────────────────────────────────────
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log()  { echo -e "${CYAN}▸${NC} $*"; }
+
+# ── Help ─────────────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    cat <<EOF
+agents-cli-bwrap — lightweight multi-agent CLI environment (bubblewrap)
+
+Usage:
+  agents-cli-bwrap                       Open interactive shell
+  agents-cli-bwrap <agent> [args...]     Run a specific agent
+  agents-cli-bwrap watch <agent> [args...] Run agent with watchdog (auto-continue)
+  agents-cli-bwrap --cleanup             Remove all agent data directories (WARNING: destroys data)
+  agents-cli-bwrap --help                Show this help
+
+Persistent data (on host under \$HOME/.config/agents-cli by default):
+  home               → \$HOME/.config/agents-cli-home         (/home/agent)
+  config             → \$HOME/.config/agents-cli-config        (/home/agent/.config)
+  copilot            → \$HOME/.config/agents-cli-copilot       (/home/agent/.copilot)
+  hermes             → \$HOME/.config/agents-cli-hermes        (/home/agent/.hermes)
+  local              → \$HOME/.config/agents-cli-local         (/home/agent/.local)
+  npm-global         → \$HOME/.config/agents-cli-npm-global    (/home/agent/.npm-global)
+  npm-cache          → \$HOME/.config/agents-cli-npm-cache     (/home/agent/.npm-cache)
+  cache              → \$HOME/.config/agents-cli-cache         (/home/agent/.cache)
+
+Host bind mounts:
+  ~/dev              → /home/agent/dev
+  ~/.ssh             → /home/agent/.ssh            (read-only)
+  ~/.gitconfig       → /home/agent/.gitconfig      (read-only)
+  ~/.julia           → /home/agent/.julia          (read-write)
+
+Environment:
+  AGENTS_DATA_ROOT    Override base directory for agent data (default: \$HOME/.config)
+  CONTAINER_HOME      Container home path (default: ${CONTAINER_HOME})
+  (also passes through common API keys)
+
+Requirements:
+  - bwrap (bubblewrap) must be installed: apt install bubblewrap or dnf install bubblewrap
+  - Agents/tools must be installed on the host system (not included).
+EOF
+    exit 0
+fi
+
+# ── Check for bwrap ──────────────────────────────────────────────────────────
+if ! command -v bwrap &>/dev/null; then
+    echo "Error: bwrap (bubblewrap) not found. Install: apt install bubblewrap or dnf install bubblewrap" >&2
+    exit 1
+fi
+
+# ── Host directories setup ────────────────────────────────────────────────────
+AGENTS_DATA_ROOT="${AGENTS_DATA_ROOT:-$HOME/.config}"
+
+# Ensure persistent host directories exist
+AGENTS_HOME_HOST="${AGENTS_DATA_ROOT}/agents-cli-home"
+mkdir -p "$AGENTS_HOME_HOST"
+
+declare -A VOLUME_PATHS=(
+    ["config"]="${AGENTS_DATA_ROOT}/agents-cli-config"
+    ["copilot"]="${AGENTS_DATA_ROOT}/agents-cli-copilot"
+    ["hermes"]="${AGENTS_DATA_ROOT}/agents-cli-hermes"
+    ["local"]="${AGENTS_DATA_ROOT}/agents-cli-local"
+    ["npm-global"]="${AGENTS_DATA_ROOT}/agents-cli-npm-global"
+    ["npm-cache"]="${AGENTS_DATA_ROOT}/agents-cli-npm-cache"
+    ["cache"]="${AGENTS_DATA_ROOT}/agents-cli-cache"
+)
+
+# Ensure volume directories exist
+for vol_path in "${VOLUME_PATHS[@]}"; do
+    mkdir -p "$vol_path"
+done
+
+# ── Cleanup ──────────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "--cleanup" ]]; then
+    echo "WARNING: This will permanently delete all agent data directories."
+    read -p "Are you sure? (type 'yes' to confirm): " confirm
+    if [[ "$confirm" != "yes" ]]; then
+        echo "Aborted."
+        exit 1
+    fi
+
+    # Delete agent data directories
+    rm -rf "$AGENTS_HOME_HOST"
+    for vol_path in "${VOLUME_PATHS[@]}"; do
+        rm -rf "$vol_path"
+    done
+    echo "Cleanup complete."
+    exit 0
+fi
+
+# ── Build bwrap arguments ─────────────────────────────────────────────────────
+BWRAP_ARGS=()
+
+# ── Namespace isolation ───────────────────────────────────────────────────────
+# Unshare user, ipc, pid, net, uts (but NOT mount — we bind mount host root)
+BWRAP_ARGS+=(--unshare-user)
+BWRAP_ARGS+=(--unshare-ipc)
+BWRAP_ARGS+=(--unshare-pid)
+BWRAP_ARGS+=(--unshare-net)
+BWRAP_ARGS+=(--unshare-uts)
+BWRAP_ARGS+=(--uid "${USER_UID:-$(id -u)}")
+BWRAP_ARGS+=(--gid "${USER_GID:-$(id -g)}")
+
+# ── Filesystem mounts ─────────────────────────────────────────────────────────
+# Provide host system binaries and libraries
+BWRAP_ARGS+=(--bind / /)
+BWRAP_ARGS+=(--dev /dev)
+BWRAP_ARGS+=(--proc /proc)
+# Writable temporary filesystems
+BWRAP_ARGS+=(--tmpfs /tmp)
+BWRAP_ARGS+=(--tmpfs /var/tmp)
+BWRAP_ARGS+=(--tmpfs /run)
+
+# ── Container home ────────────────────────────────────────────────────────────
+# Bind mount persistent host home base to container home path
+BWRAP_ARGS+=(--bind "$AGENTS_HOME_HOST" "$CONTAINER_HOME")
+
+# ── Agent data volume mounts (overlay subdirectories of container home) ────────
+BWRAP_ARGS+=(--bind "${VOLUME_PATHS[config]}" "${CONTAINER_HOME}/.config")
+BWRAP_ARGS+=(--bind "${VOLUME_PATHS[copilot]}" "${CONTAINER_HOME}/.copilot")
+BWRAP_ARGS+=(--bind "${VOLUME_PATHS[hermes]}" "${CONTAINER_HOME}/.hermes")
+BWRAP_ARGS+=(--bind "${VOLUME_PATHS[local]}" "${CONTAINER_HOME}/.local")
+BWRAP_ARGS+=(--bind "${VOLUME_PATHS[npm-global]}" "${CONTAINER_HOME}/.npm-global")
+BWRAP_ARGS+=(--bind "${VOLUME_PATHS[npm-cache]}" "${CONTAINER_HOME}/.npm-cache")
+BWRAP_ARGS+=(--bind "${VOLUME_PATHS[cache]}" "${CONTAINER_HOME}/.cache")
+
+# ── Host bind mounts ───────────────────────────────────────────────────────────
+mount_if_exists() {
+    local src="$1" dst="$2"
+    [[ -e "$src" ]] && BWRAP_ARGS+=(--bind "$src" "$dst") || true
+}
+
+mount_if_exists "$HOME/dev"                     "${CONTAINER_HOME}/dev"
+mount_if_exists "$(pwd)"                        "${CONTAINER_HOME}/project"
+mount_if_exists "$HOME/.ssh"                    "${CONTAINER_HOME}/.ssh"
+mount_if_exists "$HOME/.gitconfig"              "${CONTAINER_HOME}/.gitconfig"
+mount_if_exists "$HOME/.julia"                  "${CONTAINER_HOME}/.julia"
+
+# ── Environment variables ─────────────────────────────────────────────────────
+BWRAP_ARGS+=(--clearenv)
+
+# Basic environment
+BWRAP_ARGS+=(--setenv HOME "$CONTAINER_HOME")
+BWRAP_ARGS+=(--setenv CONTAINER_HOME "$CONTAINER_HOME")
+BWRAP_ARGS+=(--setenv TERM "${TERM:-xterm-256color}")
+BWRAP_ARGS+=(--setenv COLUMNS "${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}")
+BWRAP_ARGS+=(--setenv LINES "${LINES:-$(tput lines 2>/dev/null || echo 24)}")
+# Pass through PATH from host
+BWRAP_ARGS+=(--setenv PATH "${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}")
+
+# API keys and other secrets
+pass_env() {
+    local val="${!1:-}"
+    [[ -n "$val" ]] && BWRAP_ARGS+=(--setenv "$1" "$val") || true
+}
+
+pass_env OPENAI_API_KEY          || true
+pass_env ANTHROPIC_API_KEY       || true
+pass_env GEMINI_API_KEY          || true
+pass_env GOOGLE_API_KEY          || true
+pass_env GITHUB_TOKEN            || true
+pass_env COPILOT_TOKEN           || true
+pass_env KILO_API_KEY            || true
+pass_env OPENROUTER_API_KEY      || true
+pass_env HERMES_API_KEY          || true
+pass_env XAI_API_KEY             || true
+pass_env MISTRAL_API_KEY         || true
+pass_env DEEPSEEK_API_KEY        || true
+pass_env GROQ_API_KEY            || true
+pass_env TOGETHER_API_KEY        || true
+pass_env FIREWORKS_API_KEY       || true
+pass_env AWS_ACCESS_KEY_ID       || true
+pass_env AWS_SECRET_ACCESS_KEY   || true
+pass_env AWS_REGION              || true
+pass_env AZURE_OPENAI_API_KEY    || true
+pass_env AZURE_OPENAI_ENDPOINT   || true
+
+# ── Working directory ─────────────────────────────────────────────────────────
+BWRAP_ARGS+=(--chdir "${CONTAINER_HOME}/project")
+
+# ── Watch mode ────────────────────────────────────────────────────────────────
+WATCH_MODE=0
+if [[ "${1:-}" == "watch" ]]; then
+    WATCH_MODE=1
+    shift
+    log "Watch mode enabled - wrapping agent with watchdog"
+fi
+
+log "Launching bubblewrap sandbox"
+
+# Build command
+CMD=()
+if [[ ${WATCH_MODE} -eq 1 ]]; then
+    CMD=(watchdog "$@")
+else
+    CMD=("$@")
+fi
+
+# Default to interactive bash if no command specified
+if [[ ${#CMD[@]} -eq 0 ]]; then
+    CMD=(bash)
+fi
+
+# ── Kitty window title ─────────────────────────────────────────────────────────
+if [[ -n "${KITTY_WINDOW_ID:-}" ]] || [[ "${TERM:-}" == "xterm-kitty" ]]; then
+    PROJECT_NAME="$(basename "$PWD")"
+    printf '\e]2;%s\a' "${PROJECT_NAME}"
+fi
+
+# ── Execute ────────────────────────────────────────────────────────────────────
+exec bwrap "${BWRAP_ARGS[@]}" -- "${CMD[@]}"

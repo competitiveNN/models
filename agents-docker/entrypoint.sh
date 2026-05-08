@@ -1,6 +1,28 @@
 #!/usr/bin/env bash
 set -e
 
+# ── Terminal resize propagation ─────────────────────────────────────────────
+# Background loop to detect terminal size changes and send SIGWINCH to child processes
+if [[ -t 0 ]]; then
+	(
+		prev_cols=0
+		prev_lines=0
+		while true; do
+			if cols=$(tput cols 2>/dev/null) && lines=$(tput lines 2>/dev/null); then
+				if [[ "$cols" != "$prev_cols" || "$lines" != "$prev_lines" ]]; then
+					# Send SIGWINCH to current process group (all children)
+					kill -WINCH 0 2>/dev/null || true
+					prev_cols="$cols"
+					prev_lines="$lines"
+				fi
+			fi
+			sleep 1
+		done
+	) &
+	SIZE_WATCH_PID=$!
+	trap 'kill "$SIZE_WATCH_PID" 2>/dev/null' EXIT
+fi
+
 # Only show the banner when starting an interactive shell
 if [ -t 0 ] && [ "$1" = "bash" ]; then
 	echo ""

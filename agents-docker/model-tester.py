@@ -14,6 +14,7 @@ import requests
 import argparse
 from typing import List, Dict, Tuple
 import concurrent.futures
+from threading import Lock
 
 # Global configuration - modify these as needed
 API_ENDPOINT = (
@@ -43,6 +44,15 @@ MAX_TOKENS = 100  # Limit response length for testing
 TIMEOUT = 20  # Request timeout in seconds
 
 
+def safe_print(msg: str) -> None:
+    """Thread-safe printing with lock to avoid interleaved output."""
+    with print_lock:
+        print(msg)
+
+# Thread-safe print lock
+print_lock = Lock()
+
+
 def validate_endpoint(api_key: str, endpoint: str, models_to_test: List[str]) -> bool:
     """
     Validate that the endpoint is working and supports the required models.
@@ -51,14 +61,16 @@ def validate_endpoint(api_key: str, endpoint: str, models_to_test: List[str]) ->
     models_url = endpoint.replace("/chat/completions", "/models")
 
     try:
-        print("🔍 Validating endpoint and API key...")
+        with print_lock:
+            print("🔍 Validating endpoint and API key...")
         response = requests.get(models_url, headers=headers, timeout=TIMEOUT)
         response.raise_for_status()
 
         data = response.json()
         available_models = [model["id"] for model in data.get("data", [])]
 
-        print(f"✅ Endpoint reachable. Found {len(available_models)} available models.")
+        with print_lock:
+            print(f"✅ Endpoint reachable. Found {len(available_models)} available models.")
 
         # Check if our test models are available
         missing_models = []
@@ -67,25 +79,28 @@ def validate_endpoint(api_key: str, endpoint: str, models_to_test: List[str]) ->
                 missing_models.append(model)
 
         if missing_models:
-            print(f"⚠️  Warning: {len(missing_models)} requested models not available:")
-            for model in missing_models[:5]:  # Show first 5
-                print(f"   - {model}")
-            if len(missing_models) > 5:
-                print(f"   ... and {len(missing_models) - 5} more")
+            with print_lock:
+                print(f"⚠️  Warning: {len(missing_models)} requested models not available:")
+                for model in missing_models[:5]:  # Show first 5
+                    print(f"   - {model}")
+                if len(missing_models) > 5:
+                    print(f"   ... and {len(missing_models) - 5} more")
 
         return True
 
     except requests.exceptions.RequestException as e:
-        print(f"❌ Endpoint validation failed: {e}")
-        if "401" in str(e):
-            print("💡 Check your API key - authentication failed")
-        elif "403" in str(e):
-            print("💡 Check your API permissions - access denied")
-        elif "404" in str(e):
-            print("💡 Models endpoint not found - API may not support model listing")
+        with print_lock:
+            print(f"❌ Endpoint validation failed: {e}")
+            if "401" in str(e):
+                print("💡 Check your API key - authentication failed")
+            elif "403" in str(e):
+                print("💡 Check your API permissions - access denied")
+            elif "404" in str(e):
+                print("💡 Models endpoint not found - API may not support model listing")
         return False
     except Exception as e:
-        print(f"❌ Unexpected error during validation: {e}")
+        with print_lock:
+            print(f"❌ Unexpected error during validation: {e}")
         return False
 
 
@@ -163,7 +178,7 @@ def make_streaming_request(
         if ttft is None:
             # No tokens received via delta - check if we got any from usage
             if token_count > 0:
-                print(f"INFO: {model} got {token_count} tokens from usage (no content delta)")
+                safe_print(f"INFO: {model} got {token_count} tokens from usage (no content delta)")
                 ttft = 0.001  # Minimal TTFT if we got tokens from usage
             else:
                 return float("inf"), 0.0, 0
@@ -174,28 +189,28 @@ def make_streaming_request(
         return ttft, tps, token_count
 
     except Exception as e:
-        print(f"Error testing model {model}: {e}")
+        safe_print(f"❌ [{model}] Error: {e}")
         return float("inf"), 0.0, 0
 
 
 def test_model(model: str, api_key: str, endpoint: str) -> Dict[str, float]:
     """Test a single model and return results."""
-    print(f"\n🔍 Testing model: {model}")
+    safe_print(f"\n🔍 [{model}] Starting test...")
 
     ttft, tps, tokens = make_streaming_request(model, TEST_PROMPT, api_key, endpoint)
 
     # Use math.isinf for reliable infinity check
     if math.isinf(ttft):
-        print(f"❌ Model {model} failed to respond")
-        return {"ttft": float("inf"), "tps": 0.0, "tokens": 0}
+        safe_print(f"❌ [{model}] FAILED to respond")
+        return {"ttft": float("inf"), "tps": 0.0, "tokens": 0, "model": model}
 
     # Ensure tps is valid (handle edge case where generation_time is 0)
     if math.isnan(tps) or tps < 0:
         tps = 0.0
 
-    print(f"TTFT: {ttft * 1000:.1f} ms")
-    print(f"TPS: {tps:.1f} tokens/sec")
-    return {"ttft": ttft, "tps": tps, "tokens": tokens}
+    safe_print(f"   [{model}] TTFT: {ttft * 1000:.1f} ms")
+    safe_print(f"   [{model}] TPS: {tps:.1f} tokens/sec")
+    return {"ttft": ttft, "tps": tps, "tokens": tokens, "model": model}
 
 
 def main():
@@ -260,19 +275,19 @@ def main():
 
     # Validate API key is set
     if not API_KEY:
-        print("❌ NVIDIA_API_KEY environment variable not set!")
-        print("💡 Get your API key from: https://build.nvidia.com/")
-        print("💡 Set it with: export NVIDIA_API_KEY=your-api-key-here")
+        safe_print("❌ NVIDIA_API_KEY environment variable not set!")
+        safe_print("💡 Get your API key from: https://build.nvidia.com/")
+        safe_print("💡 Set it with: export NVIDIA_API_KEY=your-api-key-here")
         exit(1)
 
-    print("🚀 NVIDIA Model Responsiveness Tester")
-    print(f"📍 Endpoint: {API_ENDPOINT}")
-    print(f"📝 Prompt: {TEST_PROMPT}")
-    print(f"🎯 Max tokens: {MAX_TOKENS}")
-    print(f"⏱️  Timeout: {TIMEOUT}s")
-    print(f"🤖 Models to test: {', '.join(models_to_test)}")
-    print(f"🔑 API Key: {'*' * 8 + API_KEY[-4:] if len(API_KEY) > 12 else API_KEY}")
-    print(f"🔄 Concurrency: {args.concurrency}")
+    safe_print("🚀 NVIDIA Model Responsiveness Tester")
+    safe_print(f"📍 Endpoint: {API_ENDPOINT}")
+    safe_print(f"📝 Prompt: {TEST_PROMPT}")
+    safe_print(f"🎯 Max tokens: {MAX_TOKENS}")
+    safe_print(f"⏱️  Timeout: {TIMEOUT}s")
+    safe_print(f"🤖 Models to test: {', '.join(models_to_test)}")
+    safe_print(f"🔑 API Key: {'*' * 8 + API_KEY[-4:] if len(API_KEY) > 12 else API_KEY}")
+    safe_print(f"🔄 Concurrency: {args.concurrency}")
 
     # Validate endpoint before starting tests
     if not validate_endpoint(API_KEY, API_ENDPOINT, models_to_test):
@@ -289,37 +304,23 @@ def main():
             model = future_to_model[future]
             try:
                 result = future.result()
-                # Only add model key if not already present
+                # test_model already adds model key, but ensure it's there
                 if "model" not in result:
                     result["model"] = model
                 results.append(result)
             except Exception as exc:
-                print(f"Model {model} generated an exception: {exc}")
+                safe_print(f"❌ [{model}] Exception: {exc}")
                 results.append({"model": model, "ttft": float("inf"), "tps": 0.0, "tokens": 0})
-
-    # Filter out duplicate failed results and ensure data integrity
-    seen_models = set()
-    clean_results = []
-    for r in results:
-        if r["model"] not in seen_models:
-            seen_models.add(r["model"])
-            # Ensure numeric values are valid
-            r["ttft"] = float("inf") if math.isinf(r["ttft"]) or math.isnan(r["ttft"]) else r["ttft"]
-            r["tps"] = 0.0 if math.isinf(r["tps"]) or math.isnan(r["tps"]) else max(0.0, r["tps"])
-            r["tokens"] = max(0, int(r["tokens"]))
-            clean_results.append(r)
-
-    results = clean_results
 
     # Sort results by TTFT (ascending, failed models last)
     results.sort(key=lambda x: x["ttft"] if not math.isinf(x["ttft"]) else float("inf"))
 
     # Summary table
-    print(f"\n{'=' * 80}")
-    print("📊 SUMMARY RESULTS")
-    print(f"{'=' * 80}")
-    print(f"{'Model':<45} {'TTFT (ms)':>12} {'TPS':>10} {'Tokens':>8}")
-    print("-" * 80)
+    safe_print(f"\n{'=' * 80}")
+    safe_print("📊 SUMMARY RESULTS")
+    safe_print(f"{'=' * 80}")
+    safe_print(f"{'Model':<45} {'TTFT (ms)':>12} {'TPS':>10} {'Tokens':>8}")
+    safe_print("-" * 80)
 
     for result in results:
         model = result["model"]
@@ -328,11 +329,11 @@ def main():
         tokens = result["tokens"]
 
         if math.isinf(ttft):
-            print(f"{model:<45} {'FAILED':>12} {'-':>10} {'-':>8}")
+            safe_print(f"{model:<45} {'FAILED':>12} {'-':>10} {'-':>8}")
         else:
-            print(f"{model:<45} {ttft * 1000:>12.1f} {tps:>10.1f} {tokens:>8}")
+            safe_print(f"{model:<45} {ttft * 1000:>12.1f} {tps:>10.1f} {tokens:>8}")
 
-    print(f"{'=' * 80}")
+    safe_print(f"{'=' * 80}")
 
 
 if __name__ == "__main__":

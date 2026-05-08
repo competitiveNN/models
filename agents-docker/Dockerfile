@@ -9,8 +9,8 @@ ENV COLORTERM=truecolor
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev \
-    git curl ca-certificates jq ripgrep ffmpeg sudo direnv vim-tiny tmux \
-    python3-dev python3-yaml python3-httpx kitty-terminfo \
+    git curl ca-certificates jq ripgrep ffmpeg sudo direnv vim-tiny \
+    python3-dev python3-yaml python3-httpx kitty-terminfo ncurses-base ncurses-bin \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Create user ──────────────────────────────────────────────────────────────
@@ -37,8 +37,12 @@ ENV HOME=${CONTAINER_HOME}
 # ── Bun (JavaScript runtime) ─────────────────────────────────────────────────
 # Install bun to the agent's home directory
 ENV BUN_INSTALL="${CONTAINER_HOME}/.bun"
-RUN mkdir -p "${BUN_INSTALL}" && curl -fsSL https://bun.sh/install | bash && \
-    chown -R ${CONTAINER_UID}:${CONTAINER_GID} "${BUN_INSTALL}"
+RUN echo "Installing bun to ${BUN_INSTALL}" && \
+    mkdir -p "${BUN_INSTALL}" && \
+    curl -fsSL https://bun.sh/install | bash && \
+    chown -R ${CONTAINER_UID}:${CONTAINER_GID} "${BUN_INSTALL}" && \
+    echo "Bun installation complete. Bun path: $(which bun 2>/dev/null || echo 'not found')" && \
+    ls -la "${BUN_INSTALL}/bin/" 2>/dev/null || echo "No bun bin directory"
 
 # ── npm config ───────────────────────────────────────────────────────────────
 ENV NPM_CONFIG_PREFIX=${CONTAINER_HOME}/.npm-global
@@ -50,7 +54,6 @@ RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/b
 
 # ── uv (Python package manager) ──────────────────────────────────────────────
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="${CONTAINER_HOME}/.local/bin:${PATH}"
 
 # ── Install Python 3.11 via uv ─────────────────────────────────────────────
 RUN uv python install 3.11
@@ -75,6 +78,8 @@ ENV HERMES_HOME=${CONTAINER_HOME}/.hermes
 RUN mkdir -p ${CONTAINER_HOME}/.hermes/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session} \
     && mkdir -p ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config/opencode ${CONTAINER_HOME}/.cache \
     && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.cache
+
+USER ${CONTAINER_UID}
 
 USER root
 RUN mkdir -p /home/agent/.julia/juliaup && chown -R ${CONTAINER_UID}:${CONTAINER_GID} /home/agent/.julia

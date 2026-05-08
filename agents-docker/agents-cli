@@ -29,6 +29,10 @@ Usage:
   agents-cli watch <agent> [args...] Run agent with watchdog (auto-continue)
   agents-cli --cleanup             Remove all agent volumes (WARNING: destroys data)
   agents-cli --help                Show this help
+  agents-cli --privileged          Run container with --privileged (extended caps)
+
+⚠️  Note: agents-cli must be run from the host, not from inside a container.
+    For containerized execution (e.g., toolbox), use agents-cli-bwrap instead.
 
 Volumes:
   agents-cli-config        → ${CONTAINER_HOME}/.config
@@ -58,6 +62,34 @@ fi
 if [[ "${1:-}" == "--cleanup" ]]; then
     SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     exec "${SCRIPT_DIR}/cleanup-volumes.sh" "$@"
+fi
+
+# ── Privileged mode ───────────────────────────────────────────────────────────
+# Check for --privileged flag before the command
+PRIVILEGED_MODE=0
+if [[ "${1:-}" == "--privileged" ]]; then
+    PRIVILEGED_MODE=1
+    shift  # Remove --privileged from arguments
+    log "Privileged mode enabled"
+fi
+
+# ── Guard: prevent running inside a container ─────────────────────────────────
+# This script is meant to be run on the host to launch containers.
+# Detect common container runtime environment markers.
+is_inside_container() {
+    [[ -f "/.dockerenv" ]] && return 0
+    [[ -f "/run/.containerenv" ]] && return 0
+    local cgroup
+    cgroup="$(cat /proc/1/cgroup 2>/dev/null | head -1 2>/dev/null || true)"
+    [[ "$cgroup" =~ "docker|containerd|podman|libpod" ]] && return 0
+    return 1
+}
+
+if is_inside_container; then
+    echo "Error: agents-cli should not be run from inside a container." >&2
+    echo "       This script is designed to launch containers from the host." >&2
+    echo "       Use agents-cli-bwrap for bubblewrap-based execution from inside a container." >&2
+    exit 1
 fi
 
 # ── Preflight ────────────────────────────────────────────────────────────────
@@ -127,6 +159,10 @@ pass_env() {
     [[ -n "$val" ]] && DOCKER_ENV+=(-e "$1=$val") || true
 }
 
+# Set terminal dimensions using tput
+COLUMNS="`tput cols`"
+LINES="`tput lines`"
+
 pass_env OPENAI_API_KEY          || true
 pass_env ANTHROPIC_API_KEY       || true
 pass_env GEMINI_API_KEY          || true
@@ -148,6 +184,8 @@ pass_env AWS_REGION              || true
 pass_env AZURE_OPENAI_API_KEY    || true
 pass_env AZURE_OPENAI_ENDPOINT   || true
 pass_env TERM                    || true
+pass_env COLUMNS                 || true
+pass_env LINES                   || true
 
 
 # ── Watch mode ───────────────────────────────────────
@@ -162,8 +200,10 @@ fi
 log "Launching ${IMAGE_NAME}:latest"
 
 # Build docker args as a list to handle empty arrays cleanly
-DOCKER_ARGS=(--rm -it --init --name "${CONTAINER_NAME}" --network host --userns=keep-id -w /project)
+DOCKER_ARGS=(--rm -it --init --name "${CONTAINER_NAME}" --network host --userns=keep-id -w /project --sig-proxy=true)
 DOCKER_ARGS+=(--security-opt label=disable)
+# Add --privileged if requested
+[[ ${PRIVILEGED_MODE} -eq 1 ]] && DOCKER_ARGS+=(--privileged)
 DOCKER_ARGS+=("${MOUNTS[@]}")
 [[ ${#DOCKER_ENV[@]} -gt 0 ]] && DOCKER_ARGS+=("${DOCKER_ENV[@]}")
 DOCKER_ARGS+=("${IMAGE_NAME}:latest")

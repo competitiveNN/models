@@ -1,0 +1,104 @@
+# ── Multi-Agent CLI Environment — Fedora Base ─────────────────────────────────
+# Fedora-based alternative to the Debian/Ubuntu Dockerfile.
+# Uses dnf package manager and Fedora packages.
+
+FROM fedora:44
+
+LABEL maintainer="fra"
+LABEL description="Multi-agent CLI environment — Fedora base with agents installed via setup-agent.sh"
+
+# ── System dependencies ───────────────────────────────────────────────────────
+ENV DEBIAN_FRONTEND=noninteractive
+ENV COLORTERM=truecolor
+
+# Install system packages with dnf
+RUN dnf -y update && \
+    dnf -y install \
+        bash \
+        git curl ca-certificates jq ripgrep ffmpeg sudo direnv vim-minimal \
+        python3-devel python3-pyyaml python3-httpx kitty-terminfo ncurses \
+        gcc gcc-c++ make openssl-devel libffi-devel \
+        which procps-ng iproute net-tools \
+        wget gnupg2 \
+        nodejs \
+        && dnf clean all
+
+# ── Create user ──────────────────────────────────────────────────────────────
+ARG CONTAINER_USER=agent
+ARG CONTAINER_UID=1001
+ARG CONTAINER_GID=1001
+
+# Remove conflicting user if exists, then create agent user
+RUN if id "${CONTAINER_UID}" &>/dev/null; then \
+        userdel -r "$(getent passwd "${CONTAINER_UID}" | cut -d: -f1)" 2>/dev/null || true; \
+    fi && \
+    groupadd -g "${CONTAINER_GID}" "${CONTAINER_USER}" 2>/dev/null || true && \
+    useradd -m -u "${CONTAINER_UID}" -g "${CONTAINER_GID}" -d "/home/${CONTAINER_USER}" -s /bin/bash "${CONTAINER_USER}" && \
+    usermod -aG wheel "${CONTAINER_USER}" && \
+    echo "${CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/dnf, /usr/local/bin/setup-agent.sh" > /etc/sudoers.d/agent
+
+# ── Make /opt and /project writable ───────────────────────────────────────────
+RUN chmod 777 /opt && mkdir -p /project && chown "${CONTAINER_UID}:${CONTAINER_GID}" /project
+
+# ── Home ───────────────────────────────────────────────────────────────────────
+ENV CONTAINER_HOME=/home/${CONTAINER_USER}
+ENV HOME=${CONTAINER_HOME}
+
+# ── Bun (JavaScript runtime) ───────────────────────────────────────────────────
+# Install bun to the agent's home directory
+ENV BUN_INSTALL="${CONTAINER_HOME}/.bun"
+RUN echo "Installing bun to ${BUN_INSTALL}" && \
+    mkdir -p "${BUN_INSTALL}" && \
+    curl -fsSL https://bun.sh/install | bash && \
+    chown -R "${CONTAINER_UID}:${CONTAINER_GID}" "${BUN_INSTALL}" && \
+    echo "Bun installation complete."
+
+# ── npm config ─────────────────────────────────────────────────────────────────
+ENV NPM_CONFIG_PREFIX=${CONTAINER_HOME}/.npm-global
+ENV NPM_CONFIG_CACHE=${CONTAINER_HOME}/.npm-cache
+ENV NPM_PREFIX=${CONTAINER_HOME}/.npm-global
+ENV PATH="${CONTAINER_HOME}/.npm-global/bin:${CONTAINER_HOME}/.local/bin:${CONTAINER_HOME}/.juliaup/bin:${CONTAINER_HOME}/.bun/bin:${PATH}"
+
+RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/bin ${CONTAINER_HOME}/.local/share/uv && \
+    chown -R "${CONTAINER_UID}:${CONTAINER_GID}" ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local
+
+# ── uv (Python package manager) ───────────────────────────────────────────────
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# ── Install Python 3.11 via uv ─────────────────────────────────────────────────
+RUN uv python install 3.11
+
+# ── RTK (installed at base level, used by setup-agent.sh) ─────────────────────
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+
+# ── Setup script ───────────────────────────────────────────────────────────────
+COPY setup-agent.sh /usr/local/bin/setup-agent.sh
+RUN chmod +x /usr/local/bin/setup-agent.sh
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# ── Volumes for persistence ────────────────────────────────────────────────────
+VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local", "/home/agent/.cache"]
+
+# ── Config directory skeleton ─────────────────────────────────────────────────
+ENV HERMES_HOME=${CONTAINER_HOME}/.hermes
+
+RUN mkdir -p ${CONTAINER_HOME}/.hermes/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session} && \
+    mkdir -p ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.cache && \
+    chown -R "${CONTAINER_UID}:${CONTAINER_GID}" ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.cache
+
+# ── Julia ──────────────────────────────────────────────────────────────────────
+USER root
+RUN mkdir -p /home/agent/.julia/juliaup && chown -R "${CONTAINER_UID}:${CONTAINER_GID}" /home/agent/.julia
+USER ${CONTAINER_UID}
+RUN curl -fsSL https://install.julialang.org | sh -s -- -y
+
+# ── Context7 MCP Server ───────────────────────────────────────────────────────
+RUN npm install -g @upstash/context7-mcp
+
+WORKDIR /project
+
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["bash"]

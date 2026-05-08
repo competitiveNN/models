@@ -4,8 +4,8 @@ set -euo pipefail
 # ── Configuration ────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_NAME="${IMAGE_NAME:-agents-cli}"
+DOCKERFILE="${DOCKERFILE:-${SCRIPT_DIR}/Dockerfile}"
 VERSIONS_FILE="${SCRIPT_DIR}/versions.env"
-DOCKERFILE="${SCRIPT_DIR}/Dockerfile"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -32,7 +32,8 @@ Build (or rebuild) the multi-agent CLI Docker image.
 Options:
   -n, --name NAME       Image name (default: agents-cli)
   -t, --tag TAG         Extra tag to apply (default: none)
-  -f, --force           Build with --no-cache (full rebuild)
+      --file PATH       Dockerfile path (default: Dockerfile in script dir)
+      --force           Build with --no-cache (full rebuild)
       --push            Push the image after building
       --dry-run         Print the build command without running it
       --no-cleanup      Keep old images after building (default: delete old)
@@ -40,10 +41,12 @@ Options:
 
 Environment variables:
   IMAGE_NAME            Override the image name (default: agents-cli)
+  DOCKERFILE            Override Dockerfile path (default: Dockerfile)
 
 Examples:
-  $(basename "$0")                          # Build with cache
-  $(basename "$0") -f                       # Full rebuild, no cache
+  $(basename "$0")                          # Build with default Dockerfile
+  $(basename "$0") --file Dockerfile.fedora # Build using Fedora variant
+  $(basename "$0") --force                  # Full rebuild, no cache
   $(basename "$0") -t v2                    # Tag as v2
   $(basename "$0") --push                   # Build and push to registry
 
@@ -68,6 +71,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	-t | --tag)
 		EXTRA_TAG="$2"
+		shift 2
+		;;
+	--file)
+		DOCKERFILE="$2"
 		shift 2
 		;;
 	-f | --force)
