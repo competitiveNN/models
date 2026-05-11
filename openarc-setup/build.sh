@@ -8,7 +8,7 @@ echo "Capturing old image ID for $IMAGE_NAME..."
 OLD_IMAGE_ID=$(docker images -q "$IMAGE_NAME")
 
 echo "Building new image: $IMAGE_NAME..."
-docker build -t "$IMAGE_NAME" -f OpenArc/Dockerfile OpenArc/
+docker build --no-cache -t "$IMAGE_NAME" -f OpenArc/Battlemage.Dockerfile OpenArc/
 
 NEW_IMAGE_ID=$(docker images -q "$IMAGE_NAME")
 

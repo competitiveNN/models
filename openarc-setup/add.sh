@@ -1,5 +1,18 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+MODEL_PATH="$HOME/data/models/ov"
+DEVICES="--device /dev/accel:/dev/accel --device /dev/dri/card0:/dev/dri/card0 --device /dev/dri/renderD128:/dev/dri/renderD128 --device /dev/dri/card1:/dev/dri/card1 --device /dev/dri/renderD129:/dev/dri/renderD129"
+MODEL=""
+
+# Check if container is running
+if ! docker ps --filter "name=openarc" --format "{{.Names}}" | grep -q "openarc"; then
+    echo "Error: openarc container is not running"
+    echo "Please start the container first with: $SCRIPT_DIR/openarc.sh"
+    exit 1
+fi
+
 ENGINE="ovgenai"
 MODEL_TYPE="llm"
 DEVICE="HETERO:GPU.0,GPU.1"
@@ -15,13 +28,14 @@ qwen3_6l06b="$BASE_PATH/Qwen3-pruned-6L-from-0.6B-int8-ov/"
 qwen3_4b="$BASE_PATH/Qwen3-4B-Instruct-2507-int4_asym-awq-ov/"
 qwen3_8b="$BASE_PATH/Qwen3-8B-int4-cw-ov/"
 qwen3_14b="$BASE_PATH/Qwen3-14B-int4_sym-ov/"
+qwen36_27b="$BASE_PATH/qwen3.6-27B-int4-asym-ov/"
 qwen3c_30b="$BASE_PATH/Qwen3-30B-A3B-Instruct-2507-int4-ov"
 nemotron_14b="$BASE_PATH/Nemotron-Cascade-14B-Thinking-int4_asym-se-ov/"
 nousc_14b="$BASE_PATH/NousCoder-14B-int4_sym-ov/"
 
-MODEL_PATH=$qwen3_14b
+MODEL_PATH=$qwen36_27b
 DRAFT_MODEL_PATH="" # $qwen3_6l06b
-MODEL_NAME="nemotron"
+MODEL_NAME="qwen36-27b"
 
 ARGS=(
 	--mn "${MODEL_NAME}"
