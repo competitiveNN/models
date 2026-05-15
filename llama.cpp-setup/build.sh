@@ -41,6 +41,37 @@ ik_llama_cpu)
 	;;
 esac
 
+# Apply a temporary GGML_NATIVE=ON patch to a Dockerfile.
+# Handles three cases:
+#   1. Has ...GGML_NATIVE=OFF...  → replace with =ON
+#   2. Has ...GGML_NATIVE=ON...   → already correct, no change
+#   3. Has no GGML_NATIVE at all  → append -DGGML_NATIVE=ON after the cmake invocation
+patch_for_native() {
+	local DOCKERFILE="$1"
+
+	if [ ! -f "$DOCKERFILE" ]; then
+		echo "Warning: Dockerfile $DOCKERFILE not found, cannot patch for GGML_NATIVE=ON" >&2
+		echo ""
+		return 1
+	fi
+
+	TEMP_DOCKERFILE=$(mktemp "${TMPDIR:-/tmp}/Dockerfile.native.patch.XXXXXX")
+	cp "$DOCKERFILE" "$TEMP_DOCKERFILE"
+
+	if grep -q 'GGML_NATIVE=OFF' "$TEMP_DOCKERFILE"; then
+		# Case 1: GGML_NATIVE exists and is OFF → flip to ON
+		sed -i 's/GGML_NATIVE=OFF/GGML_NATIVE=ON/g' "$TEMP_DOCKERFILE"
+	elif grep -q 'GGML_NATIVE=ON' "$TEMP_DOCKERFILE"; then
+		# Case 2: Already ON — leave as-is
+		:
+	else
+		# Case 3: GGML_NATIVE absent → append -DGGML_NATIVE=ON after the cmake invocation line
+		sed -i '/cmake.*-S\|cmake.*-B.*Release\|cmake.*-B.*build/a\\t\t-DGGML_NATIVE=ON' "$TEMP_DOCKERFILE"
+	fi
+
+	echo "$TEMP_DOCKERFILE"
+}
+
 build_image() {
 	local IMAGE_TAG=$1
 	local DOCKERFILE=$2
@@ -60,6 +91,13 @@ build_image() {
 			USE_TEMP_DOCKERFILE=1
 		else
 			echo "Warning: Dockerfile $DOCKERFILE not found, cannot patch for ik_llama_cpu" >&2
+		fi
+	else
+		# patch_for_native: force GGML_NATIVE=ON everywhere else
+		TEMP_DOCKERFILE=$(patch_for_native "$DOCKERFILE")
+		if [ -n "$TEMP_DOCKERFILE" ] && [ -f "$TEMP_DOCKERFILE" ]; then
+			DOCKERFILE="$TEMP_DOCKERFILE"
+			USE_TEMP_DOCKERFILE=1
 		fi
 	fi
 
