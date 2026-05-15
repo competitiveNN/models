@@ -50,7 +50,9 @@ usage() {
 	echo "  --moe N                   Number of CPU MOE layers (default: 0)"
 	echo "  --detect                  Automatically detect memory and infer --n-gpu-layers"
 	echo "  --pthinking                Enable preserve_thinking in chat template (sets --chat-template-kwargs '{\"preserve_thinking\":true}')"
-	echo "  --spec-ngram-size-n N       Set ngram size for ngram spec decoding (e.g., 24)"
+	echo "  NGRAM_SIZE_N (env)          Ngram size for spec decoding (default: 24). Use type-specific flag like --spec-ngram-map-k-size-n"
+	echo "  --draft-max|--spec-draft-n-max N     Maximum number of draft tokens (default: 48)"
+	echo "  --draft-min|--spec-draft-n-min N     Minimum number of draft tokens (default: 12)"
 }
 
 die() {
@@ -73,9 +75,10 @@ lfm2_24b="/models/LFM2-24B-A2B-GGUF/LFM2-24B-A2B-Q4_K_M.gguf"
 lfm25_1_2b="/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gguf"
 
 hypernova_60b="/models/Hypernova-60B-2602-GGUF/Hypernova-60B-2602-GGUF.gguf" # 8tps
+gptoss_20b="/models/gpt-oss-20b-GGUF/gpt-oss-20b-UD-Q4_K_XL.gguf"
 phi3_2b="/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf"
 
-MODEL=$qwen35_08b_iq2xxs
+MODEL=$qwen3_8b
 
 SPEC_DRAFT_MODEL="" # $qwen35_08b
 SPEC_DRAFT_MAX="${SPEC_DRAFT_MAX:-48}"
@@ -96,13 +99,13 @@ while [[ "$#" -gt 0 ]]; do
 		SPEC_DRAFT_MODEL="$2"
 		shift 2
 		;;
-	--draft-max)
-		[[ -n "${2:-}" ]] || die "error: --draft-max requires a value"
+	--draft-max|--spec-draft-n-max)
+		[[ -n "${2:-}" ]] || die "error: --draft-max/--spec-draft-n-max requires a value"
 		SPEC_DRAFT_MAX="$2"
 		shift 2
 		;;
-	--draft-min)
-		[[ -n "${2:-}" ]] || die "error: --draft-min requires a value"
+	--draft-min|--spec-draft-n-min)
+		[[ -n "${2:-}" ]] || die "error: --draft-min/--spec-draft-n-min requires a value"
 		SPEC_DRAFT_MIN="$2"
 		shift 2
 		;;
@@ -112,9 +115,7 @@ while [[ "$#" -gt 0 ]]; do
 		shift 2
 		;;
 	--spec-ngram-size-n)
-		[[ -n "${2:-}" ]] || die "error: --spec-ngram-size-n requires a value"
-		SPEC_NGRAM_SIZE_N="$2"
-		shift 2
+		die "error: --spec-ngram-size-n is deprecated. Use type-specific flags: --spec-ngram-<type>-size-n (e.g. --spec-ngram-map-k-size-n for ngram-map-k type)"
 		;;
 	--vulkan)
 		IMAGE="llama-cpp-vulkan"
@@ -326,18 +327,24 @@ SPEC_ARGS=()
 if [[ -n "$SPEC_DRAFT_MODEL" && "$SPEC_DRAFT_MODEL" != "1" ]]; then
 	SPEC_ARGS+=(--model-draft "$SPEC_DRAFT_MODEL")
 fi
-# If SPEC_DRAFT_MODEL is "1", skip --model-draft but still allow other spec args
 if [[ -n "$SPEC_DRAFT_MAX" ]]; then
-	SPEC_ARGS+=(--draft-max "$SPEC_DRAFT_MAX")
+	SPEC_ARGS+=(--spec-draft-n-max "$SPEC_DRAFT_MAX")
 fi
 if [[ -n "$SPEC_DRAFT_MIN" ]]; then
-	SPEC_ARGS+=(--draft-min "$SPEC_DRAFT_MIN")
+	SPEC_ARGS+=(--spec-draft-n-min "$SPEC_DRAFT_MIN")
 fi
 if [[ -n "$SPEC_TYPE" ]]; then
 	SPEC_ARGS+=(--spec-type "$SPEC_TYPE")
 fi
+# Use type-specific ngram flag based on SPEC_TYPE
 if [[ -n "$SPEC_NGRAM_SIZE_N" ]]; then
-	SPEC_ARGS+=(--spec-ngram-size-n "$SPEC_NGRAM_SIZE_N")
+	case "$SPEC_TYPE" in
+		ngram-simple)  SPEC_ARGS+=(--spec-ngram-simple-size-n "$SPEC_NGRAM_SIZE_N") ;;
+		ngram-map-k)   SPEC_ARGS+=(--spec-ngram-map-k-size-n "$SPEC_NGRAM_SIZE_N") ;;
+		ngram-map-k4v) SPEC_ARGS+=(--spec-ngram-map-k4v-size-n "$SPEC_NGRAM_SIZE_N") ;;
+		ngram-mod)     SPEC_ARGS+=(--spec-ngram-mod-n-match "$SPEC_NGRAM_SIZE_N") ;;
+		*) die "Unsupported SPEC_TYPE for ngram size: $SPEC_TYPE" ;;
+	esac
 fi
 
 DOCKER_ARGS=("${COMMON_ARGS[@]}")
