@@ -85,6 +85,10 @@ USER root
 RUN mkdir -p /home/agent/.julia/juliaup && chown -R ${CONTAINER_UID}:${CONTAINER_GID} /home/agent/.julia
 
 USER ${CONTAINER_UID}
+# Symlink .gnupg to .config/agent-gnupg for GPG config isolation
+RUN mkdir -p "${CONTAINER_HOME}/.config/agent-gnupg" \
+    && ln -sfn "${CONTAINER_HOME}/.config/agent-gnupg" "${CONTAINER_HOME}/.gnupg"
+
 RUN curl -fsSL https://install.julialang.org | sh -s -- -y
 
 # ── Context7 MCP Server ──────────────────────────────────────────────────────
