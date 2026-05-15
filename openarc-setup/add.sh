@@ -15,10 +15,9 @@ fi
 
 ENGINE="ovgenai"
 MODEL_TYPE="llm"
-DEVICE="HETERO:GPU.0,GPU.1"
-#RUNTIME_CONFIG='{"PERFORMANCE_HINT": "CUMULATIVE_THROUGHPUT", "KV_CACHE_PRECISION": "u8", "MODEL_DISTRIBUTION_POLICY": "PIPELINE_PARALLEL"}'
-RUNTIME_CONFIG='{"MODEL_DISTRIBUTION_POLICY": "PIPELINE_PARALLEL"}'
-DRAFT_DEVICE="HETERO:GPU.1"
+DEVICE="HETERO:GPU.1,GPU.0"
+RUNTIME_CONFIG='{"PERFORMANCE_HINT": "CUMULATIVE_THROUGHPUT", "KV_CACHE_PRECISION": "u8", "MODEL_DISTRIBUTION_POLICY": "PIPELINE_PARALLEL"}'
+DRAFT_DEVICE="HETERO:GPU.1,GPU.0"
 NUM_ASSISTANT_TOKENS=10
 ASSISTANT_CONFIDENCE_THRESHOLD=0.5
 
@@ -30,13 +29,17 @@ qwen3_4b="$BASE_PATH/Qwen3-4B-Instruct-2507-int4_asym-awq-ov/"
 qwen3_8b="$BASE_PATH/Qwen3-8B-int4-cw-ov/"
 qwen3_14b="$BASE_PATH/Qwen3-14B-int4_sym-ov/"
 qwen36_27b="$BASE_PATH/qwen3.6-27B-int4-asym-ov/"
+qwen35_9b="$BASE_PATH/Qwen3.5-9B-int4_asym-ov/"
 qwen3c_30b="$BASE_PATH/Qwen3-30B-A3B-Instruct-2507-int4-ov"
+lfm_12b="$BASE_PATH/LFM2.5-1.2B-Thinking-int4_asym-ov/"
+
 nemotron_14b="$BASE_PATH/Nemotron-Cascade-14B-Thinking-int4_asym-se-ov/"
 nousc_14b="$BASE_PATH/NousCoder-14B-int4_sym-ov/"
+gpt_oss_20b="$BASE_PATH/gpt-oss-20b-int4-ov/"
 
-MODEL_PATH=$qwen36_27b
+MODEL_PATH=$gpt_oss_20b
 DRAFT_MODEL_PATH="" # $qwen3_6l06b
-MODEL_NAME="qwen36-27b"
+MODEL_NAME="gpt_oss_20b"
 
 ARGS=(
 	--mn "${MODEL_NAME}"
@@ -56,6 +59,6 @@ if [[ -n "${DRAFT_MODEL_PATH}" ]]; then
 	)
 fi
 
-openarc add "${ARGS[@]}"
-openarc unload $MODEL_NAME
-openarc load $MODEL_NAME
+docker exec openarc openarc add "${ARGS[@]}"
+docker exec openarc openarc unload $MODEL_NAME
+docker exec openarc openarc load $MODEL_NAME
