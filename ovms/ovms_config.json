@@ -4,7 +4,7 @@
       "config": {
         "name": "qwen3-8b-int4-cw-ov_model",
         "base_path": "/models/ov/server/qwen3-8b-int4-cw-ov",
-        "target_device": "HETERO:GPU.1"
+        "target_device": "HETERO:GPU.1,GPU.0"
       }
     }
   ],

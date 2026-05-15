@@ -8,11 +8,12 @@ CONFIG_FILE="$SCRIPT_DIR/ovms_config.json"
 API_KEY=abc
 #TAG=latest-gpu
 #TAG=latest-py
-#TAG=weekly
+TAG=weekly
 #TAG=2025.4.1-py
-TAG=local
+#TAG=local
 mkdir -p "$SCRIPT_DIR/cache"
 
+docker pull openvino/model_server:$TAG
 docker run \
   --security-opt label=disable \
   --env API_KEY=$API_KEY \
