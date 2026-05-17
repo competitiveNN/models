@@ -84,6 +84,8 @@ MODEL=$qwen3_8b
 SPEC_DRAFT_MODEL="" # $qwen35_08b
 SPEC_DRAFT_MAX="${SPEC_DRAFT_MAX:-48}"
 SPEC_DRAFT_MIN="${SPEC_DRAFT_MIN:-12}"
+SPEC_DRAFT_KV_K="${SPEC_DRAFT_KV_K:-}"
+SPEC_DRAFT_KV_V="${SPEC_DRAFT_KV_V:-}"
 SPEC_TYPE="${SPEC_TYPE:-ngram-map-k}"
 SPEC_NGRAM_SIZE_N="${SPEC_NGRAM_SIZE_N:-24}"
 
@@ -118,6 +120,16 @@ while [[ "$#" -gt 0 ]]; do
 		;;
 	--spec-ngram-size-n)
 		die "error: --spec-ngram-size-n is deprecated. Use type-specific flags: --spec-ngram-<type>-size-n (e.g. --spec-ngram-map-k-size-n for ngram-map-k type)"
+		;;
+	--spec-draft-type-k|-ctkd)
+		[[ -n "${2:-}" ]] || die "error: --spec-draft-type-k/-ctkd requires a value"
+		SPEC_DRAFT_KV_K="$2"
+		shift 2
+		;;
+	--spec-draft-type-v|-ctvd)
+		[[ -n "${2:-}" ]] || die "error: --spec-draft-type-v/-ctvd requires a value"
+		SPEC_DRAFT_KV_V="$2"
+		shift 2
 		;;
 	--vulkan)
 		IMAGE="llama-cpp-vulkan"
@@ -266,6 +278,12 @@ if [[ -n "$MTP" ]]; then
 	if [[ -z "$SPEC_DRAFT_MIN" ]]; then
 		SPEC_DRAFT_MIN="${MTP_DRAFT_MIN:-0}"
 	fi
+	if [[ -z "$SPEC_DRAFT_KV_K" ]]; then
+		SPEC_DRAFT_KV_K="q4_0"
+	fi
+	if [[ -z "$SPEC_DRAFT_KV_V" ]]; then
+		SPEC_DRAFT_KV_V="q4_0"
+	fi
 fi
 if [[ -n "$SPEC_DRAFT_MODEL" ]] && [[ "$SPEC_DRAFT_MODEL" != "1" ]] && [[ "$SPEC_DRAFT_MODEL" != /* ]]; then
 	die "error: SPEC_DRAFT_MODEL/--draft-model must be an absolute path inside the container (e.g. /models/...) or 1 for spec decoding without draft model"
@@ -356,6 +374,12 @@ if [[ -n "$SPEC_DRAFT_MIN" ]]; then
 fi
 if [[ -n "$SPEC_TYPE" ]]; then
 	SPEC_ARGS+=(--spec-type "$SPEC_TYPE")
+fi
+if [[ -n "$SPEC_DRAFT_KV_K" ]]; then
+	SPEC_ARGS+=(--spec-draft-type-k "$SPEC_DRAFT_KV_K")
+fi
+if [[ -n "$SPEC_DRAFT_KV_V" ]]; then
+	SPEC_ARGS+=(--spec-draft-type-v "$SPEC_DRAFT_KV_V")
 fi
 # Use type-specific ngram flag based on SPEC_TYPE
 if [[ -n "$SPEC_NGRAM_SIZE_N" ]]; then
