@@ -49,6 +49,7 @@ usage() {
 	echo "  --ngl N                   Number of GPU layers (default: 9999 for GPU, 0 for CPU)"
 	echo "  --moe N                   Number of CPU MOE layers (default: 0)"
 	echo "  --detect                  Automatically detect memory and infer --n-gpu-layers"
+	echo "  --mtp                   Enable Multi-Token Prediction (speculative decoding via model's own MTP heads)"
 	echo "  --pthinking                Enable preserve_thinking in chat template (sets --chat-template-kwargs '{\"preserve_thinking\":true}')"
 	echo "  NGRAM_SIZE_N (env)          Ngram size for spec decoding (default: 24). Use type-specific flag like --spec-ngram-map-k-size-n"
 	echo "  --draft-max|--spec-draft-n-max N     Maximum number of draft tokens (default: 48)"
@@ -89,6 +90,7 @@ SPEC_NGRAM_SIZE_N="${SPEC_NGRAM_SIZE_N:-24}"
 N_GPU_LAYERS="${N_GPU_LAYERS:-}"
 SELECTED_GPUS=()
 N_CPU_MOE="${N_CPU_MOE:-0}"
+MTP="${MTP:-}"
 DETECT="${DETECT:-}"
 PRESERVE_THINKING="${PRESERVE_THINKING:-}"
 
@@ -154,6 +156,10 @@ while [[ "$#" -gt 0 ]]; do
 		;;
 	--detect)
 		DETECT=1
+		shift
+		;;
+	--mtp)
+		MTP=1
 		shift
 		;;
 	--pthinking)
@@ -247,9 +253,24 @@ fi
 if [[ -n "$N_CPU_MOE" ]] && ! is_uint "$N_CPU_MOE"; then
 	die "error: --moe must be an integer"
 fi
+if [[ -n "$MTP" ]]; then
+	if [[ -z "$SPEC_DRAFT_MODEL" ]]; then
+		SPEC_DRAFT_MODEL="1"
+	fi
+	if [[ -z "$SPEC_TYPE" ]]; then
+		SPEC_TYPE="mtp"
+	fi
+	if [[ -z "$SPEC_DRAFT_MAX" ]]; then
+		SPEC_DRAFT_MAX="${MTP_DRAFT_MAX:-3}"
+	fi
+	if [[ -z "$SPEC_DRAFT_MIN" ]]; then
+		SPEC_DRAFT_MIN="${MTP_DRAFT_MIN:-0}"
+	fi
+fi
 if [[ -n "$SPEC_DRAFT_MODEL" ]] && [[ "$SPEC_DRAFT_MODEL" != "1" ]] && [[ "$SPEC_DRAFT_MODEL" != /* ]]; then
 	die "error: SPEC_DRAFT_MODEL/--draft-model must be an absolute path inside the container (e.g. /models/...) or 1 for spec decoding without draft model"
 fi
+
 
 if [[ -n "$DETECT" ]] && [[ -z "$CPU_MODE" ]]; then
     calculate_ngl
