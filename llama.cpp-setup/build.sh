@@ -12,19 +12,19 @@ fi
 case $BACKEND in
 openvino)
 	IMAGE_TAG="llama-cpp-openvino"
-	DOCKERFILE=".devops/openvino.Dockerfile"
+	DOCKERFILE="llama.cpp/.devops/openvino.Dockerfile"
 	CONTEXT="llama.cpp"
 	EXTRA_ARGS=""
 	;;
 intel)
 	IMAGE_TAG="llama-cpp-intel"
-	DOCKERFILE=".devops/intel.Dockerfile"
+	DOCKERFILE="llama.cpp/.devops/intel.Dockerfile"
 	CONTEXT="llama.cpp"
 	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON"
 	;;
 vulkan)
 	IMAGE_TAG="llama-cpp-vulkan"
-	DOCKERFILE=".devops/vulkan.Dockerfile"
+	DOCKERFILE="llama.cpp/.devops/vulkan.Dockerfile"
 	CONTEXT="llama.cpp"
 	EXTRA_ARGS=""
 	;;
