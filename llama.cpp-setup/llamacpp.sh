@@ -46,10 +46,11 @@ usage() {
 	echo "Usage: $0 [--intel|--vulkan|--cpu|--ik] [server|--bench] [options] [-- <extra llama.cpp args>]"
 	echo "  --cpu                     Run in CPU mode (no GPU devices, --n-gpu-layers 0)"
 	echo "  --ik                      Run with ik_llama CPU image"
-	echo "  --ngl N                   Number of GPU layers (default: 9999 for GPU, 0 for CPU)"
+	echo "  --ngl N                   Number of GPU layers (default: all)"
 	echo "  --moe N                   Number of CPU MOE layers (default: 0)"
 	echo "  --detect                  Automatically detect memory and infer --n-gpu-layers"
 	echo "  --mtp                   Enable Multi-Token Prediction (speculative decoding via model's own MTP heads)"
+	echo "  --no-spec               Disable speculative decoding"
 	echo "  --pthinking                Enable preserve_thinking in chat template (sets --chat-template-kwargs '{\"preserve_thinking\":true}')"
 	echo "  NGRAM_SIZE_N (env)          Ngram size for spec decoding (default: 24). Use type-specific flag like --spec-ngram-map-k-size-n"
 	echo "  --draft-max|--spec-draft-n-max N     Maximum number of draft tokens (default: 48)"
@@ -69,8 +70,10 @@ qwen3_4b="/models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.
 qwen3_8b="/models/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf"
 qwen35_9b="/models/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf"
 qwen35_122b="/models/Qwen3.5-122B-A10B-GGUF/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf"
-qwen36_35b_moe="/models/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+qwen36_35b="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+qwen36_35b_q3="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"
 qwen36_27b="/models/Qwen3.6-27B-MTP-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf"
+qwen36_27b_q3="/models/Qwen3.6-27B-MTP-GGUF/Qwen3.6-27B-UD-Q3_K_XL.gguf"
 
 lfm2_24b="/models/LFM2-24B-A2B-GGUF/LFM2-24B-A2B-Q4_K_M.gguf"
 lfm25_1_2b="/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gguf"
@@ -79,7 +82,7 @@ hypernova_60b="/models/Hypernova-60B-2602-GGUF/Hypernova-60B-2602-GGUF.gguf" # 8
 gptoss_20b="/models/gpt-oss-20b-GGUF/gpt-oss-20b-UD-Q4_K_XL.gguf"
 phi3_2b="/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf"
 
-MODEL=$qwen3_8b
+MODEL=$qwen36_35b_q3
 
 SPEC_DRAFT_MODEL="" # $qwen35_08b
 SPEC_DRAFT_MAX="${SPEC_DRAFT_MAX:-48}"
@@ -89,7 +92,7 @@ SPEC_DRAFT_KV_V="${SPEC_DRAFT_KV_V:-}"
 SPEC_TYPE="${SPEC_TYPE:-ngram-map-k}"
 SPEC_NGRAM_SIZE_N="${SPEC_NGRAM_SIZE_N:-24}"
 
-N_GPU_LAYERS="${N_GPU_LAYERS:-}"
+N_GPU_LAYERS="${N_GPU_LAYERS:-all}"
 SELECTED_GPUS=()
 N_CPU_MOE="${N_CPU_MOE:-0}"
 MTP="${MTP:-}"
@@ -170,11 +173,15 @@ while [[ "$#" -gt 0 ]]; do
 		DETECT=1
 		shift
 		;;
-	--mtp)
+  --mtp)
 		MTP=1
 		shift
 		;;
-	--pthinking)
+  --no-spec)
+		NO_SPEC=1
+		shift
+		;;
+  --pthinking)
 		PRESERVE_THINKING=1
 		shift
 		;;
@@ -199,6 +206,7 @@ while [[ "$#" -gt 0 ]]; do
 			EXTRA_ARGS+=("$FIT_CTX_SIZE")
 			shift 2
 		else
+			EXTRA_ARGS+=("4096")
 			shift
 		fi
 		;;
@@ -259,31 +267,19 @@ fi
 if [[ -n "$SPEC_DRAFT_MIN" ]] && ! is_uint "$SPEC_DRAFT_MIN"; then
 	die "error: SPEC_DRAFT_MIN/--draft-min must be an integer"
 fi
-if [[ -n "$N_GPU_LAYERS" ]] && ! is_uint "$N_GPU_LAYERS"; then
+if [[ -n "$N_GPU_LAYERS" ]] && [[ "$N_GPU_LAYERS" != "all" ]] && ! is_uint "$N_GPU_LAYERS"; then
 	die "error: --ngl must be an integer"
 fi
 if [[ -n "$N_CPU_MOE" ]] && ! is_uint "$N_CPU_MOE"; then
 	die "error: --moe must be an integer"
 fi
 if [[ -n "$MTP" ]]; then
-	if [[ -z "$SPEC_DRAFT_MODEL" ]]; then
-		SPEC_DRAFT_MODEL="1"
-	fi
-	if [[ -z "$SPEC_TYPE" ]]; then
-		SPEC_TYPE="mtp"
-	fi
-	if [[ -z "$SPEC_DRAFT_MAX" ]]; then
-		SPEC_DRAFT_MAX="${MTP_DRAFT_MAX:-3}"
-	fi
-	if [[ -z "$SPEC_DRAFT_MIN" ]]; then
-		SPEC_DRAFT_MIN="${MTP_DRAFT_MIN:-0}"
-	fi
-	if [[ -z "$SPEC_DRAFT_KV_K" ]]; then
-		SPEC_DRAFT_KV_K="q4_0"
-	fi
-	if [[ -z "$SPEC_DRAFT_KV_V" ]]; then
-		SPEC_DRAFT_KV_V="q4_0"
-	fi
+	SPEC_DRAFT_MODEL="1"
+	SPEC_TYPE="draft-mtp"
+	SPEC_DRAFT_MAX="${MTP_DRAFT_MAX:-3}"
+	SPEC_DRAFT_MIN="${MTP_DRAFT_MIN:-0}"
+	SPEC_DRAFT_KV_K="q4_0"
+	SPEC_DRAFT_KV_V="q4_0"
 fi
 if [[ -n "$SPEC_DRAFT_MODEL" ]] && [[ "$SPEC_DRAFT_MODEL" != "1" ]] && [[ "$SPEC_DRAFT_MODEL" != /* ]]; then
 	die "error: SPEC_DRAFT_MODEL/--draft-model must be an absolute path inside the container (e.g. /models/...) or 1 for spec decoding without draft model"
@@ -324,10 +320,12 @@ MODEL_ARGS=(-m "$MODEL")
 
 
 if [[ $USE_FIT_MODE -eq 0 ]]; then
-	if [[ -z "$CPU_MODE" ]]; then
-		if [[ -n "$N_GPU_LAYERS" ]]; then
-			MODEL_ARGS+=(--n-gpu-layers "$N_GPU_LAYERS")
-		fi
+if [[ -z "$CPU_MODE" ]]; then
+    if [[ "$N_GPU_LAYERS" == "all" ]]; then
+        MODEL_ARGS+=(--n-gpu-layers -1)
+    elif [[ -n "$N_GPU_LAYERS" ]]; then
+        MODEL_ARGS+=(--n-gpu-layers "$N_GPU_LAYERS")
+    fi
 	else
 		MODEL_ARGS+=(--n-gpu-layers 0)
 	fi
@@ -363,33 +361,38 @@ if [[ -n "$CPU_MODE" ]]; then
 fi
 
 SPEC_ARGS=()
-if [[ -n "$SPEC_DRAFT_MODEL" && "$SPEC_DRAFT_MODEL" != "1" ]]; then
-	SPEC_ARGS+=(--model-draft "$SPEC_DRAFT_MODEL")
-fi
-if [[ -n "$SPEC_DRAFT_MAX" ]]; then
-	SPEC_ARGS+=(--spec-draft-n-max "$SPEC_DRAFT_MAX")
-fi
-if [[ -n "$SPEC_DRAFT_MIN" ]]; then
-	SPEC_ARGS+=(--spec-draft-n-min "$SPEC_DRAFT_MIN")
-fi
-if [[ -n "$SPEC_TYPE" ]]; then
-	SPEC_ARGS+=(--spec-type "$SPEC_TYPE")
-fi
-if [[ -n "$SPEC_DRAFT_KV_K" ]]; then
-	SPEC_ARGS+=(--spec-draft-type-k "$SPEC_DRAFT_KV_K")
-fi
-if [[ -n "$SPEC_DRAFT_KV_V" ]]; then
-	SPEC_ARGS+=(--spec-draft-type-v "$SPEC_DRAFT_KV_V")
-fi
-# Use type-specific ngram flag based on SPEC_TYPE
-if [[ -n "$SPEC_NGRAM_SIZE_N" ]]; then
-	case "$SPEC_TYPE" in
-		ngram-simple)  SPEC_ARGS+=(--spec-ngram-simple-size-n "$SPEC_NGRAM_SIZE_N") ;;
-		ngram-map-k)   SPEC_ARGS+=(--spec-ngram-map-k-size-n "$SPEC_NGRAM_SIZE_N") ;;
-		ngram-map-k4v) SPEC_ARGS+=(--spec-ngram-map-k4v-size-n "$SPEC_NGRAM_SIZE_N") ;;
-		ngram-mod)     SPEC_ARGS+=(--spec-ngram-mod-n-match "$SPEC_NGRAM_SIZE_N") ;;
-		*) die "Unsupported SPEC_TYPE for ngram size: $SPEC_TYPE" ;;
-	esac
+if [[ -n "$NO_SPEC" ]]; then
+  # Skip all speculative decoding arguments
+  :
+else
+  if [[ -n "$SPEC_DRAFT_MODEL" && "$SPEC_DRAFT_MODEL" != "1" ]]; then
+    SPEC_ARGS+=(--model-draft "$SPEC_DRAFT_MODEL")
+  fi
+  if [[ -n "$SPEC_DRAFT_MAX" ]]; then
+    SPEC_ARGS+=(--spec-draft-n-max "$SPEC_DRAFT_MAX")
+  fi
+  if [[ -n "$SPEC_DRAFT_MIN" ]]; then
+    SPEC_ARGS+=(--spec-draft-n-min "$SPEC_DRAFT_MIN")
+  fi
+  if [[ -n "$SPEC_TYPE" ]]; then
+    SPEC_ARGS+=(--spec-type "$SPEC_TYPE")
+  fi
+  if [[ -n "$SPEC_DRAFT_KV_K" ]]; then
+    SPEC_ARGS+=(--spec-draft-type-k "$SPEC_DRAFT_KV_K")
+  fi
+  if [[ -n "$SPEC_DRAFT_KV_V" ]]; then
+    SPEC_ARGS+=(--spec-draft-type-v "$SPEC_DRAFT_KV_V")
+  fi
+  # Use type-specific ngram flag based on SPEC_TYPE
+  if [[ -n "$SPEC_NGRAM_SIZE_N" ]] && [[ "$SPEC_TYPE" =~ ^ngram ]]; then
+    case "$SPEC_TYPE" in
+      ngram-simple)  SPEC_ARGS+=(--spec-ngram-simple-size-n "$SPEC_NGRAM_SIZE_N") ;;
+      ngram-map-k)   SPEC_ARGS+=(--spec-ngram-map-k-size-n "$SPEC_NGRAM_SIZE_N") ;;
+      ngram-map-k4v) SPEC_ARGS+=(--spec-ngram-map-k4v-size-n "$SPEC_NGRAM_SIZE_N") ;;
+      ngram-mod)     SPEC_ARGS+=(--spec-ngram-mod-n-match "$SPEC_NGRAM_SIZE_N") ;;
+      *) die "Unsupported SPEC_TYPE for ngram size: $SPEC_TYPE" ;;
+    esac
+  fi
 fi
 
 DOCKER_ARGS=("${COMMON_ARGS[@]}")
@@ -406,8 +409,8 @@ else
 	DOCKER_ARGS+=(--entrypoint /app/llama-bench)
 	# Set bench-specific args
 	CMD_ARGS=(-m "$MODEL")
-	if [[ $USE_FIT_MODE -eq 0 && -n "$N_GPU_LAYERS" ]]; then
-		CMD_ARGS+=(--n-gpu-layers "$N_GPU_LAYERS")
+if [[ $USE_FIT_MODE -eq 0 && -n "$N_GPU_LAYERS" ]] && [[ "$N_GPU_LAYERS" != "all" ]]; then
+    CMD_ARGS+=(--n-gpu-layers "$N_GPU_LAYERS")
 	fi
 	if [[ -n "$PRESERVE_THINKING" ]]; then
 		CMD_ARGS+=(--chat-template-kwargs '{"preserve_thinking": true}')

@@ -11,6 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev \
     git curl ca-certificates jq ripgrep ffmpeg sudo direnv vim-tiny \
     python3-dev python3-yaml python3-httpx kitty-terminfo ncurses-base ncurses-bin \
+    lsof strace procps netcat-openbsd dnsutils less tree file neovim \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Create user ──────────────────────────────────────────────────────────────

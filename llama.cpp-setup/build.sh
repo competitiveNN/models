@@ -41,11 +41,6 @@ ik_llama_cpu)
 	;;
 esac
 
-# Apply a temporary GGML_NATIVE=ON patch to a Dockerfile.
-# Handles three cases:
-#   1. Has ...GGML_NATIVE=OFF...  → replace with =ON
-#   2. Has ...GGML_NATIVE=ON...   → already correct, no change
-#   3. Has no GGML_NATIVE at all  → append -DGGML_NATIVE=ON after the cmake invocation
 patch_for_native() {
 	local DOCKERFILE="$1"
 
@@ -59,14 +54,26 @@ patch_for_native() {
 	cp "$DOCKERFILE" "$TEMP_DOCKERFILE"
 
 	if grep -q 'GGML_NATIVE=OFF' "$TEMP_DOCKERFILE"; then
-		# Case 1: GGML_NATIVE exists and is OFF → flip to ON
 		sed -i 's/GGML_NATIVE=OFF/GGML_NATIVE=ON/g' "$TEMP_DOCKERFILE"
 	elif grep -q 'GGML_NATIVE=ON' "$TEMP_DOCKERFILE"; then
-		# Case 2: Already ON — leave as-is
 		:
 	else
-		# Case 3: GGML_NATIVE absent → append -DGGML_NATIVE=ON after the cmake invocation line
-		sed -i '/cmake.*-S\|cmake.*-B.*Release\|cmake.*-B.*build/a\\t\t-DGGML_NATIVE=ON' "$TEMP_DOCKERFILE"
+		python3 << 'ENDPATCH'
+import re
+import sys
+
+with open(sys.argv[1], 'r') as f:
+    content = f.read()
+
+new_content = re.sub(
+    r'(cmake -B build/ReleaseOV -G Ninja \\\n        -DCMAKE_BUILD_TYPE=Release \\\n        -DGGML_OPENVINO=ON)(&&)',
+    r'\1\n        -DGGML_NATIVE=ON\2',
+    content
+)
+
+with open(sys.argv[1], 'w') as f:
+    f.write(new_content)
+ENDPATCH
 	fi
 
 	echo "$TEMP_DOCKERFILE"
@@ -78,14 +85,12 @@ build_image() {
 	local CONTEXT=$3
 	local EXTRA_ARGS=$4
 
-	# Special handling for ik_llama_cpu: patch Dockerfile to include llama-bench binary in server stage
 	local USE_TEMP_DOCKERFILE=0
 	local TEMP_DOCKERFILE=""
 	if [ "$IMAGE_TAG" = "ik-llama-cpu" ]; then
 		if [ -f "$DOCKERFILE" ]; then
 			TEMP_DOCKERFILE=$(mktemp)
 			cp "$DOCKERFILE" "$TEMP_DOCKERFILE"
-			# Insert COPY for llama-bench in server stage, right after the llama-server COPY line
 			sed -i '/COPY --from=build \/app\/dist\/bin\/llama-server \/app\/llama-server/a COPY --from=build /app/dist/bin/llama-bench /app/llama-bench' "$TEMP_DOCKERFILE"
 			DOCKERFILE="$TEMP_DOCKERFILE"
 			USE_TEMP_DOCKERFILE=1
@@ -93,7 +98,6 @@ build_image() {
 			echo "Warning: Dockerfile $DOCKERFILE not found, cannot patch for ik_llama_cpu" >&2
 		fi
 	else
-		# patch_for_native: force GGML_NATIVE=ON everywhere else
 		TEMP_DOCKERFILE=$(patch_for_native "$DOCKERFILE")
 		if [ -n "$TEMP_DOCKERFILE" ] && [ -f "$TEMP_DOCKERFILE" ]; then
 			DOCKERFILE="$TEMP_DOCKERFILE"
@@ -116,7 +120,6 @@ build_image() {
 		docker rmi "$OLD_IMAGE_ID" || true
 	fi
 
-	# Cleanup temporary Dockerfile if used
 	if [ "$USE_TEMP_DOCKERFILE" -eq 1 ] && [ -f "$TEMP_DOCKERFILE" ]; then
 		rm -f "$TEMP_DOCKERFILE"
 	fi
