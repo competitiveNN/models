@@ -51,6 +51,12 @@ mkdir -p "${NPM_BIN}" "${LOCAL_BIN}" "${PERSISTENT_NPM}" "${PERSISTENT_NODE_CACH
 
 # ── Agent installers ─────────────────────────────────────────────────────────
 
+install_antigravity() {
+	log "Installing antigravity CLI..."
+	curl -fsSL https://antigravity.google/cli/install.sh | bash
+	ok "antigravity installed"
+}
+
 install_copilot() {
 	local version="${1:-latest}"
 	log "Installing GitHub Copilot CLI (${version})..."
@@ -82,7 +88,7 @@ install_opencode() {
 	mkdir -p "${LOCAL_BIN}"
 	cat >"${LOCAL_BIN}/opencode" <<EOF
 #!/usr/bin/env bash
-NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/opencode-ai/bin/opencode" "\$@"
+NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/opencode-ai/bin/opencode.exe" "\$@"
 EOF
 	chmod +x "${LOCAL_BIN}/opencode"
 	ok "OpenCode installed: $(${LOCAL_BIN}/opencode --version 2>&1 | head -1)"
@@ -287,14 +293,16 @@ usage() {
 Usage: setup-agent.sh <agent> [version]
 
 Agents:
-  copilot     GitHub Copilot CLI
-  opencode    OpenCode AI
-  kilo        Kilo CLI
-  hermes      Hermes Agent (Python)
-  soulforge   SoulForge Agent (TypeScript/Bun)
-  all         Install every supported agent
+  antigravity  antigravity CLI
+  copilot      GitHub Copilot CLI
+  opencode     OpenCode AI
+  kilo         Kilo CLI
+  hermes       Hermes Agent (Python)
+  soulforge    SoulForge Agent (TypeScript/Bun)
+  all          Install every supported agent
 
 Examples:
+  setup-agent.sh antigravity
   setup-agent.sh copilot
   setup-agent.sh hermes main
   setup-agent.sh soulforge
@@ -317,6 +325,7 @@ else
 fi
 
 case "$AGENT" in
+antigravity) install_antigravity "$VERSION" ;;
 copilot) install_copilot "$VERSION" ;;
 opencode) install_opencode "$VERSION" ;;
 kilo) install_kilo "$VERSION" ;;
@@ -325,6 +334,7 @@ soulforge) install_soulforge "$VERSION" ;;
 watchdog) install_watchdog ;;
 all)
 	log "Installing all agents..."
+	install_antigravity "$VERSION"
 	install_copilot "$VERSION"
 	install_opencode "$VERSION"
 	install_kilo "$VERSION"

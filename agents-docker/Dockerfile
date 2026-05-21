@@ -98,6 +98,9 @@ RUN mkdir -p "${CONTAINER_HOME}/.config/agent-gnupg" \
 
 RUN curl -fsSL https://install.julialang.org | sh -s -- -y
 
+# ── antigravity CLI ─────────────────────────────────────────────────────────────
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
+
 # ── Context7 MCP Server ──────────────────────────────────────────────────────
 RUN npm install -g @upstash/context7-mcp
 
