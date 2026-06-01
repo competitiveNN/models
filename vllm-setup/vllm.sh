@@ -1,20 +1,29 @@
 #!/bin/bash
 
-# vLLM startup script for Intel XPU (fallback from Docker)
-# This script runs vLLM directly from the .venv virtual environment
-
+# Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Activate virtual environment
-source "$SCRIPT_DIR/.venv/bin/activate"
-
-# Set environment variables for Intel XPU
-export VLLM_TARGET_DEVICE=xpu
-export ONEAPI_DEVICE_SELECTOR="level_zero:gpu"
-export ZE_AFFINITY_MASK=0
-
-# vLLM configuration
+MODEL_PATH="$HOME/data/models"
+MODEL=""
+#IMAGE=intel/vllm
+#IMAGE=localhost/vllm-xpu-env:latest
+IMAGE=intel/llm-scaler-vllm:0.14.0-b8.2.1
 CONFIG="$SCRIPT_DIR/vllm.yaml"
+ENTRYPOINT="$SCRIPT_DIR/entrypoint.sh"
 
-# Run vLLM server
-exec vllm serve --config "$CONFIG"
+docker run --security-opt label=disable \
+--rm -it \
+--name=vllm \
+--net=host \
+-v "$MODEL_PATH":"$MODEL_PATH" \
+--device /dev/dri:/dev/dri \
+-v /dev/dri/by-path:/dev/dri/by-path \
+-v "$CONFIG":/config.yaml \
+-v "$ENTRYPOINT":/vllm.sh \
+--ipc=host \
+--privileged \
+-e VLLM_TARGET_DEVICE=xpu \
+-e ONEAPI_DEVICE_SELECTOR="level_zero:gpu" \
+--entrypoint /vllm.sh \
+$IMAGE #\
+#-lic "vllm serve --config /config.yaml"

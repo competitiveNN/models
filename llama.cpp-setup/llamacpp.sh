@@ -55,6 +55,7 @@ usage() {
 	echo "  NGRAM_SIZE_N (env)          Ngram size for spec decoding (default: 24). Use type-specific flag like --spec-ngram-map-k-size-n"
 	echo "  --draft-max|--spec-draft-n-max N     Maximum number of draft tokens (default: 48)"
 	echo "  --draft-min|--spec-draft-n-min N     Minimum number of draft tokens (default: 12)"
+	echo "  --timeout N               Execution timeout in seconds (default: 3600)"
 }
 
 die() {
@@ -72,8 +73,13 @@ qwen35_9b="/models/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf"
 qwen35_122b="/models/Qwen3.5-122B-A10B-GGUF/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf"
 qwen36_35b="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
 qwen36_35b_q3="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"
+qwen36_35b_bpw_419="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf"
+qwen36_35b_bpw_397="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-3.97bpw.gguf"
+qwen36_35b_bpw_353="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-3.53bpw.gguf"
 qwen36_27b="/models/Qwen3.6-27B-MTP-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf"
 qwen36_27b_q3="/models/Qwen3.6-27B-MTP-GGUF/Qwen3.6-27B-UD-Q3_K_XL.gguf"
+qwen36_27b_reap="/models/Qwen3.6-28B-REAP-i1-GGUF/Qwen3.6-28B-REAP.i1-Q4_K_M.gguf"
+qwen36_27b_bart="/models/Qwen_Qwen3.6-27B-GGUF/Qwen_Qwen3.6-27B-Q4_K_M.gguf"
 
 lfm2_24b="/models/LFM2-24B-A2B-GGUF/LFM2-24B-A2B-Q4_K_M.gguf"
 lfm25_1_2b="/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gguf"
@@ -82,7 +88,7 @@ hypernova_60b="/models/Hypernova-60B-2602-GGUF/Hypernova-60B-2602-GGUF.gguf" # 8
 gptoss_20b="/models/gpt-oss-20b-GGUF/gpt-oss-20b-UD-Q4_K_XL.gguf"
 phi3_2b="/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf"
 
-MODEL=$qwen36_35b_q3
+MODEL=$qwen36_27b_reap
 
 SPEC_DRAFT_MODEL="" # $qwen35_08b
 SPEC_DRAFT_MAX="${SPEC_DRAFT_MAX:-48}"
@@ -98,12 +104,18 @@ N_CPU_MOE="${N_CPU_MOE:-0}"
 MTP="${MTP:-}"
 DETECT="${DETECT:-}"
 PRESERVE_THINKING="${PRESERVE_THINKING:-}"
+TIMEOUT="${TIMEOUT:-3600}"
 
 while [[ "$#" -gt 0 ]]; do
 	case $1 in
 	--draft-model)
 		[[ -n "${2:-}" ]] || die "error: --draft-model requires a value"
 		SPEC_DRAFT_MODEL="$2"
+		shift 2
+		;;
+	--timeout)
+		[[ -n "${2:-}" ]] || die "error: --timeout requires a value"
+		TIMEOUT="$2"
 		shift 2
 		;;
 	--draft-max|--spec-draft-n-max)
@@ -273,6 +285,9 @@ fi
 if [[ -n "$N_CPU_MOE" ]] && ! is_uint "$N_CPU_MOE"; then
 	die "error: --moe must be an integer"
 fi
+if [[ -n "$TIMEOUT" ]] && ! is_uint "$TIMEOUT"; then
+	die "error: --timeout must be an integer"
+fi
 if [[ -n "$MTP" ]]; then
 	SPEC_DRAFT_MODEL="1"
 	SPEC_TYPE="draft-mtp"
@@ -280,6 +295,9 @@ if [[ -n "$MTP" ]]; then
 	SPEC_DRAFT_MIN="${MTP_DRAFT_MIN:-0}"
 	SPEC_DRAFT_KV_K="q4_0"
 	SPEC_DRAFT_KV_V="q4_0"
+	CACHE_TYPE_K_DRAFT="q8_0"
+	CACHE_TYPE_V_DRAFT="q8_0"
+	SPEC_DRAFT_P_MIN="0.75"
 fi
 if [[ -n "$SPEC_DRAFT_MODEL" ]] && [[ "$SPEC_DRAFT_MODEL" != "1" ]] && [[ "$SPEC_DRAFT_MODEL" != /* ]]; then
 	die "error: SPEC_DRAFT_MODEL/--draft-model must be an absolute path inside the container (e.g. /models/...) or 1 for spec decoding without draft model"
@@ -314,7 +332,7 @@ COMMON_ARGS=(
 	${DEVICES:-}
 )
 
-MODEL_ARGS=(-m "$MODEL")
+MODEL_ARGS=(-m "$MODEL" -b 2048 -ub 2048 -fa on --reasoning-budget 2048 --reasoning-budget-message "\nBased on the analysis above, here is the complete solution:" --no-mmap)
 
 
 
@@ -347,6 +365,7 @@ if [[ -n "$CPU_MODE" ]]; then
 	MODEL_ARGS=(
 		-m "$MODEL"
 		--n-gpu-layers 0
+		--no-mmap
 	)
 	if [[ -n "$MANUAL_CTX_SIZE" ]]; then
 		MODEL_ARGS+=(--ctx-size "$MANUAL_CTX_SIZE")
@@ -383,6 +402,15 @@ else
   if [[ -n "$SPEC_DRAFT_KV_V" ]]; then
     SPEC_ARGS+=(--spec-draft-type-v "$SPEC_DRAFT_KV_V")
   fi
+  if [[ -n "$SPEC_DRAFT_P_MIN" ]]; then
+    SPEC_ARGS+=(--spec-draft-p-min "$SPEC_DRAFT_P_MIN")
+  fi
+  if [[ -n "$CACHE_TYPE_K_DRAFT" ]]; then
+    SPEC_ARGS+=(--cache-type-k-draft "$CACHE_TYPE_K_DRAFT")
+  fi
+  if [[ -n "$CACHE_TYPE_V_DRAFT" ]]; then
+    SPEC_ARGS+=(--cache-type-v-draft "$CACHE_TYPE_V_DRAFT")
+  fi
   # Use type-specific ngram flag based on SPEC_TYPE
   if [[ -n "$SPEC_NGRAM_SIZE_N" ]] && [[ "$SPEC_TYPE" =~ ^ngram ]]; then
     case "$SPEC_TYPE" in
@@ -407,8 +435,8 @@ else
 	echo "Running in benchmark mode..."
 	# Override entrypoint to llama-bench
 	DOCKER_ARGS+=(--entrypoint /app/llama-bench)
-	# Set bench-specific args
-	CMD_ARGS=(-m "$MODEL")
+  # Set bench-specific args
+  CMD_ARGS=(-m "$MODEL" -b 2048 -ub 512 --reasoning-budget 8192 --reasoning-budget-message "\nBased on the analysis above, here is the complete solution:")
 if [[ $USE_FIT_MODE -eq 0 && -n "$N_GPU_LAYERS" ]] && [[ "$N_GPU_LAYERS" != "all" ]]; then
     CMD_ARGS+=(--n-gpu-layers "$N_GPU_LAYERS")
 	fi
@@ -431,6 +459,6 @@ else
 	printf "\n"
 fi
 
-docker run "${DOCKER_ARGS[@]}" \
+timeout "$TIMEOUT" docker run "${DOCKER_ARGS[@]}" \
 	"$IMAGE" \
 	"${CMD_ARGS[@]}"

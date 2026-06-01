@@ -1,5 +1,6 @@
 # Using AWQ 4-bit model with auto-detect quantization
-model: /home/fra/data/models/safetensors/Qwen3.5-9B-AWQ-4bit
+# model: /home/fra/data/models/safetensors/Qwen3.5-9B-AWQ-4bit
+model: /home/fra/data/models/safetensors/Qwen3-4B-AWQ
 
 served-model-name: "Qwen3.5-9B-Q4"
 host: "0.0.0.0"
