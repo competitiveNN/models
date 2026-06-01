@@ -88,7 +88,7 @@ hypernova_60b="/models/Hypernova-60B-2602-GGUF/Hypernova-60B-2602-GGUF.gguf" # 8
 gptoss_20b="/models/gpt-oss-20b-GGUF/gpt-oss-20b-UD-Q4_K_XL.gguf"
 phi3_2b="/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf"
 
-MODEL=$qwen36_27b_reap
+MODEL=$qwen36_27b_iq4_xs
 
 SPEC_DRAFT_MODEL="" # $qwen35_08b
 SPEC_DRAFT_MAX="${SPEC_DRAFT_MAX:-48}"
