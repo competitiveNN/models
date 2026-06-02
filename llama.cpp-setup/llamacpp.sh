@@ -430,7 +430,7 @@ if [[ "$MODE" == "server" ]]; then
 	echo "Running in server mode..."
 	DOCKER_ARGS+=(-p 8000:8000)
 	# Append server-specific args
-	CMD_ARGS=("${CMD_ARGS[@]}" "${SPEC_ARGS[@]}" --host 0.0.0.0 --port 8000 "${EXTRA_ARGS[@]}")
+	CMD_ARGS=("${CMD_ARGS[@]}" "${SPEC_ARGS[@]}" --host 0.0.0.0 --port 8000 --timeout "$TIMEOUT" "${EXTRA_ARGS[@]}")
 else
 	echo "Running in benchmark mode..."
 	# Override entrypoint to llama-bench
@@ -450,15 +450,15 @@ fi
 
 # Print the command passed to llama.cpp
 if [[ "$MODE" == "server" ]]; then
-	printf "timeout %s llama-server command:" "$TIMEOUT"
+	printf "llama-server command:"
 	printf " %q" "${CMD_ARGS[@]}"
 	printf "\n"
 else
-	printf "timeout %s llama-bench command:" "$TIMEOUT"
+	printf "llama-bench command:"
 	printf " %q" "${CMD_ARGS[@]}"
 	printf "\n"
 fi
 
-timeout "$TIMEOUT" docker run "${DOCKER_ARGS[@]}" \
+docker run "${DOCKER_ARGS[@]}" \
 	"$IMAGE" \
 	"${CMD_ARGS[@]}"
