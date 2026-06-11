@@ -100,7 +100,25 @@ install_little_coder() {
 NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/little-coder/bin/little-coder.mjs" "\$@"
 EOF
 	chmod +x "${LOCAL_BIN}/little-coder"
-	ok "little-coder installed: $(${LOCAL_BIN}/little-coder --version 2>&1 | head -1)"
+
+# Ensure pi-coding-agent is reachable for little-coder CLI (workaround for npm flattening)
+NESTED_PKG_JSON="${PERSISTENT_NPM}/node_modules/little-coder/node_modules/@earendil-works/pi-coding-agent/package.json"
+SCOPED_PKG_DIR="${PERSISTENT_NPM}/node_modules/@earendil-works/pi-coding-agent"
+TARGET_PARENT_DIR="${PERSISTENT_NPM}/node_modules/little-coder/node_modules/@earendil-works"
+
+if [[ ! -f "${NESTED_PKG_JSON}" ]]; then
+  warn "pi-coding-agent not found inside little-coder; installing scoped package and creating symlink"
+  npm install --prefix "${PERSISTENT_NPM}" @earendil-works/pi-coding-agent || warn "Failed to install @earendil-works/pi-coding-agent"
+  mkdir -p "${TARGET_PARENT_DIR}"
+  if [[ -d "${SCOPED_PKG_DIR}" ]]; then
+    ln -sf "${SCOPED_PKG_DIR}" "${TARGET_PARENT_DIR}/pi-coding-agent"
+    ok "Linked @earendil-works/pi-coding-agent into little-coder node_modules"
+  else
+    warn "Scoped package not found at ${SCOPED_PKG_DIR}; little-coder may still fail"
+  fi
+fi
+
+ok "little-coder installed: $(${LOCAL_BIN}/little-coder --version 2>&1 | head -1)"
 }
 
 
