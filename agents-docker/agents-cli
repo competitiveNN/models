@@ -31,14 +31,15 @@ Usage:
   agents-cli --help                Show this help
   agents-cli --privileged          Run container with --privileged (extended caps)
 
+ℹ️  Supported agents: opencode, openlumara, pi, little-coder, soulforge
+
 ⚠️  Note: agents-cli must be run from the host, not from inside a container.
     For containerized execution (e.g., toolbox), use agents-cli-bwrap instead.
 
 Volumes:
   agents-cli-config        → ${CONTAINER_HOME}/.config
-  agents-cli-config-copilot→ ${CONTAINER_HOME}/.copilot
-  agents-cli-config-hermes → ${CONTAINER_HOME}/.hermes
   agents-cli-config-local  → ${CONTAINER_HOME}/.local
+  agents-cli-config-openlumara→ ${CONTAINER_HOME}/.local/share/openlumara
   agents-cli-config-npm-global → ${CONTAINER_HOME}/.npm-global
   agents-cli-config-npm-cache  → ${CONTAINER_HOME}/.npm-cache
   agents-cli-config-cache      → ${CONTAINER_HOME}/.cache
@@ -103,7 +104,7 @@ fi
 
 # ── Initialize volumes with correct ownership ────────────────────────────────
 CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
-VOLUMES=("${AGENTS_VOLUME}" "${AGENTS_VOLUME}-copilot" "${AGENTS_VOLUME}-hermes" "${AGENTS_VOLUME}-local" "${AGENTS_VOLUME}-npm-global" "${AGENTS_VOLUME}-npm-cache" "${AGENTS_VOLUME}-cache")
+VOLUMES=("${AGENTS_VOLUME}" "${AGENTS_VOLUME}-local" "${AGENTS_VOLUME}-openlumara" "${AGENTS_VOLUME}-npm-global" "${AGENTS_VOLUME}-npm-cache" "${AGENTS_VOLUME}-cache")
 
 for vol in "${VOLUMES[@]}"; do
     if ! docker volume inspect "$vol" &>/dev/null; then
@@ -132,9 +133,8 @@ CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
 MOUNTS+=(-v "${AGENTS_VOLUME}:${CONTAINER_HOME}/.config")
 
 # Agent-specific config directories
-MOUNTS+=(-v "${AGENTS_VOLUME}-copilot:${CONTAINER_HOME}/.copilot")
-MOUNTS+=(-v "${AGENTS_VOLUME}-hermes:${CONTAINER_HOME}/.hermes")
 MOUNTS+=(-v "${AGENTS_VOLUME}-local:${CONTAINER_HOME}/.local")
+MOUNTS+=(-v "${AGENTS_VOLUME}-openlumara:${CONTAINER_HOME}/.local/share/openlumara")
 MOUNTS+=(-v "${AGENTS_VOLUME}-npm-global:${CONTAINER_HOME}/.npm-global")
 MOUNTS+=(-v "${AGENTS_VOLUME}-npm-cache:${CONTAINER_HOME}/.npm-cache")
 MOUNTS+=(-v "${AGENTS_VOLUME}-cache:${CONTAINER_HOME}/.cache")
@@ -151,6 +151,8 @@ mount_if_exists "$HOME/.gitconfig"              "${CONTAINER_HOME}/.gitconfig"  
 
 # Julia full directory
 mount_if_exists "$HOME/.julia"                  "${CONTAINER_HOME}/.julia"          "rw"
+# GitHub CLI config
+mount_if_exists "$HOME/.config/gh"              "${CONTAINER_HOME}/.config/gh"      "rw"
 
 # ── Pass through API key env vars ────────────────────────────────────────────
 DOCKER_ENV=()
@@ -168,10 +170,8 @@ pass_env ANTHROPIC_API_KEY       || true
 pass_env GEMINI_API_KEY          || true
 pass_env GOOGLE_API_KEY          || true
 pass_env GITHUB_TOKEN            || true
-pass_env COPILOT_TOKEN           || true
 pass_env KILO_API_KEY            || true
 pass_env OPENROUTER_API_KEY      || true
-pass_env HERMES_API_KEY          || true
 pass_env XAI_API_KEY             || true
 pass_env MISTRAL_API_KEY         || true
 pass_env DEEPSEEK_API_KEY        || true

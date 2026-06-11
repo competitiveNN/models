@@ -4,15 +4,12 @@ set -euo pipefail
 # ── setup-agent.sh: install and configure a specific agent inside the container
 #
 # Usage:
-#   setup-agent.sh copilot [VERSION]
 #   setup-agent.sh opencode [VERSION]
-#   setup-agent.sh kilo    [VERSION]
-#   setup-agent.sh hermes  [BRANCH]
 #   setup-agent.sh soulforge [VERSION]
 #   setup-agent.sh all     — install every supported agent
 #
 # Agents are installed into ~/.npm-global (npm agents) or ~/.local/bin (rtk,
-# hermes) so they live on the same volume that holds the config files
+# opencode) so they live on the same volume that holds the config files
 # (agents-cli-config-local → ~/.local).
 
 # ── Colours ──────────────────────────────────────────────────────────────────
@@ -51,30 +48,7 @@ mkdir -p "${NPM_BIN}" "${LOCAL_BIN}" "${PERSISTENT_NPM}" "${PERSISTENT_NODE_CACH
 
 # ── Agent installers ─────────────────────────────────────────────────────────
 
-install_antigravity() {
-	log "Installing antigravity CLI..."
-	curl -fsSL https://antigravity.google/cli/install.sh | bash
-	ok "antigravity installed"
-}
 
-install_copilot() {
-	local version="${1:-latest}"
-	log "Installing GitHub Copilot CLI (${version})..."
-	if [[ "$version" == "latest" ]]; then
-		npm install --prefix "${PERSISTENT_NPM}" @github/copilot
-	else
-		npm install --prefix "${PERSISTENT_NPM}" "@github/copilot@${version}"
-	fi
-	# Create wrapper script for copilot
-	mkdir -p "${LOCAL_BIN}"
-	cat >"${LOCAL_BIN}/copilot" <<EOF
-#!/usr/bin/env bash
-NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/@github/copilot/npm-loader.js" "\$@"
-EOF
-	chmod +x "${LOCAL_BIN}/copilot"
-	ok "Copilot installed: $(${LOCAL_BIN}/copilot --version 2>&1 | head -1)"
-	init_rtk --auto-patch
-}
 
 install_opencode() {
 	local version="${1:-latest}"
@@ -95,57 +69,63 @@ EOF
 	init_rtk --opencode --auto-patch
 }
 
-install_kilo() {
+install_pi() {
 	local version="${1:-latest}"
-	log "Installing Kilo CLI (${version})..."
+	log "Installing Pi agent (${version})..."
 	if [[ "$version" == "latest" ]]; then
-		npm install --prefix "${PERSISTENT_NPM}" @kilocode/cli
+		npm install --prefix "${PERSISTENT_NPM}" @earendil-works/pi-coding-agent
 	else
-		npm install --prefix "${PERSISTENT_NPM}" "@kilocode/cli@${version}"
+		npm install --prefix "${PERSISTENT_NPM}" "@earendil-works/pi-coding-agent@${version}"
 	fi
-	# Create wrapper script for kilo
 	mkdir -p "${LOCAL_BIN}"
-	cat >"${LOCAL_BIN}/kilo" <<EOF
+	cat >"${LOCAL_BIN}/pi" <<EOF
 #!/usr/bin/env bash
-NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/@kilocode/cli/bin/kilo" "\$@"
+NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/@earendil-works/pi-coding-agent/bin/pi-cli.js" "\$@"
 EOF
-	chmod +x "${LOCAL_BIN}/kilo"
-	ok "Kilo installed: $(${LOCAL_BIN}/kilo --version 2>&1 | head -1)"
+	chmod +x "${LOCAL_BIN}/pi"
+	ok "Pi installed: $(${LOCAL_BIN}/pi --version 2>&1 | head -1)"
 }
 
-install_hermes() {
-	local branch="${1:-main}"
-	log "Installing Hermes Agent (branch: ${branch})..."
-
-	# Use the official hermes installation script
-	if curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --no-venv --skip-setup --dir "${PERSISTENT_SHARE}/hermes-agent"; then
-		log "Hermes installation completed successfully"
+install_little_coder() {
+	local version="${1:-latest}"
+	log "Installing little-coder (${version})..."
+	if [[ "$version" == "latest" ]]; then
+		npm install --prefix "${PERSISTENT_NPM}" little-coder
 	else
-		warn "Hermes installation script failed, trying fallback method..."
-
-		# Fallback: manual installation if the official script fails
-		local HERMES_CODE="${PERSISTENT_SHARE}/hermes-agent"
-		mkdir -p "${HERMES_CODE}"
-
-		if [[ -d "${HERMES_CODE}/.git" ]]; then
-			warn "Hermes source already exists at ${HERMES_CODE}, pulling latest..."
-			git -C "${HERMES_CODE}" pull origin "$branch" || true
-		else
-			git clone --branch "$branch" \
-				https://github.com/NousResearch/hermes-agent.git "${HERMES_CODE}"
-		fi
-
-		# Copy the hermes script to our bin directory
-		mkdir -p "${LOCAL_BIN}"
-		cp "${HERMES_CODE}/hermes" "${LOCAL_BIN}/hermes"
-		chmod +x "${LOCAL_BIN}/hermes"
-
-		# Modify the Python script to add the source directory to sys.path
-		sed -i '1a import sys; sys.path.insert(0, "'${HERMES_CODE}'")' "${LOCAL_BIN}/hermes"
+		npm install --prefix "${PERSISTENT_NPM}" "little-coder@${version}"
 	fi
-
-	ok "Hermes installed: $(${LOCAL_BIN}/hermes --version 2>&1 | head -1 || echo 'Installed')"
+	mkdir -p "${LOCAL_BIN}"
+	cat >"${LOCAL_BIN}/little-coder" <<EOF
+#!/usr/bin/env bash
+NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/little-coder/bin/little-coder.mjs" "\$@"
+EOF
+	chmod +x "${LOCAL_BIN}/little-coder"
+	ok "little-coder installed: $(${LOCAL_BIN}/little-coder --version 2>&1 | head -1)"
 }
+
+
+install_openlumara() {
+	local version="${1:-main}"
+	log "Installing OpenLumara (branch/tag: ${version})..."
+	local OPENLUMARA_CODE="${PERSISTENT_SHARE}/openlumara"
+	mkdir -p "${PERSISTENT_SHARE}"
+	if [[ -d "${OPENLUMARA_CODE}/.git" ]]; then
+		warn "OpenLumara source already exists at ${OPENLUMARA_CODE}, pulling latest..."
+		git -C "${OPENLUMARA_CODE}" pull origin "$version" || true
+	else
+		git clone --branch "$version" \
+			https://github.com/Rose22/openlumara.git "${OPENLUMARA_CODE}"
+	fi
+	mkdir -p "${LOCAL_BIN}"
+	cat >"${LOCAL_BIN}/openlumara" <<EOF
+#!/usr/bin/env bash
+cd "${OPENLUMARA_CODE}" && exec bash ./run.sh "\$@"
+EOF
+	chmod +x "${LOCAL_BIN}/openlumara"
+	ok "OpenLumara installed"
+}
+
+
 
 install_soulforge() {
 	local version="${1:-latest}"
@@ -293,18 +273,17 @@ usage() {
 Usage: setup-agent.sh <agent> [version]
 
 Agents:
-  antigravity  antigravity CLI
-  copilot      GitHub Copilot CLI
   opencode     OpenCode AI
-  kilo         Kilo CLI
-  hermes       Hermes Agent (Python)
+  openlumara   OpenLumara Agent (Python)
+  pi           Pi coding agent (TypeScript)
+  little-coder little-coder coding agent (TypeScript)
   soulforge    SoulForge Agent (TypeScript/Bun)
   all          Install every supported agent
 
 Examples:
-  setup-agent.sh antigravity
-  setup-agent.sh copilot
-  setup-agent.sh hermes main
+  setup-agent.sh openlumara main
+  setup-agent.sh pi latest
+  setup-agent.sh little-coder latest
   setup-agent.sh soulforge
   setup-agent.sh all
 EOF
@@ -317,28 +296,21 @@ fi
 
 AGENT="${1,,}"
 
-# Set appropriate default version/branch based on agent type
-if [[ "$AGENT" == "hermes" ]]; then
-	VERSION="${2:-main}"
-else
-	VERSION="${2:-latest}"
-fi
+VERSION="${2:-latest}"
 
 case "$AGENT" in
-antigravity) install_antigravity "$VERSION" ;;
-copilot) install_copilot "$VERSION" ;;
 opencode) install_opencode "$VERSION" ;;
-kilo) install_kilo "$VERSION" ;;
-hermes) install_hermes "$VERSION" ;;
+openlumara) install_openlumara "$VERSION" ;;
+pi) install_pi "$VERSION" ;;
+little-coder) install_little_coder "$VERSION" ;;
 soulforge) install_soulforge "$VERSION" ;;
 watchdog) install_watchdog ;;
 all)
 	log "Installing all agents..."
-	install_antigravity "$VERSION"
-	install_copilot "$VERSION"
 	install_opencode "$VERSION"
-	install_kilo "$VERSION"
-	install_hermes "$VERSION"
+	install_openlumara "$VERSION"
+	install_pi "$VERSION"
+	install_little_coder "$VERSION"
 	install_soulforge "$VERSION"
 	ok "All agents installed"
 	;;
