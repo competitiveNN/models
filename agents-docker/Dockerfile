@@ -63,7 +63,7 @@ RUN mkdir -p ${NPM_CONFIG_PREFIX} ${NPM_CONFIG_CACHE} ${CONTAINER_HOME}/.local/b
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # ── Install Python 3.11 via uv ─────────────────────────────────────────────
-RUN uv python install 3.11
+RUN uv python install 3.14
 
 # ── RTK (installed at base level, used by setup-agent.sh) ────────────────────
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
@@ -77,30 +77,25 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # ── Volumes for persistence ─────────────────────────────────────────────────
-VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local", "/home/agent/.cache"]
+VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local", "/home/agent/.cache", "/home/agent/.config/gh"]
 
 # ── Config directory skeleton ────────────────────────────────────────────────
-ENV HERMES_HOME=${CONTAINER_HOME}/.hermes
 
-RUN mkdir -p ${CONTAINER_HOME}/.hermes/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session} \
-    && mkdir -p ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config/opencode ${CONTAINER_HOME}/.cache \
-    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.cache
-
-USER ${CONTAINER_UID}
 
 USER root
-RUN mkdir -p /home/agent/.julia/juliaup && chown -R ${CONTAINER_UID}:${CONTAINER_GID} /home/agent/.julia
+RUN mkdir -p "${CONTAINER_HOME}/.julia/juliaup" && chown -R ${CONTAINER_UID}:${CONTAINER_GID} "${CONTAINER_HOME}/.julia"
+
+RUN mkdir -p "${CONTAINER_HOME}/.config/agent-gnupg" \
+    && ln -sfn "${CONTAINER_HOME}/.config/agent-gnupg" "${CONTAINER_HOME}/.gnupg" \
+    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} "${CONTAINER_HOME}/.config/agent-gnupg" "${CONTAINER_HOME}/.gnupg"
 
 USER ${CONTAINER_UID}
-# Symlink .gnupg to .config/agent-gnupg for GPG config isolation
-RUN mkdir -p "${CONTAINER_HOME}/.config/agent-gnupg" \
-    && ln -sfn "${CONTAINER_HOME}/.config/agent-gnupg" "${CONTAINER_HOME}/.gnupg"
-
 RUN curl -fsSL https://install.julialang.org | sh -s -- -y
 
-# ── antigravity CLI ─────────────────────────────────────────────────────────────
-RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
+USER root
+RUN mkdir -p "${CONTAINER_HOME}/.cache" && chown -R ${CONTAINER_UID}:${CONTAINER_GID} "${CONTAINER_HOME}/.cache"
 
+USER ${CONTAINER_UID}
 # ── Context7 MCP Server ──────────────────────────────────────────────────────
 RUN npm install -g @upstash/context7-mcp
 
