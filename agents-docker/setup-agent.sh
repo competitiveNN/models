@@ -122,26 +122,6 @@ ok "little-coder installed: $(${LOCAL_BIN}/little-coder --version 2>&1 | head -1
 }
 
 
-install_openlumara() {
-	local version="${1:-main}"
-	log "Installing OpenLumara (branch/tag: ${version})..."
-	local OPENLUMARA_CODE="${PERSISTENT_SHARE}/openlumara"
-	mkdir -p "${PERSISTENT_SHARE}"
-	if [[ -d "${OPENLUMARA_CODE}/.git" ]]; then
-		warn "OpenLumara source already exists at ${OPENLUMARA_CODE}, pulling latest..."
-		git -C "${OPENLUMARA_CODE}" pull origin "$version" || true
-	else
-		git clone --branch "$version" \
-			https://github.com/Rose22/openlumara.git "${OPENLUMARA_CODE}"
-	fi
-	mkdir -p "${LOCAL_BIN}"
-	cat >"${LOCAL_BIN}/openlumara" <<EOF
-#!/usr/bin/env bash
-cd "${OPENLUMARA_CODE}" && exec bash ./run.sh "\$@"
-EOF
-	chmod +x "${LOCAL_BIN}/openlumara"
-	ok "OpenLumara installed"
-}
 
 
 
@@ -292,14 +272,12 @@ Usage: setup-agent.sh <agent> [version]
 
 Agents:
   opencode     OpenCode AI
-  openlumara   OpenLumara Agent (Python)
   pi           Pi coding agent (TypeScript)
   little-coder little-coder coding agent (TypeScript)
   soulforge    SoulForge Agent (TypeScript/Bun)
   all          Install every supported agent
 
 Examples:
-  setup-agent.sh openlumara main
   setup-agent.sh pi latest
   setup-agent.sh little-coder latest
   setup-agent.sh soulforge
@@ -326,7 +304,6 @@ watchdog) install_watchdog ;;
 all)
 	log "Installing all agents..."
 	install_opencode "$VERSION"
-	install_openlumara "$VERSION"
 	install_pi "$VERSION"
 	install_little_coder "$VERSION"
 	install_soulforge "$VERSION"
