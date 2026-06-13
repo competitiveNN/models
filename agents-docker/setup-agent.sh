@@ -314,7 +314,7 @@ fi
 
 AGENT="${1,,}"
 
-VERSION="${2:-latest}"
+VERSION="${2:-}"
 
 case "$AGENT" in
 opencode) install_opencode "$VERSION" ;;
