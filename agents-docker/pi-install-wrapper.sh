@@ -86,6 +86,43 @@ for ext in "$@"; do
   log "Copying ${src} -> ${dest}"
   cp -a "${src}" "${dest}"
   ok "Copied ${ext} -> ${dest}"
+
+  # Ensure index.ts exists; if missing, try to read package.json pi.extensions and rename that file to index.ts
+  if [[ ! -f "${dest}/index.ts" ]]; then
+    warn "index.ts not found in ${dest}; attempting to locate pi extension entry in package.json"
+    pkg="${dest}/package.json"
+    found=""
+    if [[ -f "${pkg}" ]]; then
+      if command -v jq >/dev/null 2>&1; then
+        found=$(jq -r '.pi.extensions[0] // empty' "${pkg}" 2>/dev/null || true)
+      else
+        # crude fallback: extract first occurrence of a string inside pi.extensions
+        found=$(grep -Po '"pi"\s*:\s*\{[^}]*"extensions"\s*:\s*\[\s*"\K[^"]+' "${pkg}" 2>/dev/null || true)
+      fi
+
+      if [[ -n "${found}" ]]; then
+        candidate="${dest}/${found}"
+        if [[ -f "${candidate}" ]]; then
+          log "Found extension entry ${found}; renaming to index.ts"
+          if mv "${candidate}" "${dest}/index.ts" 2>/dev/null; then
+            ok "Renamed ${candidate} -> ${dest}/index.ts"
+          else
+            if cp -a "${candidate}" "${dest}/index.ts" 2>/dev/null; then
+              ok "Copied ${candidate} -> ${dest}/index.ts"
+            else
+              warn "Failed to rename/copy ${candidate} to ${dest}/index.ts"
+            fi
+          fi
+        else
+          warn "Entry ${found} declared in package.json not found at ${candidate}"
+        fi
+      else
+        warn "No pi.extensions entry found in ${pkg}"
+      fi
+    else
+      warn "No package.json at ${pkg}; cannot auto-rename extension file"
+    fi
+  fi
 done
 
 exit 0
