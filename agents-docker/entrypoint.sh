@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -e
 
+# Colors & log helpers
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+log() { echo -e "${CYAN}▸${NC} $*"; }
+ok() { echo -e "${GREEN}✓${NC} $*"; }
+warn() { echo -e "${YELLOW}⚠${NC} $*"; }
+die() { echo -e "${RED}✗${NC} $*" >&2; exit 1; }
+
 # ── Terminal resize propagation ─────────────────────────────────────────────
 # Background loop to detect terminal size changes and send SIGWINCH to child processes
 if [[ -t 0 ]]; then
