@@ -95,7 +95,7 @@ RUN curl -fsSL https://install.julialang.org | sh -s -- -y
 USER root
 RUN mkdir -p "${CONTAINER_HOME}/.cache" && chown -R ${CONTAINER_UID}:${CONTAINER_GID} "${CONTAINER_HOME}/.cache"
 
-USER ${CONTAINER_UID}
+USER root
 # ── Context7 MCP Server ──────────────────────────────────────────────────────
 RUN npm install -g @upstash/context7-mcp
 
