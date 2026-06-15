@@ -63,64 +63,17 @@ for ext in "$@"; do
     continue
   fi
 
-  # Common install location for pi agent npm packages
-  src="${CONTAINER_HOME}/.pi/agent/npm/node_modules/${ext}"
-  if [[ ! -d "${src}" ]]; then
-    # try to find exact path under ~/.pi
-    src=$(find "${CONTAINER_HOME}/.pi" -type d -path "*/node_modules/${ext}" -print -quit 2>/dev/null || true)
-  fi
-  if [[ -z "${src}" || ! -d "${src}" ]]; then
-    # last-resort: find by basename
-    bn=$(basename "${ext}")
-    src=$(find "${CONTAINER_HOME}/.pi" -type d -name "${bn}" -path "*/node_modules/*" -print -quit 2>/dev/null || true)
-  fi
-
-  if [[ -z "${src}" || ! -d "${src}" ]]; then
-    warn "Could not locate installed extension directory for ${ext}; skipping copy"
-    continue
-  fi
-
-  dest="${DEST_ROOT}/${ext}"
-  mkdir -p "$(dirname "${dest}")"
-  rm -rf "${dest}" || true
-  log "Copying ${src} -> ${dest}"
-  cp -a "${src}" "${dest}"
-  ok "Copied ${ext} -> ${dest}"
-
-  # Ensure index.ts exists; if missing, try to read package.json pi.extensions and rename that file to index.ts
-  if [[ ! -f "${dest}/index.ts" ]]; then
-    warn "index.ts not found in ${dest}; attempting to locate pi extension entry in package.json"
-    pkg="${dest}/package.json"
-    found=""
-    if [[ -f "${pkg}" ]]; then
-      if command -v jq >/dev/null 2>&1; then
-        found=$(jq -r '.pi.extensions[0] // empty' "${pkg}" 2>/dev/null || true)
-      else
-        # crude fallback: extract first occurrence of a string inside pi.extensions
-        found=$(grep -Po '"pi"\s*:\s*\{[^}]*"extensions"\s*:\s*\[\s*"\K[^"]+' "${pkg}" 2>/dev/null || true)
-      fi
-
-      if [[ -n "${found}" ]]; then
-        candidate="${dest}/${found}"
-        if [[ -f "${candidate}" ]]; then
-          log "Found extension entry ${found}; renaming to index.ts"
-          if mv "${candidate}" "${dest}/index.ts" 2>/dev/null; then
-            ok "Renamed ${candidate} -> ${dest}/index.ts"
-          else
-            if cp -a "${candidate}" "${dest}/index.ts" 2>/dev/null; then
-              ok "Copied ${candidate} -> ${dest}/index.ts"
-            else
-              warn "Failed to rename/copy ${candidate} to ${dest}/index.ts"
-            fi
-          fi
-        else
-          warn "Entry ${found} declared in package.json not found at ${candidate}"
-        fi
-      else
-        warn "No pi.extensions entry found in ${pkg}"
-      fi
+  # Register extension for little-coder launcher
+  REGISTRY="${NPM_GLOBAL}/.little-coder-extensions"
+  mkdir -p "$(dirname "${REGISTRY}")"
+  touch "${REGISTRY}"
+  if grep -Fxq -- "${ext}" "${REGISTRY}"; then
+    ok "Extension ${ext} already registered for little-coder"
+  else
+    if echo "${ext}" >> "${REGISTRY}"; then
+      ok "Registered extension ${ext} for little-coder"
     else
-      warn "No package.json at ${pkg}; cannot auto-rename extension file"
+      warn "Failed to register extension ${ext}"
     fi
   fi
 done

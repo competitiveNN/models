@@ -95,11 +95,55 @@ install_little_coder() {
 		npm install --prefix "${PERSISTENT_NPM}" "little-coder@${version}"
 	fi
 	mkdir -p "${LOCAL_BIN}"
-	cat >"${LOCAL_BIN}/little-coder" <<EOF
+cat >"${LOCAL_BIN}/little-coder" <<'LC_WRAPPER'
 #!/usr/bin/env bash
-NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/little-coder/bin/little-coder.mjs" "\$@"
-EOF
-	chmod +x "${LOCAL_BIN}/little-coder"
+set -euo pipefail
+
+NPM_PREFIX="__PERSISTENT_NPM__"
+EXT_REGISTRY="__PERSISTENT_NPM__/.little-coder-extensions"
+
+# Build list of existing -e extension args provided by user
+existing_exts=()
+args=( "$@" )
+i=0
+while [ $i -lt ${#args[@]} ]; do
+  a="${args[$i]}"
+  if [ "$a" = "-e" ]; then
+    next=$((i+1))
+    if [ $next -lt ${#args[@]} ]; then
+      existing_exts+=( "${args[$next]}" )
+      i=$((i+2))
+      continue
+    fi
+  elif [[ "$a" == -e* && "$a" != "-e" ]]; then
+    # combined form like -enpm:foo
+    existing_exts+=( "${a#-e}" )
+  fi
+  i=$((i+1))
+done
+
+append_args=()
+if [ -f "$EXT_REGISTRY" ]; then
+  while IFS= read -r ext; do
+    # trim whitespace
+    trimmed="$(echo "$ext" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    [ -z "$trimmed" ] && continue
+    case "$trimmed" in \#*) continue ;; esac
+    skip=false
+    for e in "${existing_exts[@]}"; do
+      if [ "$e" = "$trimmed" ]; then skip=true; break; fi
+    done
+    if ! $skip; then
+      append_args+=( "-e" "$trimmed" )
+    fi
+  done < "$EXT_REGISTRY"
+fi
+
+exec "$NPM_PREFIX/node_modules/little-coder/bin/little-coder.mjs" "$@" "${append_args[@]}"
+LC_WRAPPER
+# replace placeholder with actual path
+sed -i "s|__PERSISTENT_NPM__|${PERSISTENT_NPM}|g" "${LOCAL_BIN}/little-coder"
+chmod +x "${LOCAL_BIN}/little-coder"
 
 # Ensure pi-coding-agent is reachable for little-coder CLI (workaround for npm flattening)
 NESTED_PKG_JSON="${PERSISTENT_NPM}/node_modules/little-coder/node_modules/@earendil-works/pi-coding-agent/package.json"
