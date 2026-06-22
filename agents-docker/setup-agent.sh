@@ -67,6 +67,11 @@ EOF
 	chmod +x "${LOCAL_BIN}/opencode"
 	ok "OpenCode installed: $(${LOCAL_BIN}/opencode --version 2>&1 | head -1)"
 	init_rtk --opencode --auto-patch
+
+	# Update oh-my-openagent inside ~/.config/opencode
+	log "Updating oh-my-openagent..."
+	mkdir -p "${CONTAINER_HOME}/.config/opencode"
+	(cd "${CONTAINER_HOME}/.config/opencode" && npm install oh-my-openagent@latest)
 }
 
 install_pi() {

@@ -37,8 +37,8 @@ RUN if id "${CONTAINER_UID}" &>/dev/null; then \
     usermod -aG wheel "${CONTAINER_USER}" && \
     echo "${CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/dnf, /usr/local/bin/setup-agent.sh" > /etc/sudoers.d/agent
 
-# ── Make /opt and /project writable ───────────────────────────────────────────
-RUN chmod 777 /opt && mkdir -p /project && chown "${CONTAINER_UID}:${CONTAINER_GID}" /project
+# ── Make /opt writable ────────────────────────────────────────────────────────
+RUN chmod 777 /opt
 
 # ── Home ───────────────────────────────────────────────────────────────────────
 ENV CONTAINER_HOME=/home/${CONTAINER_USER}
@@ -83,11 +83,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local", "/home/agent/.cache"]
 
 # ── Config directory skeleton ─────────────────────────────────────────────────
-ENV HERMES_HOME=${CONTAINER_HOME}/.hermes
 
-RUN mkdir -p ${CONTAINER_HOME}/.hermes/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session} && \
-    mkdir -p ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.cache && \
-    chown -R "${CONTAINER_UID}:${CONTAINER_GID}" ${CONTAINER_HOME}/.hermes ${CONTAINER_HOME}/.copilot ${CONTAINER_HOME}/.config ${CONTAINER_HOME}/.cache
 
 # ── Julia ──────────────────────────────────────────────────────────────────────
 USER root
@@ -98,7 +94,10 @@ RUN curl -fsSL https://install.julialang.org | sh -s -- -y
 # ── Context7 MCP Server ───────────────────────────────────────────────────────
 RUN npm install -g @upstash/context7-mcp
 
-WORKDIR /project
+# ── AST-grep ──────────────────────────────────────────────────────────────────
+RUN npm install -g @ast-grep/cli
+
+WORKDIR ${CONTAINER_HOME}
 
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["bash"]

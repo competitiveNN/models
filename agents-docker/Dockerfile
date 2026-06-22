@@ -33,9 +33,8 @@ RUN if getent passwd ${CONTAINER_UID} >/dev/null 2>&1; then \
     && usermod -aG sudo ${CONTAINER_USER} \
     && echo "${CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/local/bin/setup-agent.sh" >> /etc/sudoers
 
-# ── Make /opt and /project writable ──────────────────────────────────────────
-RUN chmod 777 /opt \
-    && mkdir -p /project && chown ${CONTAINER_UID}:${CONTAINER_GID} /project
+# ── Make /opt writable ───────────────────────────────────────────────────────
+RUN chmod 777 /opt
 
 # ── Home ─────────────────────────────────────────────────────────────────────
 ENV CONTAINER_HOME=/home/${CONTAINER_USER}
@@ -99,7 +98,10 @@ USER root
 # ── Context7 MCP Server ──────────────────────────────────────────────────────
 RUN npm install -g @upstash/context7-mcp
 
-WORKDIR /project
+# ── AST-grep ────────────────────────────────────────────────────────────────
+RUN npm install -g @ast-grep/cli
+
+WORKDIR ${CONTAINER_HOME}
 
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["bash"]

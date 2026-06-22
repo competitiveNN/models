@@ -6,7 +6,8 @@ set -euo pipefail
 # to mirror the host paths.
 
 IMAGE_NAME="${IMAGE_NAME:-agents-cli}"
-CONTAINER_NAME="${IMAGE_NAME}-$(basename "$PWD")"
+DIRNAME="$(basename "$PWD")"
+CONTAINER_NAME="${IMAGE_NAME}-${DIRNAME}"
 AGENTS_VOLUME="${AGENTS_VOLUME:-agents-cli-config}"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
@@ -143,7 +144,7 @@ MOUNTS+=(-v "${AGENTS_VOLUME}-cache:${CONTAINER_HOME}/.cache")
 mount_if_exists "$HOME/dev"                     "${CONTAINER_HOME}/dev"
 
 # Current working directory
-mount_if_exists "$(pwd)"                       "/project"
+mount_if_exists "$(pwd)"                       "/${DIRNAME}"
 
 # Auth (read-only)
 mount_if_exists "$HOME/.ssh"                    "${CONTAINER_HOME}/.ssh"            "ro"
@@ -200,7 +201,7 @@ fi
 log "Launching ${IMAGE_NAME}:latest"
 
 # Build docker args as a list to handle empty arrays cleanly
-DOCKER_ARGS=(--rm -it --init --name "${CONTAINER_NAME}" --network host --userns=keep-id -w /project --sig-proxy=true)
+DOCKER_ARGS=(--rm -it --init --name "${CONTAINER_NAME}" --network host --userns=keep-id -w "/${DIRNAME}" --sig-proxy=true)
 DOCKER_ARGS+=(--security-opt label=disable)
 # Add --privileged if requested
 [[ ${PRIVILEGED_MODE} -eq 1 ]] && DOCKER_ARGS+=(--privileged)
