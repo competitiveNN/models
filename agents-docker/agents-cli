@@ -32,7 +32,7 @@ Usage:
   agents-cli --help                Show this help
   agents-cli --privileged          Run container with --privileged (extended caps)
 
-ℹ️  Supported agents: opencode, openlumara, pi, little-coder, soulforge
+ℹ️  Supported agents: pi, little-coder, soulforge
 
 ⚠️  Note: agents-cli must be run from the host, not from inside a container.
     For containerized execution (e.g., toolbox), use agents-cli-bwrap instead.
@@ -40,7 +40,6 @@ Usage:
 Volumes:
   agents-cli-config        → ${CONTAINER_HOME}/.config
   agents-cli-config-local  → ${CONTAINER_HOME}/.local
-  agents-cli-config-openlumara→ ${CONTAINER_HOME}/.local/share/openlumara
   agents-cli-config-npm-global → ${CONTAINER_HOME}/.npm-global
   agents-cli-config-npm-cache  → ${CONTAINER_HOME}/.npm-cache
   agents-cli-config-cache      → ${CONTAINER_HOME}/.cache
@@ -105,7 +104,7 @@ fi
 
 # ── Initialize volumes with correct ownership ────────────────────────────────
 CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
-VOLUMES=("${AGENTS_VOLUME}" "${AGENTS_VOLUME}-local" "${AGENTS_VOLUME}-openlumara" "${AGENTS_VOLUME}-npm-global" "${AGENTS_VOLUME}-npm-cache" "${AGENTS_VOLUME}-cache")
+VOLUMES=("${AGENTS_VOLUME}" "${AGENTS_VOLUME}-local" "${AGENTS_VOLUME}-npm-global" "${AGENTS_VOLUME}-npm-cache" "${AGENTS_VOLUME}-cache")
 
 for vol in "${VOLUMES[@]}"; do
     if ! docker volume inspect "$vol" &>/dev/null; then
@@ -135,7 +134,6 @@ MOUNTS+=(-v "${AGENTS_VOLUME}:${CONTAINER_HOME}/.config")
 
 # Agent-specific config directories
 MOUNTS+=(-v "${AGENTS_VOLUME}-local:${CONTAINER_HOME}/.local")
-MOUNTS+=(-v "${AGENTS_VOLUME}-openlumara:${CONTAINER_HOME}/.local/share/openlumara")
 MOUNTS+=(-v "${AGENTS_VOLUME}-npm-global:${CONTAINER_HOME}/.npm-global")
 MOUNTS+=(-v "${AGENTS_VOLUME}-npm-cache:${CONTAINER_HOME}/.npm-cache")
 MOUNTS+=(-v "${AGENTS_VOLUME}-cache:${CONTAINER_HOME}/.cache")

@@ -6,7 +6,6 @@
 .gemini/
 .copilot/
 .qwen/
-.hermes/
 .local/
 .npm-global/
 .npm-cache/

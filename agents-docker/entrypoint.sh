@@ -48,7 +48,6 @@ if [ -t 0 ] && [ "$1" = "bash" ]; then
 	echo "  │  Run setup-agent.sh to install them:             │"
 	echo "  │                                                  │"
 	echo "  │    setup-agent.sh all          — all agents      │"
-	echo "  │    setup-agent.sh opencode     — OpenCode AI     │"
 	echo "  │    setup-agent.sh pi           — Pi agent        │"
 	echo "  │    setup-agent.sh little-coder — little-coder    │"
 	echo "  │    setup-agent.sh soulforge    — SoulForge Agent │"
@@ -67,6 +66,21 @@ CONTAINER_HOME="${HOME:-/home/agent}"
 # Recreate SoulForge symlink if installed
 if [[ -d "${CONTAINER_HOME}/.local/share/soulforge" ]]; then
 	ln -sf "${CONTAINER_HOME}/.local/share/soulforge" "${CONTAINER_HOME}/.soulforge" 2>/dev/null || true
+fi
+
+# Recreate Engram database directory symlink to persist it in the .config volume
+if [[ -d "${CONTAINER_HOME}/.config/engram" ]]; then
+	ln -sfn "${CONTAINER_HOME}/.config/engram" "${CONTAINER_HOME}/.engram" 2>/dev/null || true
+fi
+
+# Recreate TokenSave database directory symlink to persist it in the .config volume
+if [[ -d "${CONTAINER_HOME}/.config/tokensave" ]]; then
+	ln -sfn "${CONTAINER_HOME}/.config/tokensave" "${CONTAINER_HOME}/.tokensave" 2>/dev/null || true
+fi
+
+# Recreate Pi directory symlink to persist it in the .config volume
+if [[ -d "${CONTAINER_HOME}/.config/pi" ]]; then
+	ln -sfn "${CONTAINER_HOME}/.config/pi" "${CONTAINER_HOME}/.pi" 2>/dev/null || true
 fi
 
 # ── Setup direnv for bash sessions ───────────────────────────────────────────

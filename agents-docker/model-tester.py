@@ -23,19 +23,21 @@ API_ENDPOINT = (
 API_KEY = os.getenv("NVIDIA_API_KEY", "")  # NVIDIA API key from environment variable
 MODELS = [
     "google/gemma-4-31b-it",
+    "google/diffusiongemma-26b-a4b-it",
     "qwen/qwen3.5-397b-a17b",
+    "moonshotai/kimi-k2.7",
     "moonshotai/kimi-k2.6",
-    "z-ai/glm-5.1",
-    "minimaxai/minimax-m2.7",
+    "z-ai/glm-5.2",
+    "minimaxai/minimax-m3",
     "nvidia/nemotron-3-super-120b-a12b",
-    "stepfun-ai/step-3.5-flash",
-    "qwen/qwen3-next-80b-a3b-thinking",
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "stepfun-ai/step-3.7-flash",
     "qwen/qwen3.5-122b-a10b",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
     "deepseek-ai/deepseek-v4-flash",
     "deepseek-ai/deepseek-v4-pro",
     "mistralai/mistral-medium-3.5-128b",
-    "mistralai/mistral-small-4-119b-2603"
+    # "mistralai/mistral-small-4-119b-2603"
+    # "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
 ]
 
 # Test prompt - keep it short for consistent measurements

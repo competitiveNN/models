@@ -7,7 +7,7 @@ MODEL_PATH="$HOME/data/models"
 MODEL=""
 #IMAGE=intel/vllm
 #IMAGE=localhost/vllm-xpu-env:latest
-IMAGE=intel/llm-scaler-vllm:0.14.0-b8.2.1
+IMAGE=intel/llm-scaler-vllm:0.14.0-b8.3.1
 CONFIG="$SCRIPT_DIR/vllm.yaml"
 ENTRYPOINT="$SCRIPT_DIR/entrypoint.sh"
 
@@ -19,11 +19,12 @@ docker run --security-opt label=disable \
 --device /dev/dri:/dev/dri \
 -v /dev/dri/by-path:/dev/dri/by-path \
 -v "$CONFIG":/config.yaml \
--v "$ENTRYPOINT":/vllm.sh \
 --ipc=host \
 --privileged \
 -e VLLM_TARGET_DEVICE=xpu \
 -e ONEAPI_DEVICE_SELECTOR="level_zero:gpu" \
---entrypoint /vllm.sh \
-$IMAGE #\
-#-lic "vllm serve --config /config.yaml"
+$IMAGE \
+--config /config.yaml
+
+#--entrypoint /entrypoint.sh \
+#Intel/Qwen3.5-9B-int4-AutoRound

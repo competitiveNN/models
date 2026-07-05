@@ -27,8 +27,6 @@ if [[ "${1:-}" != "--confirm" ]]; then
 	echo ""
 	echo "This script will remove the following Docker volumes:"
 	echo "  - ${AGENTS_VOLUME} (agent configs)"
-	echo "  - ${AGENTS_VOLUME}-copilot (Copilot configs)"
-	echo "  - ${AGENTS_VOLUME}-hermes (Hermes configs)"
 	echo "  - ${AGENTS_VOLUME}-local (local data & binaries)"
 	echo "  - ${AGENTS_VOLUME}-npm-global (npm packages)"
 	echo "  - ${AGENTS_VOLUME}-npm-cache (npm cache)"
@@ -48,8 +46,6 @@ docker ps -a -q --filter "ancestor=agents-cli:latest" | xargs -r docker rm || tr
 # ── Remove volumes ───────────────────────────────────────────────────────────
 VOLUMES=(
 	"${AGENTS_VOLUME}"
-	"${AGENTS_VOLUME}-copilot"
-	"${AGENTS_VOLUME}-hermes"
 	"${AGENTS_VOLUME}-local"
 	"${AGENTS_VOLUME}-npm-global"
 	"${AGENTS_VOLUME}-npm-cache"

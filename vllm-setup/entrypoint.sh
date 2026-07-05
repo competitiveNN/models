@@ -11,4 +11,4 @@ export PYTORCH_ALLOC_CONF="expandable_segments:True"
 export ONEAPI_DEVICE_SELECTOR="level_zero:gpu"
 export VLLM_TARGET_DEVICE=xpu
 
-exec vllm serve --config /config.yaml --allow-deprecated-quantization
+exec vllm serve --config /config.yaml

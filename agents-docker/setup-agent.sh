@@ -4,12 +4,11 @@ set -euo pipefail
 # ── setup-agent.sh: install and configure a specific agent inside the container
 #
 # Usage:
-#   setup-agent.sh opencode [VERSION]
 #   setup-agent.sh soulforge [VERSION]
 #   setup-agent.sh all     — install every supported agent
 #
-# Agents are installed into ~/.npm-global (npm agents) or ~/.local/bin (rtk,
-# opencode) so they live on the same volume that holds the config files
+# Agents are installed into ~/.npm-global (npm agents) or ~/.local/bin (rtk)
+# so they live on the same volume that holds the config files
 # (agents-cli-config-local → ~/.local).
 
 # ── Colours ──────────────────────────────────────────────────────────────────
@@ -50,30 +49,36 @@ mkdir -p "${NPM_BIN}" "${LOCAL_BIN}" "${PERSISTENT_NPM}" "${PERSISTENT_NODE_CACH
 
 
 
-install_opencode() {
-	local version="${1:-latest}"
-	log "Installing OpenCode AI (${version})..."
-	if [[ "$version" == "latest" ]]; then
-		npm install --prefix "${PERSISTENT_NPM}" opencode-ai
-	else
-		npm install --prefix "${PERSISTENT_NPM}" "opencode-ai@${version}"
-	fi
-	# Create wrapper script for opencode
-	mkdir -p "${LOCAL_BIN}"
-	cat >"${LOCAL_BIN}/opencode" <<EOF
-#!/usr/bin/env bash
-NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/opencode-ai/bin/opencode.exe" "\$@"
-EOF
-	chmod +x "${LOCAL_BIN}/opencode"
-	ok "OpenCode installed: $(${LOCAL_BIN}/opencode --version 2>&1 | head -1)"
-	init_rtk --opencode --auto-patch
 
-	# Update oh-my-openagent inside ~/.config/opencode
-	log "Updating oh-my-openagent..."
-	mkdir -p "${CONTAINER_HOME}/.config/opencode"
-	(cd "${CONTAINER_HOME}/.config/opencode" && npm install oh-my-openagent@latest)
-}
-
+# User packages:
+#   npm:pi-subagents
+#     /home/agent/.pi/agent/npm/node_modules/pi-subagents
+#   npm:@juicesharp/rpiv-ask-user-question
+#     /home/agent/.pi/agent/npm/node_modules/@juicesharp/rpiv-ask-user-question
+#   npm:pi-tokensaver
+#     /home/agent/.pi/agent/npm/node_modules/pi-tokensaver
+#   npm:@hypabolic/pi-hypa
+#     /home/agent/.pi/agent/npm/node_modules/@hypabolic/pi-hypa
+#   npm:context-mode
+#     /home/agent/.pi/agent/npm/node_modules/context-mode
+#   npm:@juicesharp/rpiv-todo
+#     /home/agent/.pi/agent/npm/node_modules/@juicesharp/rpiv-todo
+#   npm:@ayulab/pi-rewind
+#     /home/agent/.pi/agent/npm/node_modules/@ayulab/pi-rewind
+#   npm:pi-lens
+#     /home/agent/.pi/agent/npm/node_modules/pi-lens
+#   npm:@plannotator/pi-extension
+#     /home/agent/.pi/agent/npm/node_modules/@plannotator/pi-extension
+#   npm:@ff-labs/pi-fff
+#     /home/agent/.pi/agent/npm/node_modules/@ff-labs/pi-fff
+#   npm:@narumitw/pi-goal
+#     /home/agent/.pi/agent/npm/node_modules/@narumitw/pi-goal
+#   npm:gentle-engram@0.1.8
+#     /home/agent/.pi/agent/npm/node_modules/gentle-engram
+#   npm:pi-mcp-adapter
+#     /home/agent/.pi/agent/npm/node_modules/pi-mcp-adapter
+#   npm:@juicesharp/rpiv-web-tools
+#     /home/agent/.pi/agent/npm/node_modules/@juicesharp/rpiv-web-tools
 install_pi() {
 	local version="${1:-latest}"
 	log "Installing Pi agent (${version})..."
@@ -88,6 +93,11 @@ install_pi() {
 NPM_PREFIX="${PERSISTENT_NPM}" exec "\$NPM_PREFIX/node_modules/@earendil-works/pi-coding-agent/bin/pi-cli.js" "\$@"
 EOF
 	chmod +x "${LOCAL_BIN}/pi"
+
+	# Recreate persistent directory symlink
+	mkdir -p "${CONTAINER_HOME}/.config/pi"
+	ln -sfn "${CONTAINER_HOME}/.config/pi" "${CONTAINER_HOME}/.pi" 2>/dev/null || true
+
 	ok "Pi installed: $(${LOCAL_BIN}/pi --version 2>&1 | head -1)"
 }
 
@@ -304,6 +314,210 @@ install_soulforge() {
 	fi
 }
 
+install_engram() {
+	local version="${1:-latest}"
+	log "Installing Engram (${version})..."
+
+	# Detect platform
+	local platform=""
+	if [[ "$(uname -s)" == "Linux" ]]; then
+		platform="linux"
+	elif [[ "$(uname -s)" == "Darwin" ]]; then
+		platform="darwin"
+	else
+		warn "Unsupported platform: $(uname -s)"
+		return 1
+	fi
+
+	local arch=""
+	case "$(uname -m)" in
+	x86_64) arch="amd64" ;;
+	aarch64|arm64) arch="arm64" ;;
+	*)
+		warn "Unsupported architecture: $(uname -m)"
+		return 1
+		;;
+	esac
+
+	# Create temp directory for download
+	local TMP_DIR
+	TMP_DIR=$(mktemp -d)
+	local download_url=""
+	local tar_name=""
+
+	# Try to get release info via API
+	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
+		local api_url="https://api.github.com/repos/Gentleman-Programming/engram/releases/latest"
+		if [[ "$version" != "latest" ]]; then
+			api_url="https://api.github.com/repos/Gentleman-Programming/engram/releases/tags/${version}"
+		fi
+		local release_info
+		release_info=$(curl -s "$api_url" 2>/dev/null)
+
+		if [[ $? -eq 0 && -n "$release_info" ]]; then
+			# Find the asset matching our platform and arch
+			local asset_url=""
+			asset_url=$(echo "$release_info" | jq -r ".assets[] | select(.name | contains(\"${platform}\") and contains(\"${arch}\") and endswith(\".tar.gz\")) | .browser_download_url" | head -1)
+
+			if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
+				download_url="$asset_url"
+				tar_name=$(basename "$asset_url")
+			fi
+		fi
+	fi
+
+	# Fallback to direct download URL construction if API fails
+	if [[ -z "$download_url" ]]; then
+		warn "Could not fetch release info via API, trying direct download..."
+		local fallback_version="1.17.0"
+		if [[ "$version" != "latest" ]]; then
+			fallback_version="${version#v}"
+		fi
+		download_url="https://github.com/Gentleman-Programming/engram/releases/download/v${fallback_version}/engram_${fallback_version}_${platform}_${arch}.tar.gz"
+		tar_name="engram_${fallback_version}_${platform}_${arch}.tar.gz"
+	fi
+
+	log "Downloading from: $download_url"
+	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}"; then
+		warn "Download failed for ${tar_name}"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Extract
+	log "Extracting..."
+	cd "$TMP_DIR"
+	if ! tar xzf "${tar_name}"; then
+		warn "Extraction failed"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Find engram binary and move it to LOCAL_BIN
+	if [[ -f "engram" ]]; then
+		mkdir -p "${LOCAL_BIN}"
+		chmod +x engram
+		mv engram "${LOCAL_BIN}/engram"
+		ok "Engram binary installed successfully to ${LOCAL_BIN}/engram"
+	else
+		warn "engram binary not found in the extracted archive"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Clean up
+	rm -rf "$TMP_DIR"
+
+	# Recreate persistent directory symlink
+	mkdir -p "${CONTAINER_HOME}/.config/engram"
+	ln -sfn "${CONTAINER_HOME}/.config/engram" "${CONTAINER_HOME}/.engram" 2>/dev/null || true
+
+	ok "Engram installed: $(${LOCAL_BIN}/engram version 2>&1 | head -1)"
+}
+
+install_tokensave() {
+	local version="${1:-latest}"
+	log "Installing TokenSave (${version})...."
+
+	# Detect platform
+	local platform=""
+	if [[ "$(uname -s)" == "Linux" ]]; then
+		platform="linux"
+	elif [[ "$(uname -s)" == "Darwin" ]]; then
+		platform="macos"
+	else
+		warn "Unsupported platform: $(uname -s)"
+		return 1
+	fi
+
+	local arch=""
+	case "$(uname -m)" in
+	x86_64) arch="x86_64" ;;
+	aarch64|arm64) arch="aarch64" ;;
+	*)
+		warn "Unsupported architecture: $(uname -m)"
+		return 1
+		;;
+	esac
+
+	# Create temp directory for download
+	local TMP_DIR
+	TMP_DIR=$(mktemp -d)
+	local download_url=""
+	local tar_name=""
+
+	# Try to get release info via API
+	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
+		local api_url="https://api.github.com/repos/aovestdipaperino/tokensave/releases/latest"
+		if [[ "$version" != "latest" ]]; then
+			api_url="https://api.github.com/repos/aovestdipaperino/tokensave/releases/tags/${version}"
+		fi
+		local release_info
+		release_info=$(curl -s "$api_url" 2>/dev/null)
+
+		if [[ $? -eq 0 && -n "$release_info" ]]; then
+			# Find the asset matching our platform and arch
+			local asset_url=""
+			asset_url=$(echo "$release_info" | jq -r ".assets[] | select(.name | contains(\"${arch}\") and contains(\"${platform}\") and endswith(\".tar.gz\") and (contains(\"bottle\") | not)) | .browser_download_url" | head -1)
+
+			if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
+				download_url="$asset_url"
+				tar_name=$(basename "$asset_url")
+			fi
+		fi
+	fi
+
+	# Fallback to direct download URL construction if API fails
+	if [[ -z "$download_url" ]]; then
+		warn "Could not fetch release info via API, trying direct download..."
+		local fallback_version="7.0.2"
+		if [[ "$version" != "latest" ]]; then
+			fallback_version="${version#v}"
+		fi
+		download_url="https://github.com/aovestdipaperino/tokensave/releases/download/v${fallback_version}/tokensave-v${fallback_version}-${arch}-${platform}.tar.gz"
+		tar_name="tokensave-v${fallback_version}-${arch}-${platform}.tar.gz"
+	fi
+
+	log "Downloading from: $download_url"
+	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}"; then
+		warn "Download failed for ${tar_name}"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Extract
+	log "Extracting..."
+	cd "$TMP_DIR"
+	if ! tar xzf "${tar_name}"; then
+		warn "Extraction failed"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Find tokensave binary and move it to LOCAL_BIN
+	if [[ -f "tokensave" ]]; then
+		mkdir -p "${LOCAL_BIN}"
+		chmod +x tokensave
+		mv tokensave "${LOCAL_BIN}/tokensave"
+		ok "TokenSave binary installed successfully to ${LOCAL_BIN}/tokensave"
+	else
+		warn "tokensave binary not found in the extracted archive"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Clean up
+	rm -rf "$TMP_DIR"
+
+	# Recreate persistent directory symlink
+	mkdir -p "${CONTAINER_HOME}/.config/tokensave"
+	ln -sfn "${CONTAINER_HOME}/.config/tokensave" "${CONTAINER_HOME}/.tokensave" 2>/dev/null || true
+
+	ok "TokenSave installed: $(${LOCAL_BIN}/tokensave --version 2>&1 | head -1)"
+}
+
+
+
 init_rtk() {
 	if command -v rtk &>/dev/null; then
 		log "Initializing RTK $*..."
@@ -320,16 +534,16 @@ usage() {
 Usage: setup-agent.sh <agent> [version]
 
 Agents:
-  opencode     OpenCode AI
   pi           Pi coding agent (TypeScript)
   little-coder little-coder coding agent (TypeScript)
   soulforge    SoulForge Agent (TypeScript/Bun)
+  engram       Engram Memory System (Go)
+  tokensave    TokenSave Code Graph System (Rust)
   all          Install every supported agent
 
 Examples:
   setup-agent.sh pi latest
-  setup-agent.sh little-coder latest
-  setup-agent.sh soulforge
+  setup-agent.sh tokensave
   setup-agent.sh all
 EOF
 	exit 0
@@ -344,18 +558,19 @@ AGENT="${1,,}"
 VERSION="${2:-}"
 
 case "$AGENT" in
-opencode) install_opencode "$VERSION" ;;
-openlumara) install_openlumara "$VERSION" ;;
 pi) install_pi "$VERSION" ;;
 little-coder) install_little_coder "$VERSION" ;;
 soulforge) install_soulforge "$VERSION" ;;
+engram) install_engram "$VERSION" ;;
+tokensave) install_tokensave "$VERSION" ;;
 watchdog) install_watchdog ;;
 all)
 	log "Installing all agents..."
-	install_opencode "$VERSION"
 	install_pi "$VERSION"
 	install_little_coder "$VERSION"
 	install_soulforge "$VERSION"
+	install_engram "$VERSION"
+	install_tokensave "$VERSION"
 	ok "All agents installed"
 	;;
 *) die "Unknown agent: $AGENT (run setup-agent.sh --help for usage)" ;;

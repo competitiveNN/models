@@ -1,5 +1,6 @@
 MODELS_PATH="$HOME/data/models/gguf"
 DEVICES="--device /dev/dri/card0 --device /dev/dri/renderD128 --device /dev/dri/card1 --device /dev/dri/renderD129 --device /dev/accel"
+#DEVICES="--device /dev/dri/card0 --device /dev/dri/renderD128 --device /dev/accel"
 APIKEY=abc
 IMAGE="llama-cpp-intel"
 MODE="bench"
@@ -72,25 +73,37 @@ qwen3_8b="/models/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf"
 qwen35_9b="/models/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf"
 qwen35_122b="/models/Qwen3.5-122B-A10B-GGUF/UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf"
 qwen36_35b="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
-qwen36_35b_q3="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"
+qwen36_35b_xs="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
 qwen36_35b_bpw_419="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf"
-qwen36_35b_bpw_397="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-3.97bpw.gguf"
-qwen36_35b_bpw_353="/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-3.53bpw.gguf"
+qwen36_35b_reap="/models/Qwen3.6-28B-REAP-i1-GGUF/Qwen3.6-28B-REAP.i1-Q4_K_M.gguf"
+qwen36_35b_reap_q5="/models/Qwen3.6-28B-REAP-i1-GGUF/Qwen3.6-28B-REAP.i1-Q5_K_M.gguf"
 qwen36_27b="/models/Qwen3.6-27B-MTP-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf"
 qwen36_27b_q3="/models/Qwen3.6-27B-MTP-GGUF/Qwen3.6-27B-UD-Q3_K_XL.gguf"
-qwen36_27b_reap="/models/Qwen3.6-28B-REAP-i1-GGUF/Qwen3.6-28B-REAP.i1-Q4_K_M.gguf"
 qwen36_27b_bart="/models/Qwen_Qwen3.6-27B-GGUF/Qwen_Qwen3.6-27B-Q4_K_M.gguf"
+qwen36_27b_iq4="/models/Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved-i1-GGUF/Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved.i1-Q4_K_S.gguf"
+nex_n2_mini_mtp="/models/Huihui-Nex-N2-mini-abliterated-APEX-MTP-GGUF/Huihui-Nex-N2-mini-APEX-I-Quality-MTP.gguf"
+nex_n2_mini_nomtp="/models/Huihui-Nex-N2-mini-abliterated-APEX-MTP-GGUF/Huihui-Nex-N2-mini-APEX-I-Quality-noMTP.gguf"
+ornith1_35b_q4="/models/ornith-35b-GGUF/ornith-35b-UD-Q4_K_XL.gguf"
+tmax_27b_q4="/models/tmax-27b-imatrix-MTP-GGUF/tmax-27b-IQ4_XS.gguf"
+agent_a1_35b_q4="/models/Agents-A1-Q4_K_M-GGUF/Agents-A1-Q4_K_M.gguf"
+qwen36_35b_ream_q5="/models/Qwen3.6-35B-A3B-REAM-192-heretic-APEX-GGUF/Qwen3.6-35B-A3B-REAM-192-heretic-APEX-IBalanced-Q5_K_M.gguf"
+
+gemma4_12b_qat="/models/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf"
+gemma4_e2b="/models/gemma-4-E2B-it-QAT-GGUF/gemma-4-E2B-it-QAT-Q4_0.gguf"
 
 lfm2_24b="/models/LFM2-24B-A2B-GGUF/LFM2-24B-A2B-Q4_K_M.gguf"
 lfm25_1_2b="/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gguf"
 
-hypernova_60b="/models/Hypernova-60B-2602-GGUF/Hypernova-60B-2602-GGUF.gguf" # 8tps
-gptoss_20b="/models/gpt-oss-20b-GGUF/gpt-oss-20b-UD-Q4_K_XL.gguf"
 phi3_2b="/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf"
 
-MODEL=$qwen36_27b_reap
+# KV cache quantization suggestions: 
+# Use -ctk q8_0 -ctv q5_1 for MoE models. 
+# Use -ctk q5_1 -ctv q4_1 for dense models.
 
-SPEC_DRAFT_MODEL="" # $qwen35_08b
+MODEL=$qwen36_35b_ream_q5
+ALIAS="model"
+
+SPEC_DRAFT_MODEL= #$gemma4_e2b # $qwen35_08b
 SPEC_DRAFT_MAX="${SPEC_DRAFT_MAX:-48}"
 SPEC_DRAFT_MIN="${SPEC_DRAFT_MIN:-12}"
 SPEC_DRAFT_KV_K="${SPEC_DRAFT_KV_K:-}"
@@ -329,10 +342,11 @@ COMMON_ARGS=(
 	--security-opt label=disable
 	-it --rm
 	-v "$MODELS_PATH":/models
+        --name llama-server
 	${DEVICES:-}
 )
 
-MODEL_ARGS=(-m "$MODEL" -b 2048 -ub 2048 -fa on --reasoning-budget 2048 --reasoning-budget-message "\nBased on the analysis above, here is the complete solution:" --no-mmap)
+MODEL_ARGS=(-m "$MODEL" -b 2048 -ub 2048 --alias "$ALIAS" -fa on --reasoning-budget 2048 --reasoning-budget-message "\nBased on the analysis above, here is the complete solution:" --no-mmap -lv 4)
 
 
 
