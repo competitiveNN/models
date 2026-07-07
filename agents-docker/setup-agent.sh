@@ -636,50 +636,71 @@ install_oh_my_pi() {
 	local version="${1:-latest}"
 	log "Installing oh-my-pi (${version})..."
 
-	# Create temp directory for clone
+	# Detect platform and arch
+	local platform=""
+	if [[ "$(uname -s)" == "Linux" ]]; then
+		platform="linux"
+	elif [[ "$(uname -s)" == "Darwin" ]]; then
+		platform="darwin"
+	else
+		warn "Unsupported platform: $(uname -s)"
+		return 1
+	fi
+
+	local arch=""
+	case "$(uname -m)" in
+	x86_64) arch="x64" ;;
+	aarch64|arm64) arch="arm64" ;;
+	*)
+		warn "Unsupported architecture: $(uname -m)"
+		return 1
+		;;
+	esac
+
 	local TMP_DIR
 	TMP_DIR=$(mktemp -d)
-	local git_url="https://github.com/can1357/oh-my-pi.git"
+	local download_url=""
 
-	log "Cloning from: $git_url"
-	if ! git clone --depth 1 "$git_url" "${TMP_DIR}/oh-my-pi" 2>&1 | grep -v "^Cloning\|^Counting\|^Compressing\|^Receiving"; then
-		warn "Failed to clone oh-my-pi repository"
+	# Get release info via API
+	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
+		local api_url="https://api.github.com/repos/can1357/oh-my-pi/releases/latest"
+		if [[ "$version" != "latest" ]]; then
+			api_url="https://api.github.com/repos/can1357/oh-my-pi/releases/tags/${version}"
+		fi
+		local release_info
+		release_info=$(curl -s "$api_url" 2>/dev/null)
+
+		if [[ $? -eq 0 && -n "$release_info" ]]; then
+			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
+				warn "API error: $(echo "$release_info" | jq -r '.message')"
+			else
+				# Find the asset matching our platform and arch
+				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"omp-${platform}-${arch}\")) | .browser_download_url" 2>/dev/null | head -1)
+			fi
+		fi
+	fi
+
+	if [[ -z "$download_url" ]]; then
+		warn "Could not fetch release info via API"
 		rm -rf "$TMP_DIR"
 		return 1
 	fi
 
-	cd "${TMP_DIR}/oh-my-pi"
-
-	# Check if there's an install script or setup
-	if [[ -f "install.sh" ]]; then
-		log "Running install script..."
-		if bash install.sh; then
-			log "oh-my-pi installed via install.sh"
-		else
-			warn "Install script failed"
-			rm -rf "$TMP_DIR"
-			return 1
-		fi
-	elif [[ -f "setup.sh" ]]; then
-		log "Running setup script..."
-		if bash setup.sh; then
-			log "oh-my-pi installed via setup.sh"
-		else
-			warn "Setup script failed"
-			rm -rf "$TMP_DIR"
-			return 1
-		fi
-	else
-		# If no install script, check for a binary or symlink to ~/.oh-my-pi
-		mkdir -p "${CONTAINER_HOME}/.oh-my-pi"
-		cp -r . "${CONTAINER_HOME}/.oh-my-pi/"
-		ok "oh-my-pi installed to ${CONTAINER_HOME}/.oh-my-pi"
+	log "Downloading from: $download_url"
+	local binary_name=$(basename "$download_url")
+	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${binary_name}"; then
+		warn "Download failed"
+		rm -rf "$TMP_DIR"
+		return 1
 	fi
 
-	# Clean up
+	mkdir -p "${LOCAL_BIN}"
+	chmod +x "${TMP_DIR}/${binary_name}"
+	mv "${TMP_DIR}/${binary_name}" "${LOCAL_BIN}/omp"
+
 	rm -rf "$TMP_DIR"
 
-	ok "oh-my-pi installed: $(git -C "${CONTAINER_HOME}/.oh-my-pi" describe --tags 2>&1 || echo "latest from git")"
+	ok "oh-my-pi installed: $(${LOCAL_BIN}/omp --version 2>&1 | head -1)"
 }
 
 install_crush() {
@@ -790,150 +811,271 @@ install_zerostack() {
 	local version="${1:-latest}"
 	log "Installing Zerostack (${version})..."
 
-	# Create temp directory for clone
+	# Detect platform and arch
+	local platform=""
+	if [[ "$(uname -s)" == "Linux" ]]; then
+		platform="unknown-linux-gnu"
+	elif [[ "$(uname -s)" == "Darwin" ]]; then
+		platform="apple-darwin"
+	else
+		warn "Unsupported platform: $(uname -s)"
+		return 1
+	fi
+
+	local arch=""
+	case "$(uname -m)" in
+	x86_64) arch="x86_64" ;;
+	aarch64|arm64) arch="aarch64" ;;
+	*)
+		warn "Unsupported architecture: $(uname -m)"
+		return 1
+		;;
+	esac
+
 	local TMP_DIR
 	TMP_DIR=$(mktemp -d)
-	local git_url="https://github.com/gi-dellav/zerostack.git"
+	local download_url=""
 
-	log "Cloning from: $git_url"
-	if ! git clone --depth 1 "$git_url" "${TMP_DIR}/zerostack" 2>&1 | grep -v "^Cloning\|^Counting\|^Compressing\|^Receiving"; then
-		warn "Failed to clone zerostack repository"
+	# Get release info via API
+	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
+		local api_url="https://api.github.com/repos/gi-dellav/zerostack/releases/latest"
+		if [[ "$version" != "latest" ]]; then
+			api_url="https://api.github.com/repos/gi-dellav/zerostack/releases/tags/${version}"
+		fi
+		local release_info
+		release_info=$(curl -s "$api_url" 2>/dev/null)
+
+		if [[ $? -eq 0 && -n "$release_info" ]]; then
+			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
+				warn "API error: $(echo "$release_info" | jq -r '.message')"
+			else
+				# Find the asset matching our platform and arch
+				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"zerostack-${arch}-${platform}\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
+			fi
+		fi
+	fi
+
+	if [[ -z "$download_url" ]]; then
+		warn "Could not fetch release info via API"
 		rm -rf "$TMP_DIR"
 		return 1
 	fi
 
-	cd "${TMP_DIR}/zerostack"
-
-	# Check if there's an install script or setup
-	if [[ -f "install.sh" ]]; then
-		log "Running install script..."
-		if bash install.sh; then
-			log "zerostack installed via install.sh"
-		else
-			warn "Install script failed"
-			rm -rf "$TMP_DIR"
-			return 1
-		fi
-	elif [[ -f "setup.sh" ]]; then
-		log "Running setup script..."
-		if bash setup.sh; then
-			log "zerostack installed via setup.sh"
-		else
-			warn "Setup script failed"
-			rm -rf "$TMP_DIR"
-			return 1
-		fi
-	else
-		# If no install script, symlink to ~/.zerostack
-		mkdir -p "${CONTAINER_HOME}/.zerostack"
-		cp -r . "${CONTAINER_HOME}/.zerostack/"
-		ok "zerostack installed to ${CONTAINER_HOME}/.zerostack"
+	log "Downloading from: $download_url"
+	local tar_name=$(basename "$download_url")
+	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}"; then
+		warn "Download failed"
+		rm -rf "$TMP_DIR"
+		return 1
 	fi
 
-	# Clean up
+	log "Extracting..."
+	cd "$TMP_DIR"
+	if ! tar xzf "${tar_name}"; then
+		warn "Extraction failed"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Find zerostack binary
+	local zerostack_bin
+	zerostack_bin=$(find . -name "zerostack" -type f | head -1)
+
+	if [[ -n "$zerostack_bin" && -f "$zerostack_bin" ]]; then
+		mkdir -p "${LOCAL_BIN}"
+		chmod +x "$zerostack_bin"
+		mv "$zerostack_bin" "${LOCAL_BIN}/zerostack"
+		ok "Zerostack binary installed successfully to ${LOCAL_BIN}/zerostack"
+	else
+		warn "zerostack binary not found in the extracted archive"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
 	rm -rf "$TMP_DIR"
 
-	ok "zerostack installed: $(git -C "${CONTAINER_HOME}/.zerostack" describe --tags 2>&1 || echo "latest from git")"
+	ok "Zerostack installed: $(${LOCAL_BIN}/zerostack --version 2>&1 | head -1)"
 }
 
 install_mimo_code() {
 	local version="${1:-latest}"
 	log "Installing MiMo-Code (${version})..."
 
-	# Create temp directory for clone
+	# Detect platform and arch
+	local platform=""
+	if [[ "$(uname -s)" == "Linux" ]]; then
+		platform="linux"
+	elif [[ "$(uname -s)" == "Darwin" ]]; then
+		platform="darwin"
+	else
+		warn "Unsupported platform: $(uname -s)"
+		return 1
+	fi
+
+	local arch=""
+	case "$(uname -m)" in
+	x86_64) arch="x64" ;;
+	aarch64|arm64) arch="arm64" ;;
+	*)
+		warn "Unsupported architecture: $(uname -m)"
+		return 1
+		;;
+	esac
+
 	local TMP_DIR
 	TMP_DIR=$(mktemp -d)
-	local git_url="https://github.com/XiaomiMiMo/MiMo-Code.git"
+	local download_url=""
 
-	log "Cloning from: $git_url"
-	if ! git clone --depth 1 "$git_url" "${TMP_DIR}/mimo-code" 2>&1 | grep -v "^Cloning\|^Counting\|^Compressing\|^Receiving"; then
-		warn "Failed to clone MiMo-Code repository"
+	# Get release info via API
+	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
+		local api_url="https://api.github.com/repos/XiaomiMiMo/MiMo-Code/releases/latest"
+		if [[ "$version" != "latest" ]]; then
+			api_url="https://api.github.com/repos/XiaomiMiMo/MiMo-Code/releases/tags/${version}"
+		fi
+		local release_info
+		release_info=$(curl -s "$api_url" 2>/dev/null)
+
+		if [[ $? -eq 0 && -n "$release_info" ]]; then
+			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
+				warn "API error: $(echo "$release_info" | jq -r '.message')"
+			else
+				# Find the asset matching our platform and arch (prefer standard variant over baseline)
+				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"mimocode-${platform}-${arch}\") and endswith(\".tar.gz\") and (contains(\"baseline\") | not)) | .browser_download_url" 2>/dev/null | head -1)
+			fi
+		fi
+	fi
+
+	if [[ -z "$download_url" ]]; then
+		warn "Could not fetch release info via API"
 		rm -rf "$TMP_DIR"
 		return 1
 	fi
 
-	cd "${TMP_DIR}/mimo-code"
-
-	# Check if there's an install script or setup
-	if [[ -f "install.sh" ]]; then
-		log "Running install script..."
-		if bash install.sh; then
-			log "MiMo-Code installed via install.sh"
-		else
-			warn "Install script failed"
-			rm -rf "$TMP_DIR"
-			return 1
-		fi
-	elif [[ -f "setup.sh" ]]; then
-		log "Running setup script..."
-		if bash setup.sh; then
-			log "MiMo-Code installed via setup.sh"
-		else
-			warn "Setup script failed"
-			rm -rf "$TMP_DIR"
-			return 1
-		fi
-	else
-		# If no install script, copy to ~/.mimo-code
-		mkdir -p "${CONTAINER_HOME}/.mimo-code"
-		cp -r . "${CONTAINER_HOME}/.mimo-code/"
-		ok "MiMo-Code installed to ${CONTAINER_HOME}/.mimo-code"
+	log "Downloading from: $download_url"
+	local tar_name=$(basename "$download_url")
+	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}"; then
+		warn "Download failed"
+		rm -rf "$TMP_DIR"
+		return 1
 	fi
 
-	# Clean up
+	log "Extracting..."
+	cd "$TMP_DIR"
+	if ! tar xzf "${tar_name}"; then
+		warn "Extraction failed"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Find mimo binary
+	local mimo_bin
+	mimo_bin=$(find . -name "mimo" -type f | head -1)
+
+	if [[ -n "$mimo_bin" && -f "$mimo_bin" ]]; then
+		mkdir -p "${LOCAL_BIN}"
+		chmod +x "$mimo_bin"
+		mv "$mimo_bin" "${LOCAL_BIN}/mimo"
+		ok "MiMo-Code binary installed successfully to ${LOCAL_BIN}/mimo"
+	else
+		warn "mimo binary not found in the extracted archive"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
 	rm -rf "$TMP_DIR"
 
-	ok "MiMo-Code installed: $(git -C "${CONTAINER_HOME}/.mimo-code" describe --tags 2>&1 || echo "latest from git")"
+	ok "MiMo-Code installed: $(${LOCAL_BIN}/mimo --version 2>&1 | head -1)"
 }
 
 install_qwen_code() {
 	local version="${1:-latest}"
 	log "Installing Qwen-Code (${version})..."
 
-	# Create temp directory for clone
+	# Detect platform and arch
+	local platform=""
+	if [[ "$(uname -s)" == "Linux" ]]; then
+		platform="linux"
+	elif [[ "$(uname -s)" == "Darwin" ]]; then
+		platform="darwin"
+	else
+		warn "Unsupported platform: $(uname -s)"
+		return 1
+	fi
+
+	local arch=""
+	case "$(uname -m)" in
+	x86_64) arch="x64" ;;
+	aarch64|arm64) arch="arm64" ;;
+	*)
+		warn "Unsupported architecture: $(uname -m)"
+		return 1
+		;;
+	esac
+
 	local TMP_DIR
 	TMP_DIR=$(mktemp -d)
-	local git_url="https://github.com/QwenLM/qwen-code.git"
+	local download_url=""
 
-	log "Cloning from: $git_url"
-	if ! git clone --depth 1 "$git_url" "${TMP_DIR}/qwen-code" 2>&1 | grep -v "^Cloning\|^Counting\|^Compressing\|^Receiving"; then
-		warn "Failed to clone Qwen-Code repository"
+	# Get release info via API
+	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
+		local api_url="https://api.github.com/repos/QwenLM/qwen-code/releases/latest"
+		if [[ "$version" != "latest" ]]; then
+			api_url="https://api.github.com/repos/QwenLM/qwen-code/releases/tags/${version}"
+		fi
+		local release_info
+		release_info=$(curl -s "$api_url" 2>/dev/null)
+
+		if [[ $? -eq 0 && -n "$release_info" ]]; then
+			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
+				warn "API error: $(echo "$release_info" | jq -r '.message')"
+			else
+				# Find the asset matching our platform and arch
+				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"qwen-code-${platform}-${arch}\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
+			fi
+		fi
+	fi
+
+	if [[ -z "$download_url" ]]; then
+		warn "Could not fetch release info via API"
 		rm -rf "$TMP_DIR"
 		return 1
 	fi
 
-	cd "${TMP_DIR}/qwen-code"
-
-	# Check if there's an install script or setup
-	if [[ -f "install.sh" ]]; then
-		log "Running install script..."
-		if bash install.sh; then
-			log "Qwen-Code installed via install.sh"
-		else
-			warn "Install script failed"
-			rm -rf "$TMP_DIR"
-			return 1
-		fi
-	elif [[ -f "setup.sh" ]]; then
-		log "Running setup script..."
-		if bash setup.sh; then
-			log "Qwen-Code installed via setup.sh"
-		else
-			warn "Setup script failed"
-			rm -rf "$TMP_DIR"
-			return 1
-		fi
-	else
-		# If no install script, copy to ~/.qwen-code
-		mkdir -p "${CONTAINER_HOME}/.qwen-code"
-		cp -r . "${CONTAINER_HOME}/.qwen-code/"
-		ok "Qwen-Code installed to ${CONTAINER_HOME}/.qwen-code"
+	log "Downloading from: $download_url"
+	local tar_name=$(basename "$download_url")
+	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}"; then
+		warn "Download failed"
+		rm -rf "$TMP_DIR"
+		return 1
 	fi
 
-	# Clean up
+	log "Extracting..."
+	cd "$TMP_DIR"
+	if ! tar xzf "${tar_name}"; then
+		warn "Extraction failed"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Find qwen-code binary (it's in a subdirectory)
+	local qwen_bin
+	qwen_bin=$(find . -name "qwen-code" -type f -o -name "qwen" -type f | grep -v "\.tar\.gz" | head -1)
+
+	if [[ -n "$qwen_bin" && -f "$qwen_bin" ]]; then
+		mkdir -p "${LOCAL_BIN}"
+		chmod +x "$qwen_bin"
+		# Install as qwen-code
+		mv "$qwen_bin" "${LOCAL_BIN}/qwen-code"
+		ok "Qwen-Code binary installed successfully to ${LOCAL_BIN}/qwen-code"
+	else
+		warn "qwen-code binary not found in the extracted archive"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
 	rm -rf "$TMP_DIR"
 
-	ok "Qwen-Code installed: $(git -C "${CONTAINER_HOME}/.qwen-code" describe --tags 2>&1 || echo "latest from git")"
+	ok "Qwen-Code installed: $(${LOCAL_BIN}/qwen-code --version 2>&1 | head -1)"
 }
 
 
