@@ -810,8 +810,13 @@ install_zerostack() {
 			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
 				warn "API error: $(echo "$release_info" | jq -r '.message')"
 			else
-				# Find the asset matching our platform and arch
-				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"zerostack-${arch}-${platform}\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
+				# Prefer musl variant for better compatibility with different glibc versions
+				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"zerostack-${arch}-${platform}\") and contains(\"musl\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
+				
+				# Fallback to gnu variant if musl not available
+				if [[ -z "$download_url" ]]; then
+					download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"zerostack-${arch}-${platform}\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
+				fi
 			fi
 		fi
 	fi
@@ -838,9 +843,9 @@ install_zerostack() {
 		return 1
 	fi
 
-	# Find zerostack binary
+	# Find zerostack binary (may have versioned name like zerostack-x86_64-unknown-linux-musl)
 	local zerostack_bin
-	zerostack_bin=$(find . -name "zerostack" -type f | head -1)
+	zerostack_bin=$(find . -type f -executable -name "*zerostack*" | grep -v "\.tar\.gz" | head -1)
 
 	if [[ -n "$zerostack_bin" && -f "$zerostack_bin" ]]; then
 		mkdir -p "${LOCAL_BIN}"
