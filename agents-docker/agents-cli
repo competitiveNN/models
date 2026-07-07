@@ -32,7 +32,7 @@ Usage:
   agents-cli --help                Show this help
   agents-cli --privileged          Run container with --privileged (extended caps)
 
-ℹ️  Supported agents: pi, little-coder, soulforge
+ℹ️  Supported agents: pi, little-coder, soulforge, engram, tokensave, dirac, oh-my-pi
 
 ⚠️  Note: agents-cli must be run from the host, not from inside a container.
     For containerized execution (e.g., toolbox), use agents-cli-bwrap instead.

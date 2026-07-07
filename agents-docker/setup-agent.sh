@@ -516,6 +516,152 @@ install_tokensave() {
 	ok "TokenSave installed: $(${LOCAL_BIN}/tokensave --version 2>&1 | head -1)"
 }
 
+install_dirac() {
+	local version="${1:-latest}"
+	log "Installing Dirac (${version})..."
+
+	# Detect platform
+	local platform=""
+	if [[ "$(uname -s)" == "Linux" ]]; then
+		platform="linux"
+	elif [[ "$(uname -s)" == "Darwin" ]]; then
+		platform="darwin"
+	else
+		warn "Unsupported platform: $(uname -s)"
+		return 1
+	fi
+
+	local arch=""
+	case "$(uname -m)" in
+	x86_64) arch="amd64" ;;
+	aarch64|arm64) arch="arm64" ;;
+	*)
+		warn "Unsupported architecture: $(uname -m)"
+		return 1
+		;;
+	esac
+
+	# Create temp directory for download
+	local TMP_DIR
+	TMP_DIR=$(mktemp -d)
+	local download_url=""
+	local tar_name=""
+
+	# Try to get release info via API
+	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
+		local api_url="https://api.github.com/repos/dirac-run/dirac/releases/latest"
+		if [[ "$version" != "latest" ]]; then
+			api_url="https://api.github.com/repos/dirac-run/dirac/releases/tags/${version}"
+		fi
+		local release_info
+		release_info=$(curl -s "$api_url" 2>/dev/null)
+
+		if [[ $? -eq 0 && -n "$release_info" ]]; then
+			# Find the asset matching our platform and arch
+			local asset_url=""
+			asset_url=$(echo "$release_info" | jq -r ".assets[] | select(.name | contains(\"${platform}\") and contains(\"${arch}\") and endswith(\".tar.gz\")) | .browser_download_url" | head -1)
+
+			if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
+				download_url="$asset_url"
+				tar_name=$(basename "$asset_url")
+			fi
+		fi
+	fi
+
+	# Fallback URL if API fails
+	if [[ -z "$download_url" ]]; then
+		warn "Could not fetch release info via API"
+		return 1
+	fi
+
+	log "Downloading from: $download_url"
+	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}"; then
+		warn "Download failed for ${tar_name}"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Extract
+	log "Extracting..."
+	cd "$TMP_DIR"
+	if ! tar xzf "${tar_name}"; then
+		warn "Extraction failed"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Find dirac binary and move it to LOCAL_BIN
+	if [[ -f "dirac" ]]; then
+		mkdir -p "${LOCAL_BIN}"
+		chmod +x dirac
+		mv dirac "${LOCAL_BIN}/dirac"
+		ok "Dirac binary installed successfully to ${LOCAL_BIN}/dirac"
+	else
+		warn "dirac binary not found in the extracted archive"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Clean up
+	rm -rf "$TMP_DIR"
+
+	# Recreate persistent directory symlink
+	mkdir -p "${CONTAINER_HOME}/.config/dirac"
+	ln -sfn "${CONTAINER_HOME}/.config/dirac" "${CONTAINER_HOME}/.dirac" 2>/dev/null || true
+
+	ok "Dirac installed: $(${LOCAL_BIN}/dirac --version 2>&1 | head -1)"
+}
+
+install_oh_my_pi() {
+	local version="${1:-latest}"
+	log "Installing oh-my-pi (${version})..."
+
+	# Create temp directory for clone
+	local TMP_DIR
+	TMP_DIR=$(mktemp -d)
+	local git_url="https://github.com/can1357/oh-my-pi.git"
+
+	log "Cloning from: $git_url"
+	if ! git clone --depth 1 "$git_url" "${TMP_DIR}/oh-my-pi" 2>&1 | grep -v "^Cloning\|^Counting\|^Compressing\|^Receiving"; then
+		warn "Failed to clone oh-my-pi repository"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	cd "${TMP_DIR}/oh-my-pi"
+
+	# Check if there's an install script or setup
+	if [[ -f "install.sh" ]]; then
+		log "Running install script..."
+		if bash install.sh; then
+			log "oh-my-pi installed via install.sh"
+		else
+			warn "Install script failed"
+			rm -rf "$TMP_DIR"
+			return 1
+		fi
+	elif [[ -f "setup.sh" ]]; then
+		log "Running setup script..."
+		if bash setup.sh; then
+			log "oh-my-pi installed via setup.sh"
+		else
+			warn "Setup script failed"
+			rm -rf "$TMP_DIR"
+			return 1
+		fi
+	else
+		# If no install script, check for a binary or symlink to ~/.oh-my-pi
+		mkdir -p "${CONTAINER_HOME}/.oh-my-pi"
+		cp -r . "${CONTAINER_HOME}/.oh-my-pi/"
+		ok "oh-my-pi installed to ${CONTAINER_HOME}/.oh-my-pi"
+	fi
+
+	# Clean up
+	rm -rf "$TMP_DIR"
+
+	ok "oh-my-pi installed: $(git -C "${CONTAINER_HOME}/.oh-my-pi" describe --tags 2>&1 || echo "latest from git")"
+}
+
 
 
 init_rtk() {
@@ -539,11 +685,14 @@ Agents:
   soulforge    SoulForge Agent (TypeScript/Bun)
   engram       Engram Memory System (Go)
   tokensave    TokenSave Code Graph System (Rust)
+  dirac        Dirac agent runner (Go)
+  oh-my-pi     oh-my-pi shell configuration (Bash)
   all          Install every supported agent
 
 Examples:
   setup-agent.sh pi latest
   setup-agent.sh tokensave
+  setup-agent.sh dirac
   setup-agent.sh all
 EOF
 	exit 0
@@ -563,6 +712,8 @@ little-coder) install_little_coder "$VERSION" ;;
 soulforge) install_soulforge "$VERSION" ;;
 engram) install_engram "$VERSION" ;;
 tokensave) install_tokensave "$VERSION" ;;
+dirac) install_dirac "$VERSION" ;;
+oh-my-pi) install_oh_my_pi "$VERSION" ;;
 watchdog) install_watchdog ;;
 all)
 	log "Installing all agents..."
@@ -571,6 +722,8 @@ all)
 	install_soulforge "$VERSION"
 	install_engram "$VERSION"
 	install_tokensave "$VERSION"
+	install_dirac "$VERSION"
+	install_oh_my_pi "$VERSION"
 	ok "All agents installed"
 	;;
 *) die "Unknown agent: $AGENT (run setup-agent.sh --help for usage)" ;;
