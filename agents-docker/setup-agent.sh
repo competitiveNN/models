@@ -535,101 +535,62 @@ install_dirac() {
 	local version="${1:-latest}"
 	log "Installing Dirac (${version})..."
 
-	# Detect platform
-	local platform=""
-	if [[ "$(uname -s)" == "Linux" ]]; then
-		platform="linux"
-	elif [[ "$(uname -s)" == "Darwin" ]]; then
-		platform="darwin"
-	else
-		warn "Unsupported platform: $(uname -s)"
+	# Check for required tools
+	if ! command -v git &>/dev/null; then
+		warn "git is required to install Dirac"
 		return 1
 	fi
 
-	local arch=""
-	case "$(uname -m)" in
-	x86_64) arch="amd64" ;;
-	aarch64|arm64) arch="arm64" ;;
-	*)
-		warn "Unsupported architecture: $(uname -m)"
+	if ! command -v npm &>/dev/null; then
+		warn "npm is required to install Dirac from source"
 		return 1
-		;;
-	esac
+	fi
 
-	# Create temp directory for download
 	local TMP_DIR
 	TMP_DIR=$(mktemp -d)
-	local download_url=""
-	local tar_name=""
+	local git_url="https://github.com/dirac-run/dirac.git"
 
-	# Try to get release info via API
-	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
-		local api_url="https://api.github.com/repos/dirac-run/dirac/releases/latest"
-		if [[ "$version" != "latest" ]]; then
-			api_url="https://api.github.com/repos/dirac-run/dirac/releases/tags/${version}"
-		fi
-		local release_info
-		release_info=$(curl -s "$api_url" 2>/dev/null)
-
-		if [[ $? -eq 0 && -n "$release_info" ]]; then
-			# Check if response is an error
-			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
-				warn "API error: $(echo "$release_info" | jq -r '.message')"
-			else
-				# Find the asset matching our platform and arch
-				local asset_url=""
-				asset_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"${platform}\") and contains(\"${arch}\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
-
-				if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
-					download_url="$asset_url"
-					tar_name=$(basename "$asset_url")
-				fi
-			fi
-		fi
-	fi
-
-	# Fallback URL if API fails
-	if [[ -z "$download_url" ]]; then
-		warn "Could not fetch release info via API"
-		return 1
-	fi
-
-	log "Downloading from: $download_url"
-	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}"; then
-		warn "Download failed for ${tar_name}"
+	log "Cloning from: $git_url"
+	if ! git clone --depth 1 "$git_url" "${TMP_DIR}/dirac" 2>&1 | tail -1; then
+		warn "Failed to clone Dirac repository"
 		rm -rf "$TMP_DIR"
 		return 1
 	fi
 
-	# Extract
-	log "Extracting..."
-	cd "$TMP_DIR"
-	if ! tar xzf "${tar_name}"; then
-		warn "Extraction failed"
+	cd "${TMP_DIR}/dirac"
+
+	log "Installing dependencies with npm..."
+	if ! npm install --production 2>&1 | grep -E "added|removed|packages|ERR!" | tail -5; then
+		warn "npm install failed"
 		rm -rf "$TMP_DIR"
 		return 1
 	fi
 
-	# Find dirac binary and move it to LOCAL_BIN
-	if [[ -f "dirac" ]]; then
-		mkdir -p "${LOCAL_BIN}"
-		chmod +x dirac
-		mv dirac "${LOCAL_BIN}/dirac"
-		ok "Dirac binary installed successfully to ${LOCAL_BIN}/dirac"
-	else
-		warn "dirac binary not found in the extracted archive"
+	log "Building Dirac..."
+	if ! npm run build 2>&1 | tail -3; then
+		warn "Build failed"
 		rm -rf "$TMP_DIR"
 		return 1
 	fi
+
+	# Install to a persistent location
+	local dirac_home="${CONTAINER_HOME}/.dirac"
+	mkdir -p "$dirac_home"
+	cp -r . "$dirac_home/"
+
+	# Create symlink in LOCAL_BIN to the main entry point
+	mkdir -p "${LOCAL_BIN}"
+	cat > "${LOCAL_BIN}/dirac" << 'EOFWRAPPER'
+#!/bin/bash
+exec node "$HOME/.dirac/cli/index.js" "$@"
+EOFWRAPPER
+	chmod +x "${LOCAL_BIN}/dirac"
 
 	# Clean up
 	rm -rf "$TMP_DIR"
 
-	# Recreate persistent directory symlink
-	mkdir -p "${CONTAINER_HOME}/.config/dirac"
-	ln -sfn "${CONTAINER_HOME}/.config/dirac" "${CONTAINER_HOME}/.dirac" 2>/dev/null || true
-
-	ok "Dirac installed: $(${LOCAL_BIN}/dirac --version 2>&1 | head -1)"
+	ok "Dirac installed to ${dirac_home}"
+	ok "Dirac CLI: ${LOCAL_BIN}/dirac"
 }
 
 install_oh_my_pi() {
