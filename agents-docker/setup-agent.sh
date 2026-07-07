@@ -808,6 +808,106 @@ install_zerostack() {
 	ok "zerostack installed: $(git -C "${CONTAINER_HOME}/.zerostack" describe --tags 2>&1 || echo "latest from git")"
 }
 
+install_mimo_code() {
+	local version="${1:-latest}"
+	log "Installing MiMo-Code (${version})..."
+
+	# Create temp directory for clone
+	local TMP_DIR
+	TMP_DIR=$(mktemp -d)
+	local git_url="https://github.com/XiaomiMiMo/MiMo-Code.git"
+
+	log "Cloning from: $git_url"
+	if ! git clone --depth 1 "$git_url" "${TMP_DIR}/mimo-code" 2>&1 | grep -v "^Cloning\|^Counting\|^Compressing\|^Receiving"; then
+		warn "Failed to clone MiMo-Code repository"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	cd "${TMP_DIR}/mimo-code"
+
+	# Check if there's an install script or setup
+	if [[ -f "install.sh" ]]; then
+		log "Running install script..."
+		if bash install.sh; then
+			log "MiMo-Code installed via install.sh"
+		else
+			warn "Install script failed"
+			rm -rf "$TMP_DIR"
+			return 1
+		fi
+	elif [[ -f "setup.sh" ]]; then
+		log "Running setup script..."
+		if bash setup.sh; then
+			log "MiMo-Code installed via setup.sh"
+		else
+			warn "Setup script failed"
+			rm -rf "$TMP_DIR"
+			return 1
+		fi
+	else
+		# If no install script, copy to ~/.mimo-code
+		mkdir -p "${CONTAINER_HOME}/.mimo-code"
+		cp -r . "${CONTAINER_HOME}/.mimo-code/"
+		ok "MiMo-Code installed to ${CONTAINER_HOME}/.mimo-code"
+	fi
+
+	# Clean up
+	rm -rf "$TMP_DIR"
+
+	ok "MiMo-Code installed: $(git -C "${CONTAINER_HOME}/.mimo-code" describe --tags 2>&1 || echo "latest from git")"
+}
+
+install_qwen_code() {
+	local version="${1:-latest}"
+	log "Installing Qwen-Code (${version})..."
+
+	# Create temp directory for clone
+	local TMP_DIR
+	TMP_DIR=$(mktemp -d)
+	local git_url="https://github.com/QwenLM/qwen-code.git"
+
+	log "Cloning from: $git_url"
+	if ! git clone --depth 1 "$git_url" "${TMP_DIR}/qwen-code" 2>&1 | grep -v "^Cloning\|^Counting\|^Compressing\|^Receiving"; then
+		warn "Failed to clone Qwen-Code repository"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	cd "${TMP_DIR}/qwen-code"
+
+	# Check if there's an install script or setup
+	if [[ -f "install.sh" ]]; then
+		log "Running install script..."
+		if bash install.sh; then
+			log "Qwen-Code installed via install.sh"
+		else
+			warn "Install script failed"
+			rm -rf "$TMP_DIR"
+			return 1
+		fi
+	elif [[ -f "setup.sh" ]]; then
+		log "Running setup script..."
+		if bash setup.sh; then
+			log "Qwen-Code installed via setup.sh"
+		else
+			warn "Setup script failed"
+			rm -rf "$TMP_DIR"
+			return 1
+		fi
+	else
+		# If no install script, copy to ~/.qwen-code
+		mkdir -p "${CONTAINER_HOME}/.qwen-code"
+		cp -r . "${CONTAINER_HOME}/.qwen-code/"
+		ok "Qwen-Code installed to ${CONTAINER_HOME}/.qwen-code"
+	fi
+
+	# Clean up
+	rm -rf "$TMP_DIR"
+
+	ok "Qwen-Code installed: $(git -C "${CONTAINER_HOME}/.qwen-code" describe --tags 2>&1 || echo "latest from git")"
+}
+
 
 
 init_rtk() {
@@ -835,12 +935,14 @@ Agents:
   oh-my-pi     oh-my-pi shell configuration (Bash)
   crush        Crush data compression tool (Go)
   zerostack    Zerostack development environment (Python)
+  mimo-code    MiMo-Code coding assistant (Python)
+  qwen-code    Qwen-Code LLM-based coding (Python)
   all          Install every supported agent
 
 Examples:
   setup-agent.sh pi latest
-  setup-agent.sh tokensave
-  setup-agent.sh zerostack
+  setup-agent.sh mimo-code
+  setup-agent.sh qwen-code
   setup-agent.sh all
 EOF
 	exit 0
@@ -864,6 +966,8 @@ dirac) install_dirac "$VERSION" ;;
 oh-my-pi) install_oh_my_pi "$VERSION" ;;
 crush) install_crush "$VERSION" ;;
 zerostack) install_zerostack "$VERSION" ;;
+mimo-code) install_mimo_code "$VERSION" ;;
+qwen-code) install_qwen_code "$VERSION" ;;
 watchdog) install_watchdog ;;
 all)
 	log "Installing all agents..."
@@ -876,6 +980,8 @@ all)
 	install_oh_my_pi "$VERSION"
 	install_crush "$VERSION"
 	install_zerostack "$VERSION"
+	install_mimo_code "$VERSION"
+	install_qwen_code "$VERSION"
 	ok "All agents installed"
 	;;
 *) die "Unknown agent: $AGENT (run setup-agent.sh --help for usage)" ;;
