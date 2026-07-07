@@ -230,13 +230,18 @@ install_soulforge() {
 		release_info=$(curl -s "$api_url" 2>/dev/null)
 
 		if [[ $? -eq 0 && -n "$release_info" ]]; then
-			# Find the appropriate asset for this platform
-			local asset_url=""
-			asset_url=$(echo "$release_info" | jq -r ".assets[] | select(.name | contains(\"${platform}\") and contains(\"${arch}\")) | .browser_download_url" | head -1)
+			# Check if response is an error
+			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
+				warn "API error: $(echo "$release_info" | jq -r '.message')"
+			else
+				# Find the appropriate asset for this platform
+				local asset_url=""
+				asset_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"${platform}\") and contains(\"${arch}\")) | .browser_download_url" 2>/dev/null | head -1)
 
-			if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
-				download_url="$asset_url"
-				tar_name=$(basename "$asset_url")
+				if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
+					download_url="$asset_url"
+					tar_name=$(basename "$asset_url")
+				fi
 			fi
 		fi
 	fi
@@ -355,13 +360,18 @@ install_engram() {
 		release_info=$(curl -s "$api_url" 2>/dev/null)
 
 		if [[ $? -eq 0 && -n "$release_info" ]]; then
-			# Find the asset matching our platform and arch
-			local asset_url=""
-			asset_url=$(echo "$release_info" | jq -r ".assets[] | select(.name | contains(\"${platform}\") and contains(\"${arch}\") and endswith(\".tar.gz\")) | .browser_download_url" | head -1)
+			# Check if response is an error
+			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
+				warn "API error: $(echo "$release_info" | jq -r '.message')"
+			else
+				# Find the asset matching our platform and arch
+				local asset_url=""
+				asset_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"${platform}\") and contains(\"${arch}\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
 
-			if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
-				download_url="$asset_url"
-				tar_name=$(basename "$asset_url")
+				if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
+					download_url="$asset_url"
+					tar_name=$(basename "$asset_url")
+				fi
 			fi
 		fi
 	fi
@@ -456,13 +466,20 @@ install_tokensave() {
 		release_info=$(curl -s "$api_url" 2>/dev/null)
 
 		if [[ $? -eq 0 && -n "$release_info" ]]; then
-			# Find the asset matching our platform and arch
-			local asset_url=""
-			asset_url=$(echo "$release_info" | jq -r ".assets[] | select(.name | contains(\"${arch}\") and contains(\"${platform}\") and endswith(\".tar.gz\") and (contains(\"bottle\") | not)) | .browser_download_url" | head -1)
+			# Check if response is an error
+			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
+				warn "API error: $(echo "$release_info" | jq -r '.message')"
+			else
+				# Find the asset matching our platform and arch
+				local asset_url=""
+				asset_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"${arch}\") and contains(\"${platform}\") and endswith(\".tar.gz\") and (contains(\"bottle\") | not)) | .browser_download_url" 2>/dev/null | head -1)
 
-			if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
-				download_url="$asset_url"
-				tar_name=$(basename "$asset_url")
+				if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
+					download_url="$asset_url"
+					tar_name=$(basename "$asset_url")
+				fi
+			fi
+		fi
 			fi
 		fi
 	fi
@@ -708,13 +725,18 @@ install_crush() {
 		release_info=$(curl -s "$api_url" 2>/dev/null)
 
 		if [[ $? -eq 0 && -n "$release_info" ]]; then
-			# Find the asset matching our platform and arch
-			local asset_url=""
-			asset_url=$(echo "$release_info" | jq -r ".assets[] | select(.name | contains(\"${platform}\") and contains(\"${arch}\") and endswith(\".tar.gz\")) | .browser_download_url" | head -1)
+			# Check if response is an error
+			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
+				warn "API error: $(echo "$release_info" | jq -r '.message')"
+			else
+				# Find the asset matching our platform and arch
+				local asset_url=""
+				asset_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"${platform}\") and contains(\"${arch}\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
 
-			if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
-				download_url="$asset_url"
-				tar_name=$(basename "$asset_url")
+				if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
+					download_url="$asset_url"
+					tar_name=$(basename "$asset_url")
+				fi
 			fi
 		fi
 	fi
