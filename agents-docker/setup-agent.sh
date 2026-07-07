@@ -480,8 +480,6 @@ install_tokensave() {
 				fi
 			fi
 		fi
-			fi
-		fi
 	fi
 
 	# Fallback to direct download URL construction if API fails
