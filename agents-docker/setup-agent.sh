@@ -741,11 +741,14 @@ install_crush() {
 		return 1
 	fi
 
-	# Find crush binary and move it to LOCAL_BIN
-	if [[ -f "crush" ]]; then
+	# Find crush binary (may be in a subdirectory)
+	local crush_bin
+	crush_bin=$(find . -name "crush" -type f | head -1)
+	
+	if [[ -n "$crush_bin" && -f "$crush_bin" ]]; then
 		mkdir -p "${LOCAL_BIN}"
-		chmod +x crush
-		mv crush "${LOCAL_BIN}/crush"
+		chmod +x "$crush_bin"
+		mv "$crush_bin" "${LOCAL_BIN}/crush"
 		ok "Crush binary installed successfully to ${LOCAL_BIN}/crush"
 	else
 		warn "crush binary not found in the extracted archive"
