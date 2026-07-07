@@ -758,6 +758,56 @@ install_crush() {
 	ok "Crush installed: $(${LOCAL_BIN}/crush --version 2>&1 | head -1)"
 }
 
+install_zerostack() {
+	local version="${1:-latest}"
+	log "Installing Zerostack (${version})..."
+
+	# Create temp directory for clone
+	local TMP_DIR
+	TMP_DIR=$(mktemp -d)
+	local git_url="https://github.com/gi-dellav/zerostack.git"
+
+	log "Cloning from: $git_url"
+	if ! git clone --depth 1 "$git_url" "${TMP_DIR}/zerostack" 2>&1 | grep -v "^Cloning\|^Counting\|^Compressing\|^Receiving"; then
+		warn "Failed to clone zerostack repository"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	cd "${TMP_DIR}/zerostack"
+
+	# Check if there's an install script or setup
+	if [[ -f "install.sh" ]]; then
+		log "Running install script..."
+		if bash install.sh; then
+			log "zerostack installed via install.sh"
+		else
+			warn "Install script failed"
+			rm -rf "$TMP_DIR"
+			return 1
+		fi
+	elif [[ -f "setup.sh" ]]; then
+		log "Running setup script..."
+		if bash setup.sh; then
+			log "zerostack installed via setup.sh"
+		else
+			warn "Setup script failed"
+			rm -rf "$TMP_DIR"
+			return 1
+		fi
+	else
+		# If no install script, symlink to ~/.zerostack
+		mkdir -p "${CONTAINER_HOME}/.zerostack"
+		cp -r . "${CONTAINER_HOME}/.zerostack/"
+		ok "zerostack installed to ${CONTAINER_HOME}/.zerostack"
+	fi
+
+	# Clean up
+	rm -rf "$TMP_DIR"
+
+	ok "zerostack installed: $(git -C "${CONTAINER_HOME}/.zerostack" describe --tags 2>&1 || echo "latest from git")"
+}
+
 
 
 init_rtk() {
@@ -784,12 +834,13 @@ Agents:
   dirac        Dirac agent runner (Go)
   oh-my-pi     oh-my-pi shell configuration (Bash)
   crush        Crush data compression tool (Go)
+  zerostack    Zerostack development environment (Python)
   all          Install every supported agent
 
 Examples:
   setup-agent.sh pi latest
   setup-agent.sh tokensave
-  setup-agent.sh crush
+  setup-agent.sh zerostack
   setup-agent.sh all
 EOF
 	exit 0
@@ -812,6 +863,7 @@ tokensave) install_tokensave "$VERSION" ;;
 dirac) install_dirac "$VERSION" ;;
 oh-my-pi) install_oh_my_pi "$VERSION" ;;
 crush) install_crush "$VERSION" ;;
+zerostack) install_zerostack "$VERSION" ;;
 watchdog) install_watchdog ;;
 all)
 	log "Installing all agents..."
@@ -823,6 +875,7 @@ all)
 	install_dirac "$VERSION"
 	install_oh_my_pi "$VERSION"
 	install_crush "$VERSION"
+	install_zerostack "$VERSION"
 	ok "All agents installed"
 	;;
 *) die "Unknown agent: $AGENT (run setup-agent.sh --help for usage)" ;;
