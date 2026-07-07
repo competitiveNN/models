@@ -905,8 +905,9 @@ install_mimo_code() {
 			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
 				warn "API error: $(echo "$release_info" | jq -r '.message')"
 			else
-				# Find the asset matching our platform and arch (prefer standard variant over baseline)
-				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"mimocode-${platform}-${arch}\") and endswith(\".tar.gz\") and (contains(\"baseline\") | not)) | .browser_download_url" 2>/dev/null | head -1)
+				# Find the asset matching our platform and arch
+				# Exclude: baseline (performance baseline) and musl (compatibility issues)
+				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"mimocode-${platform}-${arch}\") and endswith(\".tar.gz\") and (contains(\"baseline\") | not) and (contains(\"musl\") | not)) | .browser_download_url" 2>/dev/null | head -1)
 			fi
 		fi
 	fi
