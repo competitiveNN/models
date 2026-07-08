@@ -771,25 +771,38 @@ install_qwen_code() {
 		return 1
 	fi
 
-	# Find qwen-code binary (it's in a subdirectory)
-	local qwen_bin
-	qwen_bin=$(find . -name "qwen-code" -type f -o -name "qwen" -type f | grep -v "\.tar\.gz" | head -1)
+	# qwen-code is a self-contained Node.js app: the archive contains a
+	# `qwen-code/` directory with its own bundled node (node/bin/node) and a
+	# launcher at bin/qwen that resolves node via a relative $ROOT path. We must
+	# install the whole directory and exec the launcher by its real path (a
+	# symlink would make $ROOT resolve to LOCAL_BIN, breaking node lookup).
+	local qwen_launcher
+	qwen_launcher=$(find . -type f -path "*/bin/qwen" 2>/dev/null | head -1)
 
-	if [[ -n "$qwen_bin" && -f "$qwen_bin" ]]; then
-		mkdir -p "${LOCAL_BIN}"
-		chmod +x "$qwen_bin"
-		# Install as qwen-code
-		mv "$qwen_bin" "${LOCAL_BIN}/qwen-code"
-		ok "Qwen-Code binary installed successfully to ${LOCAL_BIN}/qwen-code"
-	else
-		warn "qwen-code binary not found in the extracted archive"
+	if [[ -z "$qwen_launcher" || ! -f "$qwen_launcher" ]]; then
+		warn "qwen-code launcher not found in the extracted archive"
 		rm -rf "$TMP_DIR"
 		return 1
 	fi
 
+	local qwen_dir
+	qwen_dir=$(cd "$(dirname "$(dirname "$qwen_launcher")")" && pwd)
+
+	mkdir -p "${CONTAINER_HOME}/.qwen-code"
+	rm -rf "${CONTAINER_HOME}/.qwen-code"
+	cp -r "$qwen_dir" "${CONTAINER_HOME}/.qwen-code"
+	chmod +x "${CONTAINER_HOME}/.qwen-code/bin/qwen"
+
+	mkdir -p "${LOCAL_BIN}"
+	cat > "${LOCAL_BIN}/qwen-code" << EOFWRAPPER
+#!/bin/bash
+exec "${CONTAINER_HOME}/.qwen-code/bin/qwen" "\$@"
+EOFWRAPPER
+	chmod +x "${LOCAL_BIN}/qwen-code"
+
 	rm -rf "$TMP_DIR"
 
-	ok "Qwen-Code installed: $(${LOCAL_BIN}/qwen-code --version 2>&1 | head -1)"
+	ok "Qwen-Code installed to ${CONTAINER_HOME}/.qwen-code"
 }
 
 
@@ -817,7 +830,7 @@ Agents:
   tokensave    TokenSave Code Graph System (Rust)
   oh-my-pi     oh-my-pi shell configuration (Bash)
   zerostack    Zerostack development environment (Python)
-  qwen-code    Qwen-Code LLM-based coding (Python)
+  qwen-code    Qwen-Code LLM-based coding (Node.js)
   all          Install every supported agent
 
 Examples:

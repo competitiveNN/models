@@ -62,6 +62,20 @@ fi
 
 CONTAINER_HOME="${HOME:-/home/agent}"
 
+# ── Register the mounted project directory as a safe git directory ────────────
+# The project is bind-mounted from the host and owned by the host uid, which git
+# treats as "dubious ownership" and refuses to operate on. Register the working
+# directory (the project mount) as safe so agents' git operations don't fail.
+# We use the GIT_CONFIG_* env vars (instead of `git config --global`) so this
+# works even when the user's ~/.gitconfig is bind-mounted read-only, and it is
+# inherited by all child processes.
+if command -v git &>/dev/null; then
+	proj_dir="$(pwd)"
+	idx="${GIT_CONFIG_COUNT:-0}"
+	export "GIT_CONFIG_KEY_${idx}=safe.directory"
+	export "GIT_CONFIG_VALUE_${idx}=${proj_dir}"
+	export GIT_CONFIG_COUNT=$((idx + 1))
+fi
 
 # Recreate SoulForge symlink if installed
 if [[ -d "${CONTAINER_HOME}/.local/share/soulforge" ]]; then
