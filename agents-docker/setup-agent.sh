@@ -531,68 +531,6 @@ install_tokensave() {
 	ok "TokenSave installed: $(${LOCAL_BIN}/tokensave --version 2>&1 | head -1)"
 }
 
-install_dirac() {
-	local version="${1:-latest}"
-	log "Installing Dirac (${version})..."
-
-	# Check for required tools
-	if ! command -v git &>/dev/null; then
-		warn "git is required to install Dirac"
-		return 1
-	fi
-
-	if ! command -v npm &>/dev/null; then
-		warn "npm is required to install Dirac from source"
-		return 1
-	fi
-
-	local TMP_DIR
-	TMP_DIR=$(mktemp -d)
-	local git_url="https://github.com/dirac-run/dirac.git"
-
-	log "Cloning from: $git_url"
-	if ! git clone --depth 1 "$git_url" "${TMP_DIR}/dirac" 2>&1 | tail -1; then
-		warn "Failed to clone Dirac repository"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	cd "${TMP_DIR}/dirac"
-
-	log "Installing dependencies with npm..."
-	if ! npm install --production 2>&1 | grep -E "added|removed|packages|ERR!" | tail -5; then
-		warn "npm install failed"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	log "Building Dirac..."
-	if ! npm run build 2>&1 | tail -3; then
-		warn "Build failed"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	# Install to a persistent location
-	local dirac_home="${CONTAINER_HOME}/.dirac"
-	mkdir -p "$dirac_home"
-	cp -r . "$dirac_home/"
-
-	# Create symlink in LOCAL_BIN to the main entry point
-	mkdir -p "${LOCAL_BIN}"
-	cat > "${LOCAL_BIN}/dirac" << 'EOFWRAPPER'
-#!/bin/bash
-exec node "$HOME/.dirac/cli/index.js" "$@"
-EOFWRAPPER
-	chmod +x "${LOCAL_BIN}/dirac"
-
-	# Clean up
-	rm -rf "$TMP_DIR"
-
-	ok "Dirac installed to ${dirac_home}"
-	ok "Dirac CLI: ${LOCAL_BIN}/dirac"
-}
-
 install_oh_my_pi() {
 	local version="${1:-latest}"
 	log "Installing oh-my-pi (${version})..."
@@ -664,110 +602,6 @@ install_oh_my_pi() {
 	ok "oh-my-pi installed: $(${LOCAL_BIN}/omp --version 2>&1 | head -1)"
 }
 
-install_crush() {
-	local version="${1:-latest}"
-	log "Installing Crush (${version})..."
-
-	# Detect platform
-	local platform=""
-	if [[ "$(uname -s)" == "Linux" ]]; then
-		platform="Linux"
-	elif [[ "$(uname -s)" == "Darwin" ]]; then
-		platform="Darwin"
-	else
-		warn "Unsupported platform: $(uname -s)"
-		return 1
-	fi
-
-	local arch=""
-	case "$(uname -m)" in
-	x86_64) arch="x86_64" ;;
-	aarch64|arm64) arch="arm64" ;;
-	*)
-		warn "Unsupported architecture: $(uname -m)"
-		return 1
-		;;
-	esac
-
-	# Create temp directory for download
-	local TMP_DIR
-	TMP_DIR=$(mktemp -d)
-	local download_url=""
-	local tar_name=""
-
-	# Try to get release info via API
-	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
-		local api_url="https://api.github.com/repos/charmbracelet/crush/releases/latest"
-		if [[ "$version" != "latest" ]]; then
-			api_url="https://api.github.com/repos/charmbracelet/crush/releases/tags/${version}"
-		fi
-		local release_info
-		release_info=$(curl -s "$api_url" 2>/dev/null)
-
-		if [[ $? -eq 0 && -n "$release_info" ]]; then
-			# Check if response is an error
-			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
-				warn "API error: $(echo "$release_info" | jq -r '.message')"
-			else
-				# Find the asset matching our platform and arch
-				local asset_url=""
-				asset_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"${platform}\") and contains(\"${arch}\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
-
-				if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
-					download_url="$asset_url"
-					tar_name=$(basename "$asset_url")
-				fi
-			fi
-		fi
-	fi
-
-	# Fallback URL if API fails
-	if [[ -z "$download_url" ]]; then
-		warn "Could not fetch release info via API"
-		return 1
-	fi
-
-	log "Downloading from: $download_url"
-	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}"; then
-		warn "Download failed for ${tar_name}"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	# Extract
-	log "Extracting..."
-	cd "$TMP_DIR"
-	if ! tar xzf "${tar_name}"; then
-		warn "Extraction failed"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	# Find crush binary (may be in a subdirectory)
-	local crush_bin
-	crush_bin=$(find . -name "crush" -type f | head -1)
-	
-	if [[ -n "$crush_bin" && -f "$crush_bin" ]]; then
-		mkdir -p "${LOCAL_BIN}"
-		chmod +x "$crush_bin"
-		mv "$crush_bin" "${LOCAL_BIN}/crush"
-		ok "Crush binary installed successfully to ${LOCAL_BIN}/crush"
-	else
-		warn "crush binary not found in the extracted archive"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	# Clean up
-	rm -rf "$TMP_DIR"
-
-	# Recreate persistent directory symlink
-	mkdir -p "${CONTAINER_HOME}/.config/crush"
-	ln -sfn "${CONTAINER_HOME}/.config/crush" "${CONTAINER_HOME}/.crush" 2>/dev/null || true
-
-	ok "Crush installed: $(${LOCAL_BIN}/crush --version 2>&1 | head -1)"
-}
-
 install_zerostack() {
 	local version="${1:-latest}"
 	log "Installing Zerostack (${version})..."
@@ -810,12 +644,14 @@ install_zerostack() {
 			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
 				warn "API error: $(echo "$release_info" | jq -r '.message')"
 			else
-				# Prefer musl variant for better compatibility with different glibc versions
-				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"zerostack-${arch}-${platform}\") and contains(\"musl\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
-				
+				# Prefer the musl build: it is statically linked and runs on systems
+				# with older glibc. The gnu build requires GLIBC_2.38+ and fails on
+				# older distros with "version GLIBC_2.38 not found".
+				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | test(\"zerostack-${arch}-unknown-linux-musl.*\\.tar\\.gz$\")) | .browser_download_url" 2>/dev/null | head -1)
+
 				# Fallback to gnu variant if musl not available
 				if [[ -z "$download_url" ]]; then
-					download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"zerostack-${arch}-${platform}\") and endswith(\".tar.gz\")) | .browser_download_url" 2>/dev/null | head -1)
+					download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | test(\"zerostack-${arch}-unknown-linux-gnu.*\\.tar\\.gz$\")) | .browser_download_url" 2>/dev/null | head -1)
 				fi
 			fi
 		fi
@@ -863,96 +699,7 @@ install_zerostack() {
 	ok "Zerostack installed: $(${LOCAL_BIN}/zerostack --version 2>&1 | head -1)"
 }
 
-install_mimo_code() {
-	local version="${1:-latest}"
-	log "Installing MiMo-Code (${version})..."
 
-	# Detect platform and arch
-	local platform=""
-	if [[ "$(uname -s)" == "Linux" ]]; then
-		platform="linux"
-	elif [[ "$(uname -s)" == "Darwin" ]]; then
-		platform="darwin"
-	else
-		warn "Unsupported platform: $(uname -s)"
-		return 1
-	fi
-
-	local arch=""
-	case "$(uname -m)" in
-	x86_64) arch="x64" ;;
-	aarch64|arm64) arch="arm64" ;;
-	*)
-		warn "Unsupported architecture: $(uname -m)"
-		return 1
-		;;
-	esac
-
-	local TMP_DIR
-	TMP_DIR=$(mktemp -d)
-	local download_url=""
-
-	# Get release info via API
-	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
-		local api_url="https://api.github.com/repos/XiaomiMiMo/MiMo-Code/releases/latest"
-		if [[ "$version" != "latest" ]]; then
-			api_url="https://api.github.com/repos/XiaomiMiMo/MiMo-Code/releases/tags/${version}"
-		fi
-		local release_info
-		release_info=$(curl -s "$api_url" 2>/dev/null)
-
-		if [[ $? -eq 0 && -n "$release_info" ]]; then
-			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
-				warn "API error: $(echo "$release_info" | jq -r '.message')"
-			else
-				# Find the asset matching our platform and arch
-				# Exclude: baseline (performance baseline) and musl (compatibility issues)
-				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"mimocode-${platform}-${arch}\") and endswith(\".tar.gz\") and (contains(\"baseline\") | not) and (contains(\"musl\") | not)) | .browser_download_url" 2>/dev/null | head -1)
-			fi
-		fi
-	fi
-
-	if [[ -z "$download_url" ]]; then
-		warn "Could not fetch release info via API"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	log "Downloading from: $download_url"
-	local tar_name=$(basename "$download_url")
-	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}"; then
-		warn "Download failed"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	log "Extracting..."
-	cd "$TMP_DIR"
-	if ! tar xzf "${tar_name}"; then
-		warn "Extraction failed"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	# Find mimo binary
-	local mimo_bin
-	mimo_bin=$(find . -name "mimo" -type f | head -1)
-
-	if [[ -n "$mimo_bin" && -f "$mimo_bin" ]]; then
-		mkdir -p "${LOCAL_BIN}"
-		chmod +x "$mimo_bin"
-		mv "$mimo_bin" "${LOCAL_BIN}/mimo"
-		ok "MiMo-Code binary installed successfully to ${LOCAL_BIN}/mimo"
-	else
-		warn "mimo binary not found in the extracted archive"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	rm -rf "$TMP_DIR"
-
-	ok "MiMo-Code installed: $(${LOCAL_BIN}/mimo --version 2>&1 | head -1)"
-}
 
 install_qwen_code() {
 	local version="${1:-latest}"
@@ -1068,17 +815,13 @@ Agents:
   soulforge    SoulForge Agent (TypeScript/Bun)
   engram       Engram Memory System (Go)
   tokensave    TokenSave Code Graph System (Rust)
-  dirac        Dirac agent runner (Go)
   oh-my-pi     oh-my-pi shell configuration (Bash)
-  crush        Crush data compression tool (Go)
   zerostack    Zerostack development environment (Python)
-  mimo-code    MiMo-Code coding assistant (Python)
   qwen-code    Qwen-Code LLM-based coding (Python)
   all          Install every supported agent
 
 Examples:
   setup-agent.sh pi latest
-  setup-agent.sh mimo-code
   setup-agent.sh qwen-code
   setup-agent.sh all
 EOF
@@ -1098,12 +841,10 @@ pi) install_pi "$VERSION" ;;
 little-coder) install_little_coder "$VERSION" ;;
 soulforge) install_soulforge "$VERSION" ;;
 engram) install_engram "$VERSION" ;;
-tokensave) install_tokensave "$VERSION" ;;
-dirac) install_dirac "$VERSION" ;;
-oh-my-pi) install_oh_my_pi "$VERSION" ;;
-crush) install_crush "$VERSION" ;;
-zerostack) install_zerostack "$VERSION" ;;
-mimo-code) install_mimo_code "$VERSION" ;;
+ tokensave) install_tokensave "$VERSION" ;;
+ oh-my-pi) install_oh_my_pi "$VERSION" ;;
+ zerostack) install_zerostack "$VERSION" ;;
+
 qwen-code) install_qwen_code "$VERSION" ;;
 watchdog) install_watchdog ;;
 all)
@@ -1112,12 +853,10 @@ all)
 	install_little_coder "$VERSION"
 	install_soulforge "$VERSION"
 	install_engram "$VERSION"
-	install_tokensave "$VERSION"
-	install_dirac "$VERSION"
-	install_oh_my_pi "$VERSION"
-	install_crush "$VERSION"
-	install_zerostack "$VERSION"
-	install_mimo_code "$VERSION"
+ 	install_tokensave "$VERSION"
+ 	install_oh_my_pi "$VERSION"
+ 	install_zerostack "$VERSION"
+
 	install_qwen_code "$VERSION"
 	ok "All agents installed"
 	;;
