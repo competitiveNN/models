@@ -114,6 +114,23 @@ else
 	ln -sfn "$qwen_backing" "$qwen_link" 2>/dev/null || true
 fi
 
+# Ensure oh-my-pi's full ~/.omp user directory is symlinked to the persistent
+# -local volume so it (agent sessions, secrets.yml, plugins, ...) survives
+# container recreation. Create the backing dir if needed and handle a
+# pre-existing real ~/.omp by migrating it first.
+omp_link="${CONTAINER_HOME}/.omp"
+omp_backing="${CONTAINER_HOME}/.local/share/omp"
+mkdir -p "$omp_backing"
+if [[ -L "$omp_link" ]]; then
+	ln -sfn "$omp_backing" "$omp_link" 2>/dev/null || true
+elif [[ -d "$omp_link" ]]; then
+	cp -a "$omp_link/." "$omp_backing/" 2>/dev/null || true
+	rm -rf "$omp_link"
+	ln -sfn "$omp_backing" "$omp_link" 2>/dev/null || true
+else
+	ln -sfn "$omp_backing" "$omp_link" 2>/dev/null || true
+fi
+
 # ── Setup direnv for bash sessions ───────────────────────────────────────────
 # Enable direnv hook for automatic environment loading
 if command -v direnv &>/dev/null && [[ -f "${CONTAINER_HOME}/.bashrc" ]]; then

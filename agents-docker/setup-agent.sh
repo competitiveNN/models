@@ -597,6 +597,23 @@ install_oh_my_pi() {
 	chmod +x "${TMP_DIR}/${binary_name}"
 	mv "${TMP_DIR}/${binary_name}" "${LOCAL_BIN}/omp"
 
+	# oh-my-pi stores its full user directory under ~/.omp (agent sessions,
+	# secrets.yml, plugins, ...). That dir lives directly under HOME and is not
+	# persistent, so symlink the whole ~/.omp to the persistent -local volume.
+	# Config reads use plain fs paths that follow symlinks transparently.
+	local omp_link="${CONTAINER_HOME}/.omp"
+	local omp_backing="${CONTAINER_HOME}/.local/share/omp"
+	mkdir -p "$omp_backing"
+	if [[ -L "$omp_link" ]]; then
+		ln -sfn "$omp_backing" "$omp_link"
+	elif [[ -d "$omp_link" ]]; then
+		cp -a "$omp_link/." "$omp_backing/" 2>/dev/null || true
+		rm -rf "$omp_link"
+		ln -sfn "$omp_backing" "$omp_link"
+	else
+		ln -sfn "$omp_backing" "$omp_link"
+	fi
+
 	rm -rf "$TMP_DIR"
 
 	ok "oh-my-pi installed: $(${LOCAL_BIN}/omp --version 2>&1 | head -1)"
