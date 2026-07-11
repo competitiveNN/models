@@ -788,15 +788,40 @@ install_qwen_code() {
 	local qwen_dir
 	qwen_dir=$(cd "$(dirname "$(dirname "$qwen_launcher")")" && pwd)
 
-	mkdir -p "${CONTAINER_HOME}/.qwen-code"
-	rm -rf "${CONTAINER_HOME}/.qwen-code"
-	cp -r "$qwen_dir" "${CONTAINER_HOME}/.qwen-code"
-	chmod +x "${CONTAINER_HOME}/.qwen-code/bin/qwen"
+	# Install into a persistent location: .local/share sits on the persistent
+	# -local volume, so the app survives container recreation. We exec the real
+	# path (no symlink) because qwen-code's launcher resolves $ROOT via a logical
+	# `pwd`, which breaks when invoked through a symlink.
+	local qwen_home="${CONTAINER_HOME}/.local/share/qwen-code"
+	mkdir -p "$qwen_home"
+	rm -rf "$qwen_home"
+	cp -r "$qwen_dir" "$qwen_home"
+	chmod +x "$qwen_home/bin/qwen"
+
+	# qwen-code stores its entire user directory under ~/.qwen (settings.json,
+	# QWEN.md, .env, memory, history, etc.). That dir lives directly under HOME
+	# and is not persistent, so symlink the whole ~/.qwen to the persistent -local
+	# volume. Config reads use plain fs paths that follow symlinks transparently
+	# (unlike the launcher), so this preserves the full directory safely.
+	local qwen_home_dir="${CONTAINER_HOME}/.local/share/qwen"
+	local qwen_link="${CONTAINER_HOME}/.qwen"
+	mkdir -p "$qwen_home_dir"
+	if [[ -L "$qwen_link" ]]; then
+		ln -sfn "$qwen_home_dir" "$qwen_link"
+	elif [[ -d "$qwen_link" ]]; then
+		# Pre-existing real dir (e.g. created by an older setup): migrate its
+		# contents into the persistent backing dir, then replace with the symlink.
+		cp -a "$qwen_link/." "$qwen_home_dir/" 2>/dev/null || true
+		rm -rf "$qwen_link"
+		ln -sfn "$qwen_home_dir" "$qwen_link"
+	else
+		ln -sfn "$qwen_home_dir" "$qwen_link"
+	fi
 
 	mkdir -p "${LOCAL_BIN}"
 	cat > "${LOCAL_BIN}/qwen-code" << EOFWRAPPER
 #!/bin/bash
-exec "${CONTAINER_HOME}/.qwen-code/bin/qwen" "\$@"
+exec "${CONTAINER_HOME}/.local/share/qwen-code/bin/qwen" "\$@"
 EOFWRAPPER
 	chmod +x "${LOCAL_BIN}/qwen-code"
 
