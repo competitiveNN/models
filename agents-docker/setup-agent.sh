@@ -4,7 +4,7 @@ set -euo pipefail
 # ── setup-agent.sh: install and configure a specific agent inside the container
 #
 # Usage:
-#   setup-agent.sh soulforge [VERSION]
+#   setup-agent.sh embryo [VERSION]
 #   setup-agent.sh all     — install every supported agent
 #
 # Agents are installed into ~/.npm-global (npm agents) or ~/.local/bin (rtk)
@@ -79,6 +79,8 @@ mkdir -p "${NPM_BIN}" "${LOCAL_BIN}" "${PERSISTENT_NPM}" "${PERSISTENT_NODE_CACH
 #     /home/agent/.pi/agent/npm/node_modules/pi-mcp-adapter
 #   npm:@juicesharp/rpiv-web-tools
 #     /home/agent/.pi/agent/npm/node_modules/@juicesharp/rpiv-web-tools
+#   npm:npm:pi-lens
+#     /home/agent/.pi/agent/npm/node_modules/@apmantza/pi-lens
 install_pi() {
 	local version="${1:-latest}"
 	log "Installing Pi agent (${version})..."
@@ -184,139 +186,50 @@ ok "little-coder installed: $(${LOCAL_BIN}/little-coder --version 2>&1 | head -1
 
 
 
-install_soulforge() {
+install_embryo() {
 	local version="${1:-latest}"
-	log "Installing SoulForge Agent (${version})..."
+	log "Installing Empryo Agent (${version})..."
 
-	# Create soulforge directories in persistent volume
-	mkdir -p "${PERSISTENT_SHARE}/soulforge" "${PERSISTENT_CACHE}/soulforge"
+	# Empryo installs everything into ~/.empryo/ (binary, native libs, wasm,
+	# fonts and config), which sits directly under $HOME and is NOT on a
+	# persistent volume. Pre-symlink it to the persistent -local volume so the
+	# whole install survives container restarts. The installer hardcodes
+	# ~/.empryo as its target, so this must exist before we run it.
+	local EMPRYO_BACKING="${PERSISTENT_SHARE}/empryo"
+	mkdir -p "${EMPRYO_BACKING}"
+	ln -sfn "${EMPRYO_BACKING}" "${CONTAINER_HOME}/.empryo"
 
-	# Create temp directory for download
-	local TMP_DIR
-	TMP_DIR=$(mktemp -d)
-	local SOULFORGE_TAR=""
-
-	# Detect platform
-	local platform=""
-	if [[ "$(uname -s)" == "Linux" ]]; then
-		platform="linux"
-	elif [[ "$(uname -s)" == "Darwin" ]]; then
-		platform="macos"
-	else
-		warn "Unsupported platform: $(uname -s)"
+	# The official installer verifies a detached RSA signature + SHA256 checksum,
+	# which require openssl and sha256sum/shasum to be present.
+	if ! command -v openssl >/dev/null 2>&1; then
+		warn "openssl is required by the Empryo installer — refusing to install"
+		return 1
+	fi
+	if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+		warn "sha256sum (or shasum) is required by the Empryo installer — refusing to install"
 		return 1
 	fi
 
-	local arch=""
-	case "$(uname -m)" in
-	x86_64) arch="x64" ;;
-	aarch64) arch="arm64" ;;
-	armv7l) arch="armv7" ;;
-	*)
-		warn "Unsupported architecture: $(uname -m)"
-		return 1
-		;;
-	esac
-
-	# Download latest release
-	log "Downloading SoulForge prebuilt binary..."
-	local download_url=""
-	local tar_name=""
-
-	# Try to get the latest release info
-	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
-		local api_url="https://api.github.com/repos/ProxySoul/soulforge/releases/latest"
-		local release_info
-		release_info=$(curl -s "$api_url" 2>/dev/null)
-
-		if [[ $? -eq 0 && -n "$release_info" ]]; then
-			# Check if response is an error
-			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
-				warn "API error: $(echo "$release_info" | jq -r '.message')"
-			else
-				# Find the appropriate asset for this platform
-				local asset_url=""
-				asset_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | contains(\"${platform}\") and contains(\"${arch}\")) | .browser_download_url" 2>/dev/null | head -1)
-
-				if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
-					download_url="$asset_url"
-					tar_name=$(basename "$asset_url")
-				fi
-			fi
-		fi
+	# Honor an explicit version pin (EMPRYO_VERSION expects x.y.z, no leading v).
+	if [[ "$version" != "latest" && -n "$version" ]]; then
+		export EMPRYO_VERSION="${version#v}"
 	fi
+	export EMPRYO_QUIET=1
 
-	# Fallback to manual URL construction if API fails
-	if [[ -z "$download_url" ]]; then
-		warn "Could not fetch release info via API, trying direct download..."
-		# This is a fallback - in practice you'd want to use a known version
-		download_url="https://github.com/ProxySoul/soulforge/releases/download/v2.7.0/soulforge-v2.7.0-${platform}-${arch}.tar.gz"
-		tar_name="soulforge-v2.7.0-${platform}-${arch}.tar.gz"
-	fi
-
-	log "Downloading from: $download_url"
-	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}" 2>/dev/null; then
-		warn "Download failed for ${tar_name}"
-		rm -rf "$TMP_DIR"
+	log "Running the official installer: curl -fsSL empryo.com/install.sh | bash"
+	if ! bash -c 'curl -fsSL https://empryo.com/install.sh | bash'; then
+		unset EMPRYO_VERSION EMPRYO_QUIET 2>/dev/null || true
+		warn "Empryo install failed"
 		return 1
 	fi
+	unset EMPRYO_VERSION EMPRYO_QUIET 2>/dev/null || true
 
-	# Extract
-	log "Extracting..."
-	cd "$TMP_DIR"
-	if ! tar xzf "${tar_name}"; then
-		warn "Extraction failed"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
+	# Expose the binary (and its 'em' alias) on PATH via the persistent local bin.
+	mkdir -p "${LOCAL_BIN}"
+	ln -sf "${CONTAINER_HOME}/.empryo/bin/empryo" "${LOCAL_BIN}/empryo" 2>/dev/null || true
+	ln -sf "${CONTAINER_HOME}/.empryo/bin/em" "${LOCAL_BIN}/em" 2>/dev/null || true
 
-	# Find extracted directory
-	local extracted_dir=""
-	extracted_dir=$(find . -maxdepth 1 -type d -name "soulforge*" | head -1)
-
-	if [[ -z "$extracted_dir" ]]; then
-		warn "Could not find extracted directory"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	cd "$extracted_dir"
-
-	# Run install script
-	if [[ -f "./install.sh" ]]; then
-		log "Running install script..."
-		if bash ./install.sh; then
-			log "SoulForge installed successfully via prebuilt binary"
-		else
-			warn "Install script failed"
-			rm -rf "$TMP_DIR"
-			return 1
-		fi
-	else
-		warn "Install script not found in extracted package"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	# Clean up
-	rm -rf "$TMP_DIR"
-
-	# Find and link the binary
-	local soulforge_path=""
-	# Wait a moment for installation to complete
-	sleep 2
-	# Search for the binary in multiple possible locations
-	soulforge_path=$(find "${CONTAINER_HOME}/.soulforge" "${CONTAINER_HOME}/.local/share/soulforge" -name "soulforge" -type f -executable 2>/dev/null | head -1)
-
-	if [[ -n "$soulforge_path" && -x "$soulforge_path" ]]; then
-		mkdir -p "${LOCAL_BIN}"
-		ln -sf "$soulforge_path" "${LOCAL_BIN}/soulforge" 2>/dev/null || true
-		ok "SoulForge installed: $(${LOCAL_BIN}/soulforge --version 2>&1 | head -1)"
-	else
-		warn "Could not locate SoulForge binary after installation"
-		# Debug: show what we found
-		find "${CONTAINER_HOME}/.soulforge" "${CONTAINER_HOME}/.local/share/soulforge" -name "*soulforge*" 2>/dev/null || true
-	fi
+	ok "Empryo installed: $(${LOCAL_BIN}/empryo --version 2>&1 | head -1)"
 }
 
 install_engram() {
@@ -867,7 +780,7 @@ Usage: setup-agent.sh <agent> [version]
 Agents:
   pi           Pi coding agent (TypeScript)
   little-coder little-coder coding agent (TypeScript)
-  soulforge    SoulForge Agent (TypeScript/Bun)
+  embryo       Empryo Agent (CLI/TUI)
   engram       Engram Memory System (Go)
   tokensave    TokenSave Code Graph System (Rust)
   oh-my-pi     oh-my-pi shell configuration (Bash)
@@ -894,7 +807,7 @@ VERSION="${2:-}"
 case "$AGENT" in
 pi) install_pi "$VERSION" ;;
 little-coder) install_little_coder "$VERSION" ;;
-soulforge) install_soulforge "$VERSION" ;;
+embryo) install_embryo "$VERSION" ;;
 engram) install_engram "$VERSION" ;;
  tokensave) install_tokensave "$VERSION" ;;
  oh-my-pi) install_oh_my_pi "$VERSION" ;;
@@ -906,7 +819,7 @@ all)
 	log "Installing all agents..."
 	install_pi "$VERSION"
 	install_little_coder "$VERSION"
-	install_soulforge "$VERSION"
+	install_embryo "$VERSION"
 	install_engram "$VERSION"
  	install_tokensave "$VERSION"
  	install_oh_my_pi "$VERSION"

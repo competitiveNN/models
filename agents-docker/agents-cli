@@ -32,7 +32,7 @@ Usage:
   agents-cli --help                Show this help
   agents-cli --privileged          Run container with --privileged (extended caps)
 
-ℹ️  Supported agents: pi, little-coder, soulforge, engram, tokensave, oh-my-pi, zerostack, qwen-code
+ℹ️  Supported agents: pi, little-coder, embryo, engram, tokensave, oh-my-pi, zerostack, qwen-code
 
 ⚠️  Note: agents-cli must be run from the host, not from inside a container.
     For containerized execution (e.g., toolbox), use agents-cli-bwrap instead.
@@ -114,9 +114,9 @@ for vol in "${VOLUMES[@]}"; do
     fi
 done
 
-# Check if SoulForge is installed and prepare symlink
-if docker run --rm -v "${AGENTS_VOLUME}-local:/data" alpine test -d /data/share/soulforge >/dev/null 2>&1; then
-    : # SoulForge detected - symlink will be created on container startup (message silenced)
+# Check if Embryo is installed and prepare symlink
+if docker run --rm -v "${AGENTS_VOLUME}-local:/data" alpine test -d /data/share/empryo >/dev/null 2>&1; then
+    : # Embryo detected - symlink will be created on container startup (message silenced)
 fi
 
 # ── Build mount flags ────────────────────────────────────────────────────────

@@ -50,7 +50,7 @@ if [ -t 0 ] && [ "$1" = "bash" ]; then
 	echo "  │    setup-agent.sh all          — all agents      │"
 	echo "  │    setup-agent.sh pi           — Pi agent        │"
 	echo "  │    setup-agent.sh little-coder — little-coder    │"
-	echo "  │    setup-agent.sh soulforge    — SoulForge Agent │"
+	echo "  │    setup-agent.sh embryo      — Empryo Agent    │"
 	echo "  │                                                  │"
 	echo "  │  See setup-agent.sh --help for more.             │"
 	echo "  └─────────────────────────────────────────────────┘"
@@ -77,9 +77,12 @@ if command -v git &>/dev/null; then
 	export GIT_CONFIG_COUNT=$((idx + 1))
 fi
 
-# Recreate SoulForge symlink if installed
-if [[ -d "${CONTAINER_HOME}/.local/share/soulforge" ]]; then
-	ln -sf "${CONTAINER_HOME}/.local/share/soulforge" "${CONTAINER_HOME}/.soulforge" 2>/dev/null || true
+# Recreate Empryo symlink + PATH shim if installed
+if [[ -d "${CONTAINER_HOME}/.local/share/empryo" ]]; then
+	ln -sfn "${CONTAINER_HOME}/.local/share/empryo" "${CONTAINER_HOME}/.empryo" 2>/dev/null || true
+	mkdir -p "${CONTAINER_HOME}/.local/bin"
+	ln -sf "${CONTAINER_HOME}/.empryo/bin/empryo" "${CONTAINER_HOME}/.local/bin/empryo" 2>/dev/null || true
+	ln -sf "${CONTAINER_HOME}/.empryo/bin/em" "${CONTAINER_HOME}/.local/bin/em" 2>/dev/null || true
 fi
 
 # Recreate Engram database directory symlink to persist it in the .config volume
