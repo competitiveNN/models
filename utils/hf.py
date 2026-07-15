@@ -110,10 +110,15 @@ def categorize_gguf_files(gguf_files):
     
     for file in gguf_files:
         # Check if it's a special file that should always be included
-        if any(keyword in file.lower() for keyword in ['mmproj', 'vision', 'clip']):
+        if any(keyword in file.lower() for keyword in ['mmproj', 'vision', 'clip', 'dspark']):
             special_files.append(file)
         else:
             model_files.append(file)
+            
+    # If all GGUF files were categorized as special (e.g. repo only contains dspark/mmproj files),
+    # treat them as model files instead so the user can select/quantize them.
+    if not model_files and special_files:
+        return special_files, []
     
     return model_files, special_files
 
@@ -343,12 +348,20 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
     model_gguf_files, special_gguf_files = categorize_gguf_files(gguf_files)
 
     mmproj_files = [f for f in special_gguf_files if 'mmproj' in f.lower()]
-    other_special_files = [f for f in special_gguf_files if f not in mmproj_files]
-    if len(mmproj_files) > 1:
-        selected_mmproj = select_smallest_sharded_group(repo_id, mmproj_files)
-        special_gguf_files = other_special_files + selected_mmproj
+    dspark_files = [f for f in special_gguf_files if 'dspark' in f.lower()]
+    other_special_files = [f for f in special_gguf_files if f not in mmproj_files and f not in dspark_files]
+    
+    if mmproj_files:
+        selected_mmproj = select_smallest_file(repo_id, mmproj_files)
     else:
-        special_gguf_files = other_special_files + mmproj_files
+        selected_mmproj = []
+        
+    if dspark_files:
+        selected_dspark = select_smallest_file(repo_id, dspark_files)
+    else:
+        selected_dspark = []
+        
+    special_gguf_files = other_special_files + selected_mmproj + selected_dspark
     
     if quantization:
         # Find model files matching the specific quantization
