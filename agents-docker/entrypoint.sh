@@ -50,7 +50,7 @@ if [ -t 0 ] && [ "$1" = "bash" ]; then
 	echo "  │    setup-agent.sh all          — all agents      │"
 	echo "  │    setup-agent.sh pi           — Pi agent        │"
 	echo "  │    setup-agent.sh little-coder — little-coder    │"
-	echo "  │    setup-agent.sh embryo      — Empryo Agent    │"
+	echo "  │    setup-agent.sh empryo      — Empryo Agent    │"
 	echo "  │                                                  │"
 	echo "  │  See setup-agent.sh --help for more.             │"
 	echo "  └─────────────────────────────────────────────────┘"

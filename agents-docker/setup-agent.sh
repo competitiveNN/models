@@ -4,7 +4,7 @@ set -euo pipefail
 # ── setup-agent.sh: install and configure a specific agent inside the container
 #
 # Usage:
-#   setup-agent.sh embryo [VERSION]
+#   setup-agent.sh empryo [VERSION]
 #   setup-agent.sh all     — install every supported agent
 #
 # Agents are installed into ~/.npm-global (npm agents) or ~/.local/bin (rtk)
@@ -186,7 +186,7 @@ ok "little-coder installed: $(${LOCAL_BIN}/little-coder --version 2>&1 | head -1
 
 
 
-install_embryo() {
+install_empryo() {
 	local version="${1:-latest}"
 	log "Installing Empryo Agent (${version})..."
 
@@ -780,7 +780,7 @@ Usage: setup-agent.sh <agent> [version]
 Agents:
   pi           Pi coding agent (TypeScript)
   little-coder little-coder coding agent (TypeScript)
-  embryo       Empryo Agent (CLI/TUI)
+  empryo       Empryo Agent (CLI/TUI)
   engram       Engram Memory System (Go)
   tokensave    TokenSave Code Graph System (Rust)
   oh-my-pi     oh-my-pi shell configuration (Bash)
@@ -807,7 +807,7 @@ VERSION="${2:-}"
 case "$AGENT" in
 pi) install_pi "$VERSION" ;;
 little-coder) install_little_coder "$VERSION" ;;
-embryo) install_embryo "$VERSION" ;;
+empryo) install_empryo "$VERSION" ;;
 engram) install_engram "$VERSION" ;;
  tokensave) install_tokensave "$VERSION" ;;
  oh-my-pi) install_oh_my_pi "$VERSION" ;;
@@ -819,7 +819,7 @@ all)
 	log "Installing all agents..."
 	install_pi "$VERSION"
 	install_little_coder "$VERSION"
-	install_embryo "$VERSION"
+	install_empryo "$VERSION"
 	install_engram "$VERSION"
  	install_tokensave "$VERSION"
  	install_oh_my_pi "$VERSION"
