@@ -577,11 +577,11 @@ install_zerostack() {
 				# Prefer the musl build: it is statically linked and runs on systems
 				# with older glibc. The gnu build requires GLIBC_2.38+ and fails on
 				# older distros with "version GLIBC_2.38 not found".
-				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | test(\"zerostack-${arch}-unknown-linux-musl.*\\.tar\\.gz$\")) | .browser_download_url" 2>/dev/null | head -1)
+				download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | test(\"zerostack-${arch}-unknown-linux-musl.*\\\\.tar\\\\.gz$\")) | .browser_download_url" 2>/dev/null | head -1)
 
 				# Fallback to gnu variant if musl not available
 				if [[ -z "$download_url" ]]; then
-					download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | test(\"zerostack-${arch}-unknown-linux-gnu.*\\.tar\\.gz$\")) | .browser_download_url" 2>/dev/null | head -1)
+					download_url=$(echo "$release_info" | jq -r ".assets[]? | select(.name | test(\"zerostack-${arch}-unknown-linux-gnu.*\\\\.tar\\\\.gz$\")) | .browser_download_url" 2>/dev/null | head -1)
 				fi
 			fi
 		fi
