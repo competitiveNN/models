@@ -76,13 +76,22 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # ── Volumes for persistence ─────────────────────────────────────────────────
-VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local", "/home/agent/.cache", "/home/agent/.config/gh"]
+VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local", "/home/agent/.cache", "/home/agent/.config/gh", "/home/agent/.julia/compiled", "/home/agent/.julia/packages", "/home/agent/.julia/artifacts", "/home/agent/.julia/registries", "/home/agent/.julia/environments"]
 
 # ── Config directory skeleton ────────────────────────────────────────────────
 
 
+# ── Julia directory layout �──────────────────────────────────────────────────
+#  • config  → container-local (in image, not mounted)
+#  • compiled + rest → isolated from host (named volumes, not bind-mounted)
 USER root
-RUN mkdir -p "${CONTAINER_HOME}/.julia/juliaup" && chown -R ${CONTAINER_UID}:${CONTAINER_GID} "${CONTAINER_HOME}/.julia"
+RUN mkdir -p "${CONTAINER_HOME}/.julia/config" \
+    && mkdir -p "${CONTAINER_HOME}/.julia/compiled" \
+    && mkdir -p "${CONTAINER_HOME}/.julia/packages" \
+    && mkdir -p "${CONTAINER_HOME}/.julia/artifacts" \
+    && mkdir -p "${CONTAINER_HOME}/.julia/registries" \
+    && mkdir -p "${CONTAINER_HOME}/.julia/environments" \
+    && chown -R ${CONTAINER_UID}:${CONTAINER_GID} "${CONTAINER_HOME}/.julia"
 
 RUN mkdir -p "${CONTAINER_HOME}/.config/agent-gnupg" \
     && ln -sfn "${CONTAINER_HOME}/.config/agent-gnupg" "${CONTAINER_HOME}/.gnupg" \

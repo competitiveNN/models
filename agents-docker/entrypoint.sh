@@ -100,23 +100,6 @@ if [[ -d "${CONTAINER_HOME}/.config/pi" ]]; then
 	ln -sfn "${CONTAINER_HOME}/.config/pi" "${CONTAINER_HOME}/.pi" 2>/dev/null || true
 fi
 
-# Ensure Qwen-Code's full ~/.qwen user directory is symlinked to the persistent
-# -local volume so it (settings, QWEN.md, memory, history, ...) survives container
-# recreation. Create the backing dir if needed and handle a pre-existing real
-# ~/.qwen by migrating it first, so the symlink always exists on container start.
-qwen_link="${CONTAINER_HOME}/.qwen"
-qwen_backing="${CONTAINER_HOME}/.local/share/qwen"
-mkdir -p "$qwen_backing"
-if [[ -L "$qwen_link" ]]; then
-	ln -sfn "$qwen_backing" "$qwen_link" 2>/dev/null || true
-elif [[ -d "$qwen_link" ]]; then
-	cp -a "$qwen_link/." "$qwen_backing/" 2>/dev/null || true
-	rm -rf "$qwen_link"
-	ln -sfn "$qwen_backing" "$qwen_link" 2>/dev/null || true
-else
-	ln -sfn "$qwen_backing" "$qwen_link" 2>/dev/null || true
-fi
-
 # Ensure oh-my-pi's full ~/.omp user directory is symlinked to the persistent
 # -local volume so it (agent sessions, secrets.yml, plugins, ...) survives
 # container recreation. Create the backing dir if needed and handle a

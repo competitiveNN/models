@@ -36,6 +36,8 @@ MODELS = [
     "deepseek-ai/deepseek-v4-flash",
     "deepseek-ai/deepseek-v4-pro",
     "mistralai/mistral-medium-3.5-128b",
+    "thinkingmachines/inkling",
+    "poolside/laguna-xs-2.1"
     # "mistralai/mistral-small-4-119b-2603"
     # "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
 ]
