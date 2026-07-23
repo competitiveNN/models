@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fetch currently available free models from Kilo Code and OpenCode (models.dev) APIs.
+Fetch currently available free models from Kilo Code and OpenCode APIs.
 
 Usage:
     python fetch-free-models.py --table
@@ -25,7 +25,7 @@ from typing import Any
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 KILO_ENDPOINT = "https://api.kilo.ai/api/gateway/v1/models"
-MODELS_DEV_ENDPOINT = "https://models.dev/api.json"
+OPENCODE_ENDPOINT = "https://opencode.ai/zen/v1/models"
 TIMEOUT = 30
 MAX_RETRIES = 3
 BACKOFF_BASE = 2
@@ -101,32 +101,28 @@ def normalize_kilo(model: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def normalize_models_dev(provider_id: str, model_id: str, model: dict[str, Any]) -> dict[str, Any] | None:
-    """Convert models.dev model format to common schema."""
-    cost = model.get("cost", {})
-    limit = model.get("limit", {})
-    modalities = model.get("modalities", {})
-
+def normalize_opencode(model_id: str) -> dict[str, Any] | None:
+    """Convert OpenCode model format to common schema."""
     return {
-        "id": f"{provider_id}/{model_id}",
-        "name": model.get("name", model_id),
+        "id": model_id,
+        "name": model_id,
         "provider": "opencode",
-        "context_length": limit.get("context", 0),
+        "context_length": 0,
         "pricing": {
-            "input": cost.get("input", 0),
-            "output": cost.get("output", 0),
-            "cache_read": cost.get("cache_read", 0),
-            "cache_write": cost.get("cache_write", 0),
+            "input": 0,
+            "output": 0,
+            "cache_read": 0,
+            "cache_write": 0,
         },
         "capabilities": {
-            "reasoning": model.get("reasoning", False),
-            "tool_call": model.get("tool_call", False),
-            "vision": "image" in modalities.get("input", []),
-            "open_weights": model.get("open_weights", False),
+            "reasoning": False,
+            "tool_call": True,
+            "vision": False,
+            "open_weights": False,
         },
         "source": "opencode",
         "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "raw": model,
+        "raw": {"id": model_id},
     }
 
 
@@ -150,24 +146,23 @@ def fetch_kilo() -> list[dict[str, Any]]:
     return free_models
 
 
-def fetch_models_dev() -> list[dict[str, Any]]:
-    """Fetch and normalize free models from models.dev (OpenCode)."""
-    print("Fetching from models.dev (OpenCode)...", file=sys.stderr)
-    data = fetch_json(MODELS_DEV_ENDPOINT)
-    if not data or not isinstance(data, dict):
-        print("models.dev: no data or unexpected format", file=sys.stderr)
+def fetch_opencode() -> list[dict[str, Any]]:
+    """Fetch and normalize free models from OpenCode API."""
+    print("Fetching from OpenCode API...", file=sys.stderr)
+    data = fetch_json(OPENCODE_ENDPOINT)
+    if not data or not isinstance(data, dict) or "data" not in data:
+        print("OpenCode: no data or unexpected format", file=sys.stderr)
         return []
 
     free_models = []
-    for provider_id, provider in data.items():
-        for model_id, model in provider.get("models", {}).items():
-            cost = model.get("cost", {})
-            if cost.get("input", 1) == 0 and cost.get("output", 1) == 0:
-                normalized = normalize_models_dev(provider_id, model_id, model)
-                if normalized:
-                    free_models.append(normalized)
+    for model in data["data"]:
+        model_id = model.get("id")
+        if model_id:
+            normalized = normalize_opencode(model_id)
+            if normalized:
+                free_models.append(normalized)
 
-    print(f"models.dev: found {len(free_models)} free models", file=sys.stderr)
+    print(f"OpenCode: found {len(free_models)} free models", file=sys.stderr)
     return free_models
 
 
@@ -268,7 +263,7 @@ def main():
     parser.add_argument("--table", action="store_true", help="Output as table (default)")
     parser.add_argument("--save", metavar="FILE", help="Save output to file instead of stdout")
     parser.add_argument("--kilocode-only", action="store_true", help="Only fetch from Kilo Code API")
-    parser.add_argument("--opencode-only", action="store_true", help="Only fetch from OpenCode/models.dev API")
+    parser.add_argument("--opencode-only", action="store_true", help="Only fetch from OpenCode API")
     args = parser.parse_args()
 
     # Default to table if no format specified
@@ -288,8 +283,8 @@ def main():
         all_models.extend(kilo_models)
 
     if not args.kilocode_only:
-        models_dev_models = fetch_models_dev()
-        all_models.extend(models_dev_models)
+        opencode_models = fetch_opencode()
+        all_models.extend(opencode_models)
 
     if not all_models:
         print("No free models found", file=sys.stderr)
