@@ -199,7 +199,7 @@ fi
 log "Launching ${IMAGE_NAME}:latest"
 
 # Build docker args as a list to handle empty arrays cleanly
-DOCKER_ARGS=(--rm -it --init --name "${CONTAINER_NAME}" --network host --userns=keep-id -w "/${DIRNAME}" --sig-proxy=true)
+DOCKER_ARGS=(--rm -it --init --name "${CONTAINER_NAME}" --network host --userns=keep-id --user agent -w "/${DIRNAME}" --sig-proxy=true)
 DOCKER_ARGS+=(--security-opt label=disable)
 # Add --privileged if requested
 [[ ${PRIVILEGED_MODE} -eq 1 ]] && DOCKER_ARGS+=(--privileged)
