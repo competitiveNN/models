@@ -137,7 +137,10 @@ def fetch_kilo() -> list[dict[str, Any]]:
 
     free_models = []
     for model in data["data"]:
-        if model.get("isFree") is True:
+        model_id = model.get("id", "")
+        # Free when API says isFree=True OR slug ends in :free
+        is_free = (model.get("isFree") is True) or model_id.endswith(":free")
+        if is_free:
             normalized = normalize_kilo(model)
             if normalized:
                 free_models.append(normalized)
@@ -147,7 +150,7 @@ def fetch_kilo() -> list[dict[str, Any]]:
 
 
 def fetch_opencode() -> list[dict[str, Any]]:
-    """Fetch and normalize free models from OpenCode API."""
+    """Fetch OpenCode models; free ones have slug ending in -free."""
     print("Fetching from OpenCode API...", file=sys.stderr)
     data = fetch_json(OPENCODE_ENDPOINT)
     if not data or not isinstance(data, dict) or "data" not in data:
@@ -155,14 +158,14 @@ def fetch_opencode() -> list[dict[str, Any]]:
         return []
 
     free_models = []
-    for model in data["data"]:
-        model_id = model.get("id")
-        if model_id:
+    for model in data.get("data", []):
+        model_id = model.get("id", "")
+        if model_id.endswith("-free"):
             normalized = normalize_opencode(model_id)
             if normalized:
                 free_models.append(normalized)
 
-    print(f"OpenCode: found {len(free_models)} free models", file=sys.stderr)
+    print(f"OpenCode: found {len(free_models)} free models (only '-free' suffix kept)", file=sys.stderr)
     return free_models
 
 
