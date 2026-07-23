@@ -76,7 +76,7 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # ── Volumes for persistence ─────────────────────────────────────────────────
-VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local", "/home/agent/.cache", "/home/agent/.config/gh", "/home/agent/.julia/compiled", "/home/agent/.julia/packages", "/home/agent/.julia/artifacts", "/home/agent/.julia/registries", "/home/agent/.julia/environments"]
+VOLUME ["/home/agent/.npm-global", "/home/agent/.npm-cache", "/home/agent/.local", "/home/agent/.cache", "/home/agent/.config/gh", "/home/agent/.julia/compiled", "/home/agent/.julia/packages", "/home/agent/.julia/artifacts", "/home/agent/.julia/registries", "/home/agent/.julia/environments", "/home/agent/.julia/juliaup"]
 
 # ── Config directory skeleton ────────────────────────────────────────────────
 
@@ -91,6 +91,7 @@ RUN mkdir -p "${CONTAINER_HOME}/.julia/config" \
     && mkdir -p "${CONTAINER_HOME}/.julia/artifacts" \
     && mkdir -p "${CONTAINER_HOME}/.julia/registries" \
     && mkdir -p "${CONTAINER_HOME}/.julia/environments" \
+    && mkdir -p "${CONTAINER_HOME}/.julia/juliaup" \
     && chown -R ${CONTAINER_UID}:${CONTAINER_GID} "${CONTAINER_HOME}/.julia"
 
 RUN mkdir -p "${CONTAINER_HOME}/.config/agent-gnupg" \
