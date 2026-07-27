@@ -8,6 +8,12 @@ Usage:
     python fetch-free-models.py --csv --save free-models.csv
     python fetch-free-models.py --kilocode-only --table
     python fetch-free-models.py --opencode-only --json
+    python fetch-free-models.py --ollama-only --table
+
+Ollama Cloud free-tier models (hard-coded — there is no public endpoint
+that exposes the free/metered flag):
+    gemma4:31b, nemotron-3-super, nemotron-3-ultra, minimax-m3
+Anything else returned by ollama.com/v1/models is treated as metered.
 """
 
 import argparse
@@ -29,6 +35,37 @@ OPENCODE_ENDPOINT = "https://opencode.ai/zen/v1/models"
 TIMEOUT = 30
 MAX_RETRIES = 3
 BACKOFF_BASE = 2
+
+# Authoritative free-tier list for Ollama Cloud (curated by user).  Ollama
+# does not expose this flag in /v1/models or any chat-completions header,
+# so the only reliable signal is a user-curated marklist.  Anything NOT
+# in this set is treated as METERED — we never silently route to a paid
+# model.  Update this set when Ollama adds new free tiers.
+OLLAMA_FREE_MODELS: set[str] = {
+    "gemma4:31b",
+    "nemotron-3-super",
+    "nemotron-3-ultra",
+    "minimax-m3",
+}
+
+# Context-length marklists.  Ollama's /v1/models does not expose
+# context_length, OpenCode's does not either.  Populate from live lookups
+# so the ctx column is never 0 in the table.
+OLLAMA_FREE_MODELS_CTX: dict[str, int] = {
+    "gemma4:31b":       262_144,
+    "minimax-m3":       262_144,
+    "nemotron-3-super": 262_144,
+    "nemotron-3-ultra": 1_000_000,
+}
+
+OPENCODE_FREE_MODELS_CTX: dict[str, int] = {
+    "deepseek-v4-flash-free":   131_072,
+    "laguna-s-2.1-free":        131_072,
+    "ling-3.0-flash-free":      131_072,
+    "mimo-v2.5-free":           131_072,
+    "nemotron-3-ultra-free":  1_000_000,
+    "north-mini-code-free":     131_072,
+}
 
 HEADERS = {
     "User-Agent": "fetch-free-models/1.0 (+https://github.com/defnlnotme/models)",
@@ -102,12 +139,16 @@ def normalize_kilo(model: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def normalize_opencode(model_id: str) -> dict[str, Any] | None:
-    """Convert OpenCode model format to common schema."""
+    """Convert OpenCode model format to common schema.
+
+    Context length is populated from ``OPENCODE_FREE_MODELS_CTX`` since
+    OpenCode's API doesn't expose it.
+    """
     return {
         "id": model_id,
         "name": model_id,
         "provider": "opencode",
-        "context_length": 0,
+        "context_length": OPENCODE_FREE_MODELS_CTX.get(model_id, 0),
         "pricing": {
             "input": 0,
             "output": 0,
@@ -121,6 +162,39 @@ def normalize_opencode(model_id: str) -> dict[str, Any] | None:
             "open_weights": False,
         },
         "source": "opencode",
+        "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "raw": {"id": model_id},
+    }
+
+
+def normalize_ollama(model_id: str) -> dict[str, Any] | None:
+    """Convert curated Ollama Cloud free-tier entry to common schema.
+
+    Every record produced here is in ``OLLAMA_FREE_MODELS`` by construction
+    (the fetcher only pulls from that marklist), so we don't carry an
+    ``is_free`` field — it would always be True.
+
+    Context length is populated from ``OLLAMA_FREE_MODELS_CTX`` because
+    Ollama's /v1/models doesn't expose it.
+    """
+    return {
+        "id": model_id,
+        "name": model_id,
+        "provider": "ollama-cloud",
+        "context_length": OLLAMA_FREE_MODELS_CTX.get(model_id, 0),
+        "pricing": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0,
+            "cache_write": 0,
+        },
+        "capabilities": {
+            "reasoning": False,
+            "tool_call": True,
+            "vision": False,
+            "open_weights": False,
+        },
+        "source": "ollama-cloud",
         "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "raw": {"id": model_id},
     }
@@ -169,6 +243,23 @@ def fetch_opencode() -> list[dict[str, Any]]:
     return free_models
 
 
+def fetch_ollama() -> list[dict[str, Any]]:
+    """Return the curated Ollama Cloud free-tier marklist.
+
+    Ollama's public API does not expose which models are free vs metered.
+    Per user direction, the source of truth is the curated
+    ``OLLAMA_FREE_MODELS`` set — we emit those IDs directly without
+    making any network call.  When Ollama adds or removes free models,
+    update that set.
+    """
+    print(
+        f"Ollama: emitting {len(OLLAMA_FREE_MODELS)} curated free models "
+        f"(no API call)",
+        file=sys.stderr,
+    )
+    return [m for m in (normalize_ollama(mid) for mid in sorted(OLLAMA_FREE_MODELS)) if m is not None]
+
+
 # ── Output ─────────────────────────────────────────────────────────────────────
 def output_json(data: list[dict], path: str | None):
     out = json.dumps(data, indent=2)
@@ -189,7 +280,6 @@ def output_csv(data: list[dict], path: str | None):
         pricing = d.get("pricing", {})
         row = {
             "id": d.get("id"),
-            "name": d.get("name"),
             "provider": d.get("provider"),
             "context_length": d.get("context_length"),
             "pricing_input": pricing.get("input"),
@@ -225,15 +315,11 @@ def output_table(data: list[dict]):
 
     cols = [
         ("id", 50),
-        ("name", 30),
         ("provider", 12),
-        ("ctx", 8),
-        ("$in", 8),
-        ("$out", 8),
+        ("ctx", 10),
         ("reason", 6),
         ("tools", 5),
         ("vision", 6),
-        ("open", 4),
     ]
 
     header = " | ".join(f"{name:<{w}}" for name, w in cols)
@@ -242,31 +328,31 @@ def output_table(data: list[dict]):
 
     for d in data:
         caps = d.get("capabilities", {})
-        pricing = d.get("pricing", {})
+        ctx_val = d.get("context_length", 0) or 0
+        ctx_disp = f"{ctx_val:,}" if ctx_val else "-"
         row = [
             d.get("id", "")[:50],
-            d.get("name", "")[:30],
             d.get("provider", "")[:12],
-            str(d.get("context_length", 0)),
-            f"{pricing.get('input', 0):.4f}",
-            f"{pricing.get('output', 0):.4f}",
+            ctx_disp,
             "Y" if caps.get("reasoning") else "N",
             "Y" if caps.get("tool_call") else "N",
             "Y" if caps.get("vision") else "N",
-            "Y" if caps.get("open_weights") else "N",
         ]
         print(" | ".join(f"{v:<{w}}" for (_, w), v in zip(cols, row)))
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="Fetch free models from Kilo Code and OpenCode APIs")
+    parser = argparse.ArgumentParser(
+        description="Fetch free models from Kilo Code, OpenCode, and Ollama Cloud APIs"
+    )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--csv", action="store_true", help="Output as CSV")
     parser.add_argument("--table", action="store_true", help="Output as table (default)")
     parser.add_argument("--save", metavar="FILE", help="Save output to file instead of stdout")
     parser.add_argument("--kilocode-only", action="store_true", help="Only fetch from Kilo Code API")
     parser.add_argument("--opencode-only", action="store_true", help="Only fetch from OpenCode API")
+    parser.add_argument("--ollama-only", action="store_true", help="Only fetch from Ollama Cloud API")
     args = parser.parse_args()
 
     # Default to table if no format specified
@@ -274,26 +360,40 @@ def main():
         args.table = True
 
     # Validate mutually exclusive flags
-    if args.kilocode_only and args.opencode_only:
-        print("Error: --kilocode-only and --opencode-only are mutually exclusive", file=sys.stderr)
+    only_count = sum([args.kilocode_only, args.opencode_only, args.ollama_only])
+    if only_count > 1:
+        print(
+            "Error: --kilocode-only, --opencode-only, and --ollama-only are mutually exclusive",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Fetch data
     all_models = []
 
-    if not args.opencode_only:
+    if not args.opencode_only and not args.ollama_only:
         kilo_models = fetch_kilo()
         all_models.extend(kilo_models)
 
-    if not args.kilocode_only:
+    if not args.kilocode_only and not args.ollama_only:
         opencode_models = fetch_opencode()
         all_models.extend(opencode_models)
+
+    if not args.kilocode_only and not args.opencode_only:
+        ollama_models = fetch_ollama()
+        all_models.extend(ollama_models)
 
     if not all_models:
         print("No free models found", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Total free models: {len(all_models)}", file=sys.stderr)
+    # Per-source breakdown in the summary line
+    by_source = {}
+    for m in all_models:
+        by_source.setdefault(m.get("source", "?"), 0)
+        by_source[m["source"]] += 1
+    summary = ", ".join(f"{k}={v}" for k, v in sorted(by_source.items()))
+    print(f"Total models: {len(all_models)} ({summary})", file=sys.stderr)
 
     # Output
     if args.json:
