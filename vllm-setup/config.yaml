@@ -1,0 +1,34 @@
+# Using AWQ 4-bit model with auto-detect quantization
+#model: /home/fra/data/models/safetensors/Qwen3.6-27B-int4-AutoRound
+#model: /home/fra/data/models/safetensors/Qwen3.6-27B-AWQ-INT4
+model: /home/fra/data/models/safetensors/Ornith-1.0-9B-AWQ-INT4
+#model: /home/fra/data/models/safetensors/Qwen3.6-35B-A3B-int4-mixed-AutoRound/
+#model: /home/fra/data/models/safetensors/Qwen3.6-35B-A3B-int2-mixed-AutoRound-LLMC/
+#model: /home/fra/data/models/safetensors/gemma-4-26B-A4B-it-qat-AWQ-INT4
+#model: /home/fra/data/models/safetensors/gemma-4-12B-it-qat-AWQ-INT4/
+
+served-model-name: "model"
+host: "0.0.0.0"
+port: 8009
+# tensor-parallel-size: 2
+pipeline-parallel-size: 2
+gpu-memory-utilization: 0.75
+trust-remote-code: true
+enforce-eager: true
+disable-custom-all-reduce: true
+
+enable-prefix-caching: false
+enable-chunked-prefill: true   
+max-num-seqs: 8
+max-model-len: "auto"
+max-num-batched-tokens: 8192
+block-size: 64
+# cpu-offload-gb: 20
+
+#attention-backend: "TURBOQUANT" 
+#kv-cache-dtype: "turboquant_k8v4"     # Options: turboquant_k8v4, turboquant_4bit_nc, turboquant_k3v4_nc
+#dtype: "bfloat16"
+
+# kv_cache_dtype: "fp8"
+# Optional: Keep the first and last layers completely unquantized for perfect accuracy
+# kv_cache_dtype_skip_layers: [0, 1, 2, 30, 31, 32] 
