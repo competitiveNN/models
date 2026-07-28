@@ -1,0 +1,19 @@
+# vLLM config — instance A (XPU 0, port 8009)
+model: /home/fra/data/models/safetensors/Ornith-1.0-9B-AWQ-INT4
+
+served-model-name: "model-a"
+host: "0.0.0.0"
+port: 8009
+
+pipeline-parallel-size: 2
+gpu-memory-utilization: 0.75
+trust-remote-code: true
+enforce-eager: true
+disable-custom-all-reduce: true
+
+enable-prefix-caching: false
+enable-chunked-prefill: true
+max-num-seqs: 8
+max-model-len: "auto"
+max-num-batched-tokens: 8192
+block-size: 64

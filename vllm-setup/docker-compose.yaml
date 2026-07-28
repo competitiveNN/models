@@ -1,0 +1,89 @@
+name: vllm
+
+# Runs two vLLM (XPU) instances side-by-side, each with its own config file.
+# Each service pins to a different Intel GPU via ZE_AFFINITY_MASK and listens
+# on a different host port. The single vllm.sh script is kept as the
+# single-instance reference; compose is the multi-instance path.
+
+services:
+  vllm-a:
+    image: vllm/vllm-openai-xpu:nightly
+    container_name: vllm-a
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    ipc: "host"  # provides the equivalent of --shm-size=16gb via /dev/shm
+    shm_size: "16gb"
+    security_opt:
+      - label=disable
+    cap_add:
+      - SYS_ADMIN
+      - SYS_NICE
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/dri/by-path:/dev/dri/by-path
+    volumes:
+      - ./config.a.yaml:/config.yaml:ro
+      - ./entrypoint.a.sh:/entrypoint.sh:ro
+      - ${HOME}/data/models:${HOME}/data/models
+    environment:
+      # Pin to XPU 0. Adjust per-host.
+      - ZE_AFFINITY_MASK=0
+      - ONEAPI_DEVICE_SELECTOR=level_zero:0
+      - VLLM_TARGET_DEVICE=xpu
+      - VLLM_XPU_ENABLE_XPU_GRAPH=1
+      - CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0
+      - CCL_ATL_TRANSPORT=ofi
+      - CCL_ATL_SHM=1
+      - FI_OFI_RXM_USE_SHM=1
+      - FI_PROVIDER=shm
+      - http_proxy=
+      - https_proxy=
+    # Pin to CPU cores 0-15 (adjust per host topology)
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    command: ["--config", "/config.yaml"]
+
+  vllm-b:
+    image: vllm/vllm-openai-xpu:nightly
+    container_name: vllm-b
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    ipc: "host"
+    shm_size: "16gb"
+    security_opt:
+      - label=disable
+    cap_add:
+      - SYS_ADMIN
+      - SYS_NICE
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/dri/by-path:/dev/dri/by-path
+    volumes:
+      - ./config.b.yaml:/config.yaml:ro
+      - ./entrypoint.b.sh:/entrypoint.sh:ro
+      - ${HOME}/data/models:${HOME}/data/models
+    environment:
+      # Pin to XPU 1. Adjust per-host.
+      - ZE_AFFINITY_MASK=1
+      - ONEAPI_DEVICE_SELECTOR=level_zero:1
+      - VLLM_TARGET_DEVICE=xpu
+      - VLLM_XPU_ENABLE_XPU_GRAPH=1
+      - CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0
+      - CCL_ATL_TRANSPORT=ofi
+      - CCL_ATL_SHM=1
+      - FI_OFI_RXM_USE_SHM=1
+      - FI_PROVIDER=shm
+      - http_proxy=
+      - https_proxy=
+    # Pin to CPU cores 16-31 (adjust per host topology)
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    command: ["--config", "/config.yaml"]
