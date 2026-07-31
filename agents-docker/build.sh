@@ -198,12 +198,10 @@ fi
 # ── Cleanup old images ───────────────────────────────────────────────────────
 if $CLEANUP; then
 	log "Cleaning up old images..."
-	docker images --filter "reference=${IMAGE_NAME}" --format '{{.ID}} {{.Repository}}:{{.Tag}}' |
+	docker images --filter "reference=${IMAGE_NAME}" --format '{{.Repository}}:{{.Tag}}' |
 		grep -v ":latest$" |
 		grep -v ":${TIMESTAMP_TAG}$" |
 		grep -v ":${EXTRA_TAG}$" |
-		awk '{print $1}' |
-		sort -u |
 		xargs -r docker rmi -f 2>/dev/null || true
 	ok "Cleanup complete"
 fi

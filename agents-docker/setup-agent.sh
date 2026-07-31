@@ -4,8 +4,11 @@ set -euo pipefail
 # ── setup-agent.sh: install and configure a specific agent inside the container
 #
 # Usage:
-#   setup-agent.sh empryo [VERSION]
+#   setup-agent.sh <agent> [VERSION]
 #   setup-agent.sh all     — install every supported agent
+#
+# Agents:
+#   pi, little-coder, engram, tokensave, oh-my-pi, zerostack, codex, opencodex
 #
 # Agents are installed into ~/.npm-global (npm agents) or ~/.local/bin (rtk)
 # so they live on the same volume that holds the config files
@@ -629,6 +632,49 @@ install_zerostack() {
 	ok "Zerostack installed: $(${LOCAL_BIN}/zerostack --version 2>&1 | head -1)"
 }
 
+install_codex() {
+	local version="${1:-latest}"
+	log "Installing OpenAI Codex (${version})..."
+
+	# Codex installs to ~/.codex/ (binary, config, memory). Symlink to the
+	# persistent -local volume so the install survives container restarts.
+	local CODEX_BACKING="${PERSISTENT_SHARE}/codex"
+	mkdir -p "${CODEX_BACKING}"
+	ln -sfn "${CODEX_BACKING}" "${CONTAINER_HOME}/.codex"
+
+	# The official installer downloads a standalone binary. It respects
+	# CODEX_VERSION for pinning (expects x.y.z, no leading v).
+	if [[ "$version" != "latest" && -n "$version" ]]; then
+		export CODEX_VERSION="${version#v}"
+	fi
+	export CODEX_QUIET=1
+
+	log "Running the official installer: curl -fsSL https://chatgpt.com/codex/install.sh | sh"
+	if ! bash -c 'curl -fsSL https://chatgpt.com/codex/install.sh | sh'; then
+		unset CODEX_VERSION CODEX_QUIET 2>/dev/null || true
+		warn "Codex install failed"
+		return 1
+	fi
+	unset CODEX_VERSION CODEX_QUIET 2>/dev/null || true
+
+	ok "Codex installed: $(${CONTAINER_HOME}/.codex/bin/codex --version 2>&1 | head -1)"
+}
+
+install_opencodex() {
+	local version="${1:-latest}"
+	log "Installing OpenCodex (${version})..."
+	if [[ "$version" == "latest" ]]; then
+		npm install --prefix "${PERSISTENT_NPM}" @bitkyc08/opencodex
+	else
+		npm install --prefix "${PERSISTENT_NPM}" "@bitkyc08/opencodex@${version}"
+	fi
+	# Recreate persistent directory symlink
+	mkdir -p "${CONTAINER_HOME}/.config/opencodex"
+	ln -sfn "${CONTAINER_HOME}/.config/opencodex" "${CONTAINER_HOME}/.opencodex" 2>/dev/null || true
+
+	ok "OpenCodex installed: $(${NPM_BIN}/ocx --version 2>&1 | head -1)"
+}
+
 
 
 install_qwen_code() {
@@ -780,17 +826,16 @@ Usage: setup-agent.sh <agent> [version]
 Agents:
   pi           Pi coding agent (TypeScript)
   little-coder little-coder coding agent (TypeScript)
-  empryo       Empryo Agent (CLI/TUI)
   engram       Engram Memory System (Go)
   tokensave    TokenSave Code Graph System (Rust)
   oh-my-pi     oh-my-pi shell configuration (Bash)
   zerostack    Zerostack development environment (Python)
-  qwen-code    Qwen-Code LLM-based coding (Node.js)
+  codex        OpenAI Codex coding agent (Node.js)
+  opencodex    OpenCodex universal provider proxy (Node.js)
   all          Install every supported agent
 
 Examples:
   setup-agent.sh pi latest
-  setup-agent.sh qwen-code
   setup-agent.sh all
 EOF
 	exit 0
@@ -807,25 +852,24 @@ VERSION="${2:-}"
 case "$AGENT" in
 pi) install_pi "$VERSION" ;;
 little-coder) install_little_coder "$VERSION" ;;
-empryo) install_empryo "$VERSION" ;;
 engram) install_engram "$VERSION" ;;
  tokensave) install_tokensave "$VERSION" ;;
  oh-my-pi) install_oh_my_pi "$VERSION" ;;
  zerostack) install_zerostack "$VERSION" ;;
+ codex) install_codex "$VERSION" ;;
+ opencodex) install_opencodex "$VERSION" ;;
 
-qwen-code) install_qwen_code "$VERSION" ;;
-watchdog) install_watchdog ;;
 all)
 	log "Installing all agents..."
 	install_pi "$VERSION"
 	install_little_coder "$VERSION"
-	install_empryo "$VERSION"
 	install_engram "$VERSION"
  	install_tokensave "$VERSION"
  	install_oh_my_pi "$VERSION"
  	install_zerostack "$VERSION"
+ 	install_codex "$VERSION"
+ 	install_opencodex "$VERSION"
 
-	install_qwen_code "$VERSION"
 	ok "All agents installed"
 	;;
 *) die "Unknown agent: $AGENT (run setup-agent.sh --help for usage)" ;;

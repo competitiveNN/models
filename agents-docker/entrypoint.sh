@@ -50,7 +50,6 @@ if [ -t 0 ] && [ "$1" = "bash" ]; then
 	echo "  │    setup-agent.sh all          — all agents      │"
 	echo "  │    setup-agent.sh pi           — Pi agent        │"
 	echo "  │    setup-agent.sh little-coder — little-coder    │"
-	echo "  │    setup-agent.sh empryo      — Empryo Agent    │"
 	echo "  │                                                  │"
 	echo "  │  See setup-agent.sh --help for more.             │"
 	echo "  └─────────────────────────────────────────────────┘"
@@ -77,14 +76,6 @@ if command -v git &>/dev/null; then
 	export GIT_CONFIG_COUNT=$((idx + 1))
 fi
 
-# Recreate Empryo symlink + PATH shim if installed
-if [[ -d "${CONTAINER_HOME}/.local/share/empryo" ]]; then
-	ln -sfn "${CONTAINER_HOME}/.local/share/empryo" "${CONTAINER_HOME}/.empryo" 2>/dev/null || true
-	mkdir -p "${CONTAINER_HOME}/.local/bin"
-	ln -sf "${CONTAINER_HOME}/.empryo/bin/empryo" "${CONTAINER_HOME}/.local/bin/empryo" 2>/dev/null || true
-	ln -sf "${CONTAINER_HOME}/.empryo/bin/em" "${CONTAINER_HOME}/.local/bin/em" 2>/dev/null || true
-fi
-
 # Recreate Engram database directory symlink to persist it in the .config volume
 if [[ -d "${CONTAINER_HOME}/.config/engram" ]]; then
 	ln -sfn "${CONTAINER_HOME}/.config/engram" "${CONTAINER_HOME}/.engram" 2>/dev/null || true
@@ -98,6 +89,16 @@ fi
 # Recreate Pi directory symlink to persist it in the .config volume
 if [[ -d "${CONTAINER_HOME}/.config/pi" ]]; then
 	ln -sfn "${CONTAINER_HOME}/.config/pi" "${CONTAINER_HOME}/.pi" 2>/dev/null || true
+fi
+
+# Recreate Codex directory symlink to persist it in the .config volume
+if [[ -d "${CONTAINER_HOME}/.config/codex" ]]; then
+	ln -sfn "${CONTAINER_HOME}/.config/codex" "${CONTAINER_HOME}/.codex" 2>/dev/null || true
+fi
+
+# Recreate OpenCodex directory symlink to persist it in the .config volume
+if [[ -d "${CONTAINER_HOME}/.config/opencodex" ]]; then
+	ln -sfn "${CONTAINER_HOME}/.config/opencodex" "${CONTAINER_HOME}/.opencodex" 2>/dev/null || true
 fi
 
 # Ensure oh-my-pi's full ~/.omp user directory is symlinked to the persistent
