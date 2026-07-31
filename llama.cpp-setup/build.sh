@@ -5,7 +5,7 @@ BACKEND=$1
 
 if [ -z "$BACKEND" ]; then
 	echo "Usage: $0 <backend>"
-	echo "Supported backends: openvino, intel, vulkan, ik_llama_cpu"
+	echo "Supported backends: openvino, intel, vulkan, ik_llama_cpu, bee_intel, bee_vulkan"
 	exit 1
 fi
 
@@ -20,12 +20,24 @@ intel)
 	IMAGE_TAG="llama-cpp-intel"
 	DOCKERFILE="llama.cpp/.devops/intel.Dockerfile"
 	CONTEXT="llama.cpp"
-	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON"
+	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON --build-arg=GGML_SYCL_DEVICE_ARCH=bmg_g21"
 	;;
 vulkan)
 	IMAGE_TAG="llama-cpp-vulkan"
 	DOCKERFILE="llama.cpp/.devops/vulkan.Dockerfile"
 	CONTEXT="llama.cpp"
+	EXTRA_ARGS=""
+	;;
+bee_intel)
+	IMAGE_TAG="bee-llama-cpp-intel"
+	DOCKERFILE="beellama.cpp/.devops/intel.Dockerfile"
+	CONTEXT="beellama.cpp"
+	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON --build-arg=GGML_SYCL_DEVICE_ARCH=bmg_g21"
+	;;
+bee_vulkan)
+	IMAGE_TAG="bee-llama-cpp-vulkan"
+	DOCKERFILE="beellama.cpp/.devops/vulkan.Dockerfile"
+	CONTEXT="beellama.cpp"
 	EXTRA_ARGS=""
 	;;
 ik_llama_cpu)
@@ -36,7 +48,7 @@ ik_llama_cpu)
 	;;
 *)
 	echo "Unknown backend: $BACKEND"
-	echo "Supported backends: openvino, intel, vulkan, ik_llama_cpu"
+	echo "Supported backends: openvino, intel, vulkan, ik_llama_cpu, bee_intel, bee_vulkan"
 	exit 1
 	;;
 esac

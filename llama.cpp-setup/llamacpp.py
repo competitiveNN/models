@@ -14,10 +14,8 @@ def load_config(path=CONFIG_PATH):
         return tomllib.load(f)
 
 
-def build_docker_args(config, selected_gpus=None, cpu_mode=False, ik=False):
+def build_docker_args(config, selected_gpus=None, cpu_mode=False):
     cfg_llama = config.get("llama", {})
-    if ik:
-        return ["--security-opt", "label=disable", "-it", "--rm", "--name", "llama-server"]
     devices = cfg_llama.get("gpu", {}).get("devices", [
         "--device /dev/dri/card0 --device /dev/dri/renderD128",
         "--device /dev/dri/card1 --device /dev/dri/renderD129",
@@ -47,7 +45,7 @@ def build_docker_args(config, selected_gpus=None, cpu_mode=False, ik=False):
 def build_model_args(config, extra_args=None, manual_ctx_size=None, fit_ctx_size=None,
                      use_fit_mode=False, n_gpu_layers="all", n_cpu_moe=0,
                      cpu_mode=False, preserve_thinking=False, mtp=False,
-                     spec_enabled=True):
+                     spec_enabled=True, reasoning_budget=False):
     model_key = config["defaults"].get("model", "")
     model_path = config.get("model_paths", {}).get(model_key, model_key)
     args = [
@@ -56,7 +54,7 @@ def build_model_args(config, extra_args=None, manual_ctx_size=None, fit_ctx_size
         "-ub", str(config["defaults"]["ubatch_size"]),
         "--alias", config["llama"]["alias"],
         "-fa", "on",
-        "--reasoning-budget", str(config["defaults"]["reasoning_budget"]),
+        "--reasoning-budget", str(config["defaults"]["reasoning_budget"] if reasoning_budget else 0),
         "--reasoning-budget-message", "\nBased on the analysis above, here is the complete solution:",
         "--no-mmap",
         "-lv", str(config["defaults"]["verbosity"]),
@@ -147,18 +145,19 @@ def build_spec_args(config, spec_draft_model="", spec_draft_max="", spec_draft_m
 
 
 def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
-              fit_ctx_size=None, use_fit_mode=False, n_gpu_layers="all",
-              n_cpu_moe=0, cpu_mode=False, preserve_thinking=False,
-              mtp=False, spec_enabled=True, spec_draft_model="",
-              spec_draft_max="", spec_draft_min="", spec_type="ngram-map-k",
-              spec_ngram_size_n=24, spec_draft_kv_k="", spec_draft_kv_v="",
-              spec_draft_p_min="", cache_type_k_draft="", cache_type_v_draft="",
-              no_spec=False, timeout=3600):
+             fit_ctx_size=None, use_fit_mode=False, n_gpu_layers="all",
+             n_cpu_moe=0, cpu_mode=False, preserve_thinking=False,
+             mtp=False, spec_enabled=True, spec_draft_model="",
+             spec_draft_max="", spec_draft_min="", spec_type="ngram-map-k",
+             spec_ngram_size_n=24, spec_draft_kv_k="", spec_draft_kv_v="",
+             spec_draft_p_min="", cache_type_k_draft="", cache_type_v_draft="",
+             no_spec=False, timeout=3600, reasoning_budget=False):
     model_args = build_model_args(
         config, extra_args=extra_args, manual_ctx_size=manual_ctx_size,
         fit_ctx_size=fit_ctx_size, use_fit_mode=use_fit_mode,
         n_gpu_layers=n_gpu_layers, n_cpu_moe=n_cpu_moe, cpu_mode=cpu_mode,
-        preserve_thinking=preserve_thinking, mtp=mtp, spec_enabled=spec_enabled
+        preserve_thinking=preserve_thinking, mtp=mtp, spec_enabled=spec_enabled,
+        reasoning_budget=reasoning_budget,
     )
     cmd_args = model_args[:]
     spec_cfg = config.get("spec", {})
@@ -171,7 +170,7 @@ def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
         spec_ngram_size_n=spec_ngram_size_n or spec_cfg.get("ngram_size_n", 24),
         spec_draft_kv_k=spec_draft_kv_k or spec_cfg.get("spec_draft_kv_k", ""),
         spec_draft_kv_v=spec_draft_kv_v or spec_cfg.get("spec_draft_kv_v", ""),
-        spec_draft_p_min=spec_draft_p_min or spec_cfg.get("spec_draft_p_min", ""),
+        spec_draft_p_min=str(spec_draft_p_min) if spec_draft_p_min else str(spec_cfg.get("spec_draft_p_min", spec_cfg.get("spec-draft-p-min", ""))),
         cache_type_k_draft=cache_type_k_draft or spec_cfg.get("cache_type_k_draft", ""),
         cache_type_v_draft=cache_type_v_draft or spec_cfg.get("cache_type_v_draft", ""),
         no_spec=no_spec or not spec_cfg.get("spec_enabled", True)
@@ -188,9 +187,10 @@ def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
         cmd_args = [
             "-m", config["defaults"]["model"],
             "-b", "2048", "-ub", "512",
-            "--reasoning-budget", "8192",
             "--reasoning-budget-message", "\nBased on the analysis above, here is the complete solution:",
         ]
+        if reasoning_budget:
+            cmd_args.extend(["--reasoning-budget", str(config["defaults"].get("reasoning_budget", 0))])
         if not use_fit_mode and n_gpu_layers is not None and n_gpu_layers != "all":
             cmd_args.extend(["--n-gpu-layers", str(n_gpu_layers)])
         if preserve_thinking:
@@ -206,16 +206,14 @@ def main():
     # and forwarded to the container binary like bash EXTRA_ARGS
     parser = argparse.ArgumentParser(description="Llamacpp launcher")
     parser.add_argument("--cpu", action="store_true", help="CPU mode")
-    parser.add_argument("--intel", action="store_true", help="Intel GPU image")
-    parser.add_argument("--vulkan", action="store_true", help="Vulkan image")
-    parser.add_argument("--ov", "--openvino", action="store_true", dest="ov", help="OpenVINO image")
-    parser.add_argument("--ik", action="store_true", help="ik_llama CPU image")
+    parser.add_argument("--image", type=str, default="", help="Target image (e.g. localhost/bee-llama-cpp-intel)")
     parser.add_argument("--ngl", type=str, default="all", help="GPU layers")
     parser.add_argument("--moe", type=str, default="0", help="CPU MOE layers")
     parser.add_argument("--detect", action="store_true", help="Auto-detect memory")
     parser.add_argument("--mtp", action="store_true", help="Enable MTP")
     parser.add_argument("--no-spec", action="store_true", help="Disable spec decoding")
     parser.add_argument("--pthinking", action="store_true", help="Preserve thinking")
+    parser.add_argument("--reasoning-budget", action="store_true", help="Enable reasoning budget")
     parser.add_argument("--gpus", type=str, default="", help="Selected GPUs (comma-separated, e.g. 0,1)")
     parser.add_argument("--draft-model", type=str, default="", help="Draft model path")
     parser.add_argument("--timeout", type=str, default="3600", help="Timeout")
@@ -225,6 +223,7 @@ def main():
     parser.add_argument("--spec-ngram-map-k-size-n", "--spec-ngram-size-n", type=str, default="24", dest="spec_ngram_n")
     parser.add_argument("--spec-draft-type-k", "-ctkd", type=str, default="")
     parser.add_argument("--spec-draft-type-v", "-ctvd", type=str, default="")
+    parser.add_argument("--spec-draft-p-min", "--draft-p-min", type=str, default="0.8", dest="spec_draft_p_min")
     parser.add_argument("server", nargs="?", const="server", default=None)
     parser.add_argument("--bench", action="store_true")
     parser.add_argument("--fit-ctx", nargs="?", const="fit-ctx", default=None)
@@ -250,17 +249,11 @@ def main():
     # Resolve image
     image = config["llama"].get("image", "llama-cpp-intel")
     # Image override based on args
-    if args.intel:
-        image = "llama-cpp-intel"
-    elif args.vulkan:
-        image = "llama-cpp-vulkan"
-    elif args.ov:
-        image = "llama-cpp-openvino"
-    elif args.ik:
-        image = "ik-llama-cpu"
+    if args.image:
+        image = args.image
 
     # CPU mode
-    cpu_mode = args.cpu or args.ik
+    cpu_mode = args.cpu
 
     # GPU layers
     n_gpu_layers = args.ngl
@@ -306,7 +299,7 @@ def main():
     timeout = int(args.timeout) if args.timeout else 3600
 
     # Build args
-    docker_args = build_docker_args(config, selected_gpus=selected_gpus, cpu_mode=cpu_mode, ik=args.ik)
+    docker_args = build_docker_args(config, selected_gpus=selected_gpus, cpu_mode=cpu_mode)
     # Override image in docker run
     cmd_args = build_cmd(
         config,
@@ -328,8 +321,10 @@ def main():
         spec_ngram_size_n=int(args.spec_ngram_n) if args.spec_ngram_n else 24,
         spec_draft_kv_k=args.spec_draft_type_k,
         spec_draft_kv_v=args.spec_draft_type_v,
+        spec_draft_p_min=args.spec_draft_p_min,
         no_spec=args.no_spec,
         timeout=timeout,
+        reasoning_budget=args.reasoning_budget,
     )
 
     # If bench mode, replace cmd_args with bench-specific values
@@ -337,7 +332,6 @@ def main():
         cmd_args = [
             "-m", config["defaults"]["model"],
             "-b", "2048", "-ub", "512",
-            "--reasoning-budget", "8192",
             "--reasoning-budget-message", "\nBased on the analysis above, here is the complete solution:",
         ]
         if not use_fit_mode and n_gpu_layers is not None and n_gpu_layers != "all":
@@ -353,7 +347,7 @@ def main():
             spec_ngram_size_n=int(args.spec_ngram_n) if args.spec_ngram_n else 24,
             spec_draft_kv_k=args.spec_draft_type_k,
             spec_draft_kv_v=args.spec_draft_type_v,
-            spec_draft_p_min="",
+            spec_draft_p_min=args.spec_draft_p_min,
             cache_type_k_draft="",
             cache_type_v_draft="",
             no_spec=args.no_spec,
@@ -363,7 +357,7 @@ def main():
             cmd_args.extend(extra_args_for_fit)
 
     full_cmd = ["docker", "run"] + docker_args
-    if mode != "server" and not args.ik:
+    if mode != "server" and not args.cpu:
         # bench mode entrypoint override handled by entrypoint param
         # For server: use default entrypoint (llama-server)
         # For bench: override entrypoint to llama-bench

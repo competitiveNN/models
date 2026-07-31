@@ -27,6 +27,9 @@ except ImportError:
     print("Error: huggingface_hub is required. Install with: pip install huggingface_hub")
     sys.exit(1)
 
+HF_TOKEN = os.environ.get("HF_TOKEN")
+if not HF_TOKEN:
+    print("Warning: HF_TOKEN not set; downloads may be slower or fail for gated repos.")
 
 def parse_model_path(model_input, default_user="unsloth"):
     """
@@ -60,7 +63,7 @@ def list_repo_files(repo_id):
         list: List of file paths in the repository
     """
     try:
-        api = HfApi()
+        api = HfApi(token=HF_TOKEN)
         repo_info = api.repo_info(repo_id)
         files = []
         for sibling in repo_info.siblings:
@@ -128,7 +131,7 @@ def select_smallest_file(repo_id, files):
     if not files:
         return []
     try:
-        api = HfApi()
+        api = HfApi(token=HF_TOKEN)
         repo_info = api.repo_info(repo_id)
         sizes = {}
         for sibling in repo_info.siblings:
@@ -164,7 +167,7 @@ def select_smallest_sharded_group(repo_id, files):
 
     sizes = {}
     try:
-        api = HfApi()
+        api = HfApi(token=HF_TOKEN)
         repo_info = api.repo_info(repo_id)
         for sibling in repo_info.siblings:
             if sibling.rfilename in files:
@@ -251,7 +254,8 @@ def download_specific_files(repo_id, files, local_dir):
             hf_hub_download(
                 repo_id=repo_id,
                 filename=file,
-                local_dir=local_dir
+                local_dir=local_dir,
+                token=HF_TOKEN
             )
         print(f"✓ Successfully downloaded files to {local_dir}")
     except Exception as e:
@@ -270,7 +274,7 @@ def check_repo_exists(repo_id):
         bool: True if repository exists
     """
     try:
-        api = HfApi()
+        api = HfApi(token=HF_TOKEN)
         api.repo_info(repo_id)
         return True
     except HfHubHTTPError:
@@ -312,7 +316,8 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
         try:
             snapshot_download(
                 repo_id=repo_id,
-                local_dir=local_dir
+                local_dir=local_dir,
+                token=HF_TOKEN
             )
             print(f"✓ Successfully downloaded OpenVINO model {repo_id} to {local_dir}")
             return
@@ -430,7 +435,8 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
         try:
             snapshot_download(
                 repo_id=repo_id,
-                local_dir=local_dir
+                local_dir=local_dir,
+                token=HF_TOKEN
             )
             print(f"✓ Successfully downloaded {repo_id} to {local_dir}")
             return
