@@ -8,7 +8,7 @@ set -euo pipefail
 #   setup-agent.sh all     — install every supported agent
 #
 # Agents:
-#   pi, little-coder, engram, tokensave, oh-my-pi, zerostack, codex, opencodex
+#   pi, little-coder, engram, tokensave, oh-my-pi, zerostack, codex, opencodex, hwatu
 #
 # Agents are installed into ~/.npm-global (npm agents) or ~/.local/bin (rtk)
 # so they live on the same volume that holds the config files
@@ -675,7 +675,63 @@ install_opencodex() {
 	ok "OpenCodex installed: $(${NPM_BIN}/ocx --version 2>&1 | head -1)"
 }
 
+install_hwatu() {
+	local version="${1:-latest}"
+  	log "Installing Hwatu (${version})..."
 
+	# Hwatu is a Rust binary distributed as platform-specific tarballs on GitHub.
+	local arch=""
+	case "$(uname -m)" in
+		x86_64)  arch="x86_64" ;;
+		aarch64) arch="aarch64" ;;
+		*) die "Unsupported architecture for Hwatu: $(uname -m)" ;;
+	esac
+
+	local tarball="hwatu-linux-${arch}.tar.gz"
+	local url="https://github.com/hongnoul/hwatu/releases/download/${version}/${tarball}"
+
+	local TMP_DIR
+	TMP_DIR=$(mktemp -d)
+	trap 'rm -rf "$TMP_DIR"' RETURN
+
+	log "Downloading ${tarball}..."
+	if ! curl -fsSL "$url" -o "${TMP_DIR}/${tarball}"; then
+		warn "Download failed for ${tarball}"
+		rm -rf "$TMP_DIR"
+		return 1
+	fi
+
+	# Verify checksum if available
+	local checksum_url="${url}.sha256"
+	if curl -fsSL "$checksum_url" -o "${TMP_DIR}/${tarball}.sha256" 2>/dev/null; then
+		log "Verifying checksum..."
+		(
+			cd "$TMP_DIR"
+			echo "$(cat "${tarball}.sha256")  ${tarball}" | sha256sum -c --status || {
+				warn "Checksum verification failed"
+				return 1
+			}
+		) || {
+			rm -rf "$TMP_DIR"
+			return 1
+		}
+	fi
+
+	# Extract
+	log "Extracting..."
+	cd "$TMP_DIR"
+	tar xzf "$tarball"
+
+	# Install binary to the persistent local bin
+	mkdir -p "${LOCAL_BIN}"
+	install -m 0755 hwatu "${LOCAL_BIN}/hwatu"
+
+	# Recreate persistent config directory symlink
+	mkdir -p "${CONTAINER_HOME}/.config/hwatu"
+	ln -sfn "${CONTAINER_HOME}/.config/hwatu" "${CONTAINER_HOME}/.hwatu" 2>/dev/null || true
+
+	ok "Hwatu installed: $(${LOCAL_BIN}/hwatu --version 2>&1 | head -1)"
+}
 
 install_qwen_code() {
 	local version="${1:-latest}"
@@ -869,6 +925,7 @@ all)
  	install_zerostack "$VERSION"
  	install_codex "$VERSION"
  	install_opencodex "$VERSION"
+ 	install_hwatu "$VERSION"
 
 	ok "All agents installed"
 	;;
