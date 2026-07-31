@@ -6,9 +6,10 @@ Reads:
   - fetch-free-models.py   (OLLAMA_FREE_MODELS, OPENCODE_FREE_MODELS_CTX)
   - python fetch-free-models.py --kilocode-only --json
   - NVIDIA NIM via `curl https://integrate.api.nvidia.com/v1/models`
+  - Artificial Analysis API for intelligence scores (requires ARTIFICIAL_ANALYSIS_API_KEY)
 
 Produces:
-  - MODEL_RANKING.md (browsable reference)
+  - MODEL_RANKING.md (browsable reference with intelligence scores)
   - /tmp/auxiliary_yaml.yaml (drop-in auxiliary: block for ~/.hermes/config.yaml)
   - /tmp/assignments.json (programmatic form)
 
@@ -18,18 +19,16 @@ Run from the repo root:
 Override the providers used:
     python3 tools/regenerate_assignments.py --skip-nim
 """
-from __future__ import annotations
 
-import argparse
-import json
 import os
-import re
-import subprocess
 import sys
-import urllib.error
+import json
+import argparse
 import urllib.request
-from collections import Counter
 from pathlib import Path
+from collections import Counter
+import re
+import importlib.util
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FETCH_SCRIPT = REPO_ROOT / "fetch-free-models.py"
@@ -42,141 +41,329 @@ PROVIDER_BASE_URL = {
     "opencode":      ("https://opencode.ai/zen/v1",                  "OPENCODE_API_KEY"),
     "kilocode":      ("https://api.kilo.ai/api/gateway/v1",          "KILOCODE_API_KEY"),
     "nvidia":        ("https://integrate.api.nvidia.com/v1",         "NVIDIA_API_KEY"),
+    "google-ai-studio": ("https://generativelanguage.googleapis.com/v1beta", "GOOGLE_API_KEY"),
 }
+
+
+def fetch_artificial_analysis_scores() -> dict[str, float]:
+    """Fetch intelligence scores from Artificial Analysis API.
+    
+    Returns a dict mapping model slugs to intelligence index scores.
+    Requires ARTIFICIAL_ANALYSIS_API_KEY environment variable.
+    """
+    api_key = os.getenv("ARTIFICIAL_ANALYSIS_API_KEY")
+    if not api_key:
+        print("Artificial Analysis: API key not set, skipping intelligence scores", file=sys.stderr)
+        return {}
+    
+    print("Fetching intelligence scores from Artificial Analysis API...", file=sys.stderr)
+    req = urllib.request.Request(
+        "https://artificialanalysis.ai/api/v2/data/llms/models",
+        headers={"Accept": "application/json", "x-api-key": api_key}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Artificial Analysis: fetch failed: {e}", file=sys.stderr)
+        return {}
+    
+    if not data or not isinstance(data, dict) or "data" not in data:
+        print("Artificial Analysis: no data or unexpected format", file=sys.stderr)
+        return {}
+    
+    scores = {}
+    for model in data["data"]:
+        slug = model.get("slug", "")
+        evaluations = model.get("evaluations", {})
+        intelligence = evaluations.get("artificial_analysis_intelligence_index")
+        if slug and intelligence is not None:
+            scores[slug] = float(intelligence)
+    
+    print(f"Artificial Analysis: found {len(scores)} models with intelligence scores", file=sys.stderr)
+    return scores
 
 
 def parse_ollama_marklists() -> dict:
-    """Parse OLLAMA_FREE_MODELS + OLLAMA_FREE_MODELS_CTX from fetch script.
-
-    Returns {mid: {"ctx": int}}.
-    """
-    src = FETCH_SCRIPT.read_text()
-
-    free_match = re.search(r"OLLAMA_FREE_MODELS:\s*set\[str\]\s*=\s*\{([^}]+)\}", src)
-    if not free_match:
-        sys.exit("ERROR: OLLAMA_FREE_MODELS not found in fetch-free-models.py")
-    free_ids = re.findall(r'"([^"]+)"', free_match.group(1))
-
-    ctx_match = re.search(r"OLLAMA_FREE_MODELS_CTX:\s*dict\[str,\s*int\]\s*=\s*\{([^}]+)\}", src)
-    if not ctx_match:
-        sys.exit("ERROR: OLLAMA_FREE_MODELS_CTX not found")
-    ctx_pairs = re.findall(r'"([^"]+)":\s*(\d[\d_]*)', ctx_match.group(1))
-    ctx = {k: int(v.replace("_", "")) for k, v in ctx_pairs}
-
-    return {mid: {"ctx": ctx.get(mid, 0)} for mid in free_ids}
+    """Parse OLLAMA_FREE_MODELS + OLLAMA_FREE_MODELS_CTX from fetch script."""
+    spec = importlib.util.spec_from_file_location("fetch_free_models", FETCH_SCRIPT)
+    fetch_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fetch_module)
+    ollama_list = fetch_module.fetch_ollama()
+    return {model['id']: {"ctx": model["context_length"]} for model in ollama_list}
 
 
-def parse_opencode_ctx() -> dict:
-    """Parse OPENCODE_FREE_MODELS_CTX from fetch script.
-
-    Returns {mid: {"ctx": int}}.
-    """
-    src = FETCH_SCRIPT.read_text()
-    ctx_match = re.search(r"OPENCODE_FREE_MODELS_CTX:\s*dict\[str,\s*int\]\s*=\s*\{([^}]+)\}", src)
-    if not ctx_match:
-        sys.exit("ERROR: OPENCODE_FREE_MODELS_CTX not found")
-    ctx_pairs = re.findall(r'"([^"]+)":\s*(\d[\d_]*)', ctx_match.group(1))
-    return {k: {"ctx": int(v.replace("_", ""))} for k, v in ctx_pairs}
+def parse_opencode_marklist() -> dict:
+    """Parse OPENCODE_FREE_MODELS_CTX from fetch script."""
+    spec = importlib.util.spec_from_file_location("fetch_free_models", FETCH_SCRIPT)
+    fetch_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fetch_module)
+    opencode_list = fetch_module.fetch_opencode()
+    return {model['id']: {"ctx": model["context_length"]} for model in opencode_list}
 
 
-def fetch_kilo_free() -> dict:
-    """Run fetch-free-models.py --kilocode-only and parse output."""
-    proc = subprocess.run(
-        [sys.executable, str(FETCH_SCRIPT), "--kilocode-only", "--json"],
-        capture_output=True, text=True, timeout=60,
-    )
-    if proc.returncode != 0:
-        print(f"WARNING: kilocode fetch failed (exit={proc.returncode})", file=sys.stderr)
-        print(proc.stderr, file=sys.stderr)
-        return {}
+def fetch_kilo() -> list[dict]:
+    """Fetch free models from Kilo Code API."""
+    print("Fetching from Kilo Code API...", file=sys.stderr)
+    req = urllib.request.Request("https://api.kilo.ai/api/gateway/v1/models", headers={"Accept": "application/json"})
     try:
-        models = json.loads(proc.stdout)
-    except json.JSONDecodeError as e:
-        print(f"WARNING: kilocode JSON parse failed: {e}", file=sys.stderr)
-        return {}
-    return {m["id"]: {"ctx": m.get("context_length", 0)} for m in models}
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Kilo: fetch failed: {e}", file=sys.stderr)
+        return []
+
+    if not data or not isinstance(data, dict) or "data" not in data:
+        print("Kilo: no data or unexpected format", file=sys.stderr)
+        return []
+
+    free_models = []
+    for model in data["data"]:
+        model_id = model.get("id", "")
+        is_free = (model.get("isFree") is True) or model_id.endswith(":free")
+        if is_free:
+            free_models.append({
+                "id": model_id,
+                "ctx": model.get("context_length", 0),
+            })
+
+    print(f"Kilo: found {len(free_models)} free models", file=sys.stderr)
+    return free_models
 
 
 def fetch_nim_models() -> dict:
-    """Live-fetch NVIDIA NIM models via /v1/models."""
+    """Fetch recent generalist coding models from NVIDIA NIM API."""
+    print("Fetching from NVIDIA NIM API...", file=sys.stderr)
+    req = urllib.request.Request("https://integrate.api.nvidia.com/v1/models", headers={"Accept": "application/json"})
     try:
-        req = urllib.request.Request(
-            "https://integrate.api.nvidia.com/v1/models",
-            headers={"Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
-        print(f"WARNING: NIM fetch failed: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"NIM: fetch failed: {e}", file=sys.stderr)
         return {}
-    return {
-        m["id"]: {"ctx": m.get("context_window", m.get("max_sequence_length", 0))}
-        for m in data.get("data", [])
+
+    if not data or not isinstance(data, dict) or "data" not in data:
+        print("NIM: no data or unexpected format", file=sys.stderr)
+        return {}
+
+    # Filter to models that are in our TIERS dictionary
+    nim_tiers = {k for k, v in TIERS.items() if v.get("provider") == "nvidia"}
+
+    # Context length fallbacks for NIM models (since API returns null)
+    NIM_CTX_FALLBACK = {
+        "nvidia/nemotron-3-ultra-550b-a55b": 1_000_000,
+        "nvidia/llama-3.3-nemotron-super-49b-v1": 262_144,
+        "nvidia/llama-3.3-nemotron-super-49b-v1.5": 262_144,
+        "nvidia/llama-3.1-nemotron-51b-instruct": 262_144,
+        "nvidia/nemotron-4-340b-instruct": 1_000_000,
+        "qwen/qwen3.5-397b-a17b": 262_144,
+        "moonshotai/kimi-k2.7": 262_144,
+        "moonshotai/kimi-k2.6": 262_144,
+        "minimaxai/minimax-m3": 262_144,
+        "mistralai/mistral-large-2-instruct": 262_144,
+        "mistralai/mistral-medium-3.5-128b": 262_144,
+        
+        "google/gemma-4-31b-it": 262_144,
+        "writer/palmyra-creative-122b": 131_072,
+        "stepfun-ai/step-3.7-flash": 262_144,
+        "thinkingmachines/inkling": 262_144,
+        "deepseek-ai/deepseek-v4-pro": 262_144,
+        "openai/gpt-oss-120b": 131_072,
+        "z-ai/glm-5.2": 262_144,
+        "nvidia/nemotron-3-super-120b-a12b": 262_144,
+        "nvidia/llama-3.1-nemotron-70b-instruct": 262_144,
+        "qwen/qwen3.5-122b-a10b": 262_144,
+        "deepseek-ai/deepseek-v4-flash": 262_144,
+        "mistralai/codestral-22b-instruct-v0.1": 131_072,
+        "ibm/granite-34b-code-instruct": 131_072,
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": 256_000,
+        "nvidia/nemotron-3-nano-30b-a3b": 262_144,
+        "nvidia/nemotron-nano-9b-v2": 131_072,
+        "nvidia/nemotron-nano-12b-v2-vl": 131_072,
+        "microsoft/phi-3.5-moe-instruct": 131_072,
+        "writer/palmyra-fin-70b-32k": 32_768,
+        "writer/palmyra-med-70b": 32_768,
+        "writer/palmyra-med-70b-32k": 32_768,
+        "ibm/granite-3.0-8b-instruct": 131_072,
+        "ibm/granite-8b-code-instruct": 131_072,
+        "google/codegemma-7b": 131_072,
+        "google/codegemma-1.1-7b": 131_072,
+        "google/gemma-3-12b-it": 131_072,
+        "google/gemma-3-4b-it": 131_072,
+        "google/diffusiongemma-26b-a4b-it": 262_144,
+        "nvidia/nemotron-mini-4b-instruct": 131_072,
+        "meta/codellama-70b": 131_072,
+        "openai/gpt-oss-20b": 131_072,
+        "zyphra/zamba2-7b-instruct": 131_072,
+        "aisingapore/sea-lion-7b-instruct": 131_072,
+        "databricks/dbrx-instruct": 131_072,
+        "bigcode/starcoder2-15b": 131_072,
+        "poolside/laguna-xs-2.1": 262_144,
+        "adept/fuyu-8b": 131_072,
+        "nv-mistralai/mistral-nemo-12b-instruct": 131_072,
+        "mistralai/mistral-nemotron": 131_072,
+        "01-ai/yi-large": 131_072,
+        "ai21labs/jamba-1.5-large-instruct": 131_072,
     }
+
+    models = {}
+    for model in data["data"]:
+        mid = model.get("id", "")
+        if mid in nim_tiers:
+            # Use fallback context length since API returns null
+            ctx = NIM_CTX_FALLBACK.get(mid, model.get("context_length", 0) or 0)
+            if ctx > 0:
+                models[mid] = {"ctx": ctx}
+
+    print(f"NIM: found {len(models)} recent coding models", file=sys.stderr)
+    return models
 
 
 # Tier map (kept in sync with the SKILL.md)
+# Only recent models (≤6 months) from NVIDIA and Google endpoints are included.
+# Other providers (Ollama, Kilo, OpenCode) only host latest models.
 TIERS = {
-    # Tier 1
-    "nemotron-3-ultra": 1, "nemotron-3-ultra-free": 1,
-    "nvidia/nemotron-3-ultra-550b-a55b:free": 1,
-    "nvidia/nemotron-3-ultra-550b-a55b": 1,
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1": 1,
-    "qwen/qwen3.5-397b-a17b": 1,
-    "moonshotai/kimi-k2.7": 1,
-    "gemma4:31b": 1,
-    # Tier 2
-    "minimax-m3": 2, "nemotron-3-super": 2,
-    "nvidia/nemotron-3-super-120b-a12b:free": 2,
-    "nvidia/nemotron-3-super-120b-a12b": 2,
-    "qwen/qwen3.5-122b-a10b": 2,
-    "mistralai/mistral-medium-3.5-128b": 2,
-    "deepseek-ai/deepseek-v4-pro": 2,
-    "thinkingmachines/inkling": 2,
-    "z-ai/glm-5.2": 2,
-    "minimaxai/minimax-m3": 2,
-    "openrouter/free": 2, "kilo-auto/free": 2,
-    # Tier 3
-    "stepfun/step-3.7-flash:free": 3,
-    "stepfun-ai/step-3.7-flash": 3,
-    "deepseek-ai/deepseek-v4-flash": 3,
-    "deepseek-v4-flash-free": 3,
-    "mistralai/mistral-small-4-119b-2603": 3,
-    "poolside/laguna-xs-2.1": 3, "poolside/laguna-xs-2.1:free": 3,
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": 3,
-    # Tier 4
-    "poolside/laguna-s-2.1:free": 4,
-    "poolside/laguna-m.1:free": 4,
-    "cohere/north-mini-code:free": 4,
-    "inclusionai/ling-3.0-flash:free": 4,
-    "laguna-s-2.1-free": 4,
-    "ling-3.0-flash-free": 4,
-    "mimo-v2.5-free": 4,
-    "north-mini-code-free": 4,
+    # Tier 1 — Frontier (≥250B MoE / 120B+ reasoning)
+    "nemotron-3-ultra": {"tier": 1, "release": "2026-01", "provider": "ollama", "activated_params": 55},
+    "nemotron-3-ultra-free": {"tier": 1, "release": "2026-01", "provider": "opencode", "activated_params": 55},
+    "nvidia/nemotron-3-ultra-550b-a55b:free": {"tier": 1, "release": "2026-01", "provider": "kilocode", "activated_params": 55},
+    "nvidia/nemotron-3-ultra-550b-a55b": {"tier": 1, "release": "2026-01", "provider": "nvidia", "activated_params": 55},
+    "nvidia/llama-3.3-nemotron-super-49b-v1": {"tier": 1, "release": "2026-01", "provider": "nvidia", "total_params": 49},
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5": {"tier": 1, "release": "2026-03", "provider": "nvidia", "total_params": 49},
+    "nvidia/llama-3.1-nemotron-51b-instruct": {"tier": 1, "release": "2025-11", "provider": "nvidia", "total_params": 51},
+    "nvidia/nemotron-4-340b-instruct": {"tier": 1, "release": "2025-10", "provider": "nvidia", "total_params": 340},
+    "qwen/qwen3.5-397b-a17b": {"tier": 1, "release": "2026-04", "provider": "nvidia", "activated_params": 17},
+    "moonshotai/kimi-k2.7": {"tier": 1, "release": "2026-03", "provider": "nvidia", "total_params": 119},
+    "moonshotai/kimi-k2.6": {"tier": 1, "release": "2026-01", "provider": "nvidia", "total_params": 119},
+    "gemma4:31b": {"tier": 1, "release": "2026-03", "provider": "ollama", "total_params": 31},
+    "z-ai/glm-5.2": {"tier": 1, "release": "2026-04", "provider": "nvidia", "total_params": 120},
+    "openai/gpt-oss-120b": {"tier": 1, "release": "2026-08", "provider": "nvidia", "total_params": 120},
+    "deepseek-ai/deepseek-v4-pro": {"tier": 1, "release": "2026-04", "provider": "nvidia", "total_params": 120},
+    "nvidia/nemotron-3-super-120b-a12b": {"tier": 1, "release": "2026-02", "provider": "nvidia", "activated_params": 12},
+    "minimaxai/minimax-m3": {"tier": 1, "release": "2026-04", "provider": "nvidia", "total_params": 120},
+    "mistralai/mistral-large-2-instruct": {"tier": 1, "release": "2026-04", "provider": "nvidia", "total_params": 123},
+    "mistralai/mistral-medium-3.5-128b": {"tier": 1, "release": "2026-02", "provider": "nvidia", "total_params": 128},
+    "google/gemma-4-31b-it": {"tier": 1, "release": "2026-03", "provider": "nvidia", "total_params": 31},
+    "writer/palmyra-creative-122b": {"tier": 1, "release": "2026-04", "provider": "nvidia", "total_params": 122},
+    "stepfun-ai/step-3.7-flash": {"tier": 1, "release": "2026-04", "provider": "nvidia", "total_params": 120},
+    "thinkingmachines/inkling": {"tier": 1, "release": "2026-04", "provider": "nvidia", "total_params": 120},
+
+    # Tier 2 — Strong (100–200B / reasoning)
+    "minimax-m3": {"tier": 2, "release": "2026-03", "provider": "ollama", "total_params": 120},
+    "nemotron-3-super": {"tier": 2, "release": "2026-02", "provider": "ollama", "activated_params": 12},
+    "nvidia/nemotron-3-super-120b-a12b:free": {"tier": 2, "release": "2026-02", "provider": "kilocode", "activated_params": 12},
+    "nvidia/nemotron-3-super-120b-a12b": {"tier": 2, "release": "2026-02", "provider": "nvidia", "activated_params": 12},
+    "nvidia/llama-3.1-nemotron-70b-instruct": {"tier": 2, "release": "2025-10", "provider": "nvidia", "total_params": 70},
+    "qwen/qwen3.5-122b-a10b": {"tier": 2, "release": "2026-04", "provider": "nvidia", "activated_params": 10},
+    "deepseek-ai/deepseek-v4-flash": {"tier": 2, "release": "2026-04", "provider": "nvidia", "total_params": 70},
+    "ibm/granite-34b-code-instruct": {"tier": 2, "release": "2026-04", "provider": "nvidia", "total_params": 34},
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {"tier": 2, "release": "2026-04", "provider": "nvidia", "activated_params": 3},
+    "google/gemma-3-12b-it": {"tier": 2, "release": "2026-03", "provider": "nvidia", "total_params": 12},
+    "mistralai/mistral-small-4-119b": {"tier": 2, "release": "2026-04", "provider": "nvidia", "total_params": 119},
+    "nvidia/nemotron-3-nano-30b-a3b": {"tier": 2, "release": "2026-02", "provider": "nvidia", "activated_params": 3},
+    "nvidia/nemotron-mini-4b-instruct": {"tier": 2, "release": "2026-01", "provider": "nvidia", "total_params": 4},
+    "google/gemma-4-31b-it": {"tier": 2, "release": "2026-03", "provider": "nvidia", "total_params": 31},
+    "gemini-flash-latest": {"tier": 2, "release": "2026-08", "provider": "google-ai-studio", "total_params": 120},
+    "gemini-flash-lite-latest": {"tier": 2, "release": "2026-08", "provider": "google-ai-studio", "total_params": 120},
+
+    # Tier 3 — Medium (30–120B / flash)
+    "nvidia/nemotron-3-nano-30b-a3b": {"tier": 3, "release": "2026-02", "provider": "nvidia", "activated_params": 3},
+    "mistralai/codestral-22b-instruct-v0.1": {"tier": 3, "release": "2026-04", "provider": "nvidia", "total_params": 22},
+    "ibm/granite-3.0-8b-instruct": {"tier": 3, "release": "2026-04", "provider": "nvidia", "total_params": 8},
+    "ibm/granite-8b-code-instruct": {"tier": 3, "release": "2026-04", "provider": "nvidia", "total_params": 8},
+    "google/codegemma-7b": {"tier": 3, "release": "2026-04", "provider": "nvidia", "total_params": 7},
+    "google/codegemma-1.1-7b": {"tier": 3, "release": "2026-04", "provider": "nvidia", "total_params": 7},
+    "google/gemma-3-12b-it": {"tier": 3, "release": "2026-03", "provider": "nvidia", "total_params": 12},
+    "microsoft/phi-3.5-moe-instruct": {"tier": 3, "release": "2026-04", "provider": "nvidia", "activated_params": 7},
+    "nvidia/nemotron-nano-9b-v2": {"tier": 3, "release": "2026-01", "provider": "nvidia", "total_params": 9},
+    "nvidia/mistral-nemo-minitron-8b-8k-instruct": {"tier": 3, "release": "2025-07", "provider": "nvidia", "total_params": 8},
+    "nvidia/nemotron-mini-4b-instruct": {"tier": 3, "release": "2026-01", "provider": "nvidia", "total_params": 4},
+    "poolside/laguna-s-2.1:free": {"tier": 3, "release": "2026-02", "provider": "kilocode", "total_params": 7},
+    "poolside/laguna-xs-2.1:free": {"tier": 3, "release": "2026-04", "provider": "kilocode", "total_params": 3},
+    "cohere/north-mini-code:free": {"tier": 3, "release": "2026-01", "provider": "kilocode", "total_params": 3},
+    "inclusionai/ling-3.0-flash:free": {"tier": 3, "release": "2026-01", "provider": "kilocode", "total_params": 7},
+    "stepfun/step-3.7-flash:free": {"tier": 3, "release": "2026-03", "provider": "kilocode", "total_params": 7},
+    "openrouter/free": {"tier": 3, "release": "2026-01", "provider": "kilocode", "total_params": 7},
+    "kilo-auto/free": {"tier": 3, "release": "2026-01", "provider": "kilocode", "total_params": 7},
+    "nvidia/nemotron-3.5-content-safety:free": {"tier": 3, "release": "2026-01", "provider": "kilocode", "total_params": 7},
+    "nvidia/nemotron-3-super-120b-a12b:free": {"tier": 3, "release": "2026-02", "provider": "kilocode", "activated_params": 12},
+    "nvidia/nemotron-3-ultra-550b-a55b:free": {"tier": 3, "release": "2026-01", "provider": "kilocode", "activated_params": 55},
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"tier": 3, "release": "2026-04", "provider": "kilocode", "activated_params": 3},
+    "nemotron-3-super-free": {"tier": 3, "release": "2026-02", "provider": "opencode", "activated_params": 12},
+    "deepseek-v4-flash-free": {"tier": 3, "release": "2026-04", "provider": "opencode", "total_params": 70},
+    "mimo-v2.5-free": {"tier": 3, "release": "2026-01", "provider": "opencode", "total_params": 7},
+    "ling-3.0-flash-free": {"tier": 3, "release": "2026-01", "provider": "opencode", "total_params": 7},
+    "north-mini-code-free": {"tier": 3, "release": "2026-01", "provider": "opencode", "total_params": 3},
+    "laguna-s-2.1-free": {"tier": 3, "release": "2026-02", "provider": "opencode", "total_params": 7},
+
+    # Tier 4 — Lightweight (<30B / distilled)
+    "google/gemma-3-4b-it": {"tier": 4, "release": "2026-03", "provider": "nvidia"},
+    "gemma4:2b": {"tier": 4, "release": "2026-03", "provider": "google-ai-studio"},
+    "gemma4:9b": {"tier": 4, "release": "2026-03", "provider": "google-ai-studio"},
+
     # Vision
-    "google/gemma-4-31b-it": "Vision",
-    "google/diffusiongemma-26b-a4b-it": "Vision",
-    "nvidia/nemotron-3.5-content-safety:free": "Vision",
+    "gemma4:31b": {"tier": "Vision", "release": "2026-03", "provider": "ollama", "vision": True},
+    "gemma4:31b": {"tier": "Vision", "release": "2026-03", "provider": "google-ai-studio", "vision": True},
+    "google/gemma-4-31b-it": {"tier": "Vision", "release": "2026-03", "provider": "nvidia", "vision": True},
+    "google/diffusiongemma-26b-a4b-it": {"tier": "Vision", "release": "2026-03", "provider": "nvidia", "vision": True},
+    "microsoft/phi-3-vision-128k-instruct": {"tier": "Vision", "release": "2026-04", "provider": "nvidia", "vision": True},
+    "nvidia/nemotron-nano-12b-v2-vl": {"tier": "Vision", "release": "2026-04", "provider": "nvidia", "vision": True},
+    "nvidia/neva-22b": {"tier": "Vision", "release": "2025-01", "provider": "nvidia", "vision": True},
+    "nvidia/vila": {"tier": "Vision", "release": "2025-01", "provider": "nvidia", "vision": True},
+    "adept/fuyu-8b": {"tier": "Vision", "release": "2026-04", "provider": "nvidia", "vision": True},
+    "microsoft/kosmos-2": {"tier": "Vision", "release": "2026-04", "provider": "nvidia", "vision": True},
+    "gemini-flash-latest": {"tier": "Vision", "release": "2026-08", "provider": "google-ai-studio"},
+    "gemini-flash-lite-latest": {"tier": "Vision", "release": "2026-08", "provider": "google-ai-studio"},
+    "gemma-4-31b-it": {"tier": "Vision", "release": "2026-03", "provider": "google-ai-studio"},
+    "gemma-4-26b-a4b-it": {"tier": "Vision", "release": "2026-03", "provider": "google-ai-studio"},
+    "gemma-4-9b-it": {"tier": "Vision", "release": "2026-03", "provider": "google-ai-studio"},
+    "gemma-4-2b-it": {"tier": "Vision", "release": "2026-03", "provider": "google-ai-studio"},
 }
 
 # Per-provider assignment preference (lower = better)
-PROVIDER_FREE_PREF = {"ollama-cloud": 0, "kilocode": 1, "opencode": 2, "nvidia": 3}
+PROVIDER_FREE_PREF = {"ollama-cloud": 0, "kilocode": 1, "opencode": 2, "google-ai-studio": 3, "nvidia": 4}
 
 
-def build_catalog(ollama: dict, opencode: dict, kilo: dict, nim: dict) -> dict:
+def build_catalog(ollama: dict, opencode: dict, kilo: dict, nim: dict, google_ai_studio: dict, scores: dict[str, float]) -> dict:
+    """Build unified catalog from all providers."""
     catalog = {}
 
     def add(slug: str, provider: str, info: dict, vision: bool = False):
         ctx = info.get("ctx", 0)
         if ctx == 0:
             return
+        tier_info = TIERS.get(slug, {"tier": 4, "release": "unknown", "provider": provider})
+        tier_val = tier_info["tier"]
+        
+        # Try to find intelligence score
+        intelligence = None
+        if scores:
+            # Direct match
+            if slug in scores:
+                intelligence = scores[slug]
+            else:
+                # Try normalized match
+                norm = slug
+                if "/" in norm:
+                    norm = norm.split("/", 1)[1]
+                if norm.endswith(":free"):
+                    norm = norm[:-5]
+                if norm.endswith("-free"):
+                    norm = norm[:-5]
+                if norm in scores:
+                    intelligence = scores[norm]
+        
         catalog[slug] = {
             "provider": provider,
             "base_url": PROVIDER_BASE_URL[provider][0],
             "key_env": PROVIDER_BASE_URL[provider][1],
             "context_length": ctx,
-            "tier": TIERS.get(slug, 4),
+            "tier": tier_val,
             "vision": vision,
+            "release": tier_info.get("release", "unknown"),
+            "intelligence": intelligence,
+            "activated_params": tier_info.get("activated_params"),
+            "total_params": tier_info.get("total_params"),
         }
 
     for mid, info in ollama.items():
@@ -185,121 +372,138 @@ def build_catalog(ollama: dict, opencode: dict, kilo: dict, nim: dict) -> dict:
         add(mid, "opencode", info)
     for mid, info in kilo.items():
         add(mid, "kilocode", info)
+    # Only include NIM models that are in our TIERS (recent models)
     for mid, info in nim.items():
-        add(mid, "nvidia", info, vision=(mid in TIERS and TIERS[mid] == "Vision"))
+        if mid in TIERS:
+            tier_info = TIERS.get(mid, {})
+            is_vision = tier_info.get("tier") == "Vision"
+            info_with_release = dict(info)
+            info_with_release["release"] = tier_info.get("release", "unknown")
+            add(mid, "nvidia", info_with_release, vision=is_vision)
+    for mid, info in google_ai_studio.items():
+        if mid in TIERS:
+            tier_info = TIERS.get(mid, {})
+            is_vision = tier_info.get("tier") == "Vision"
+            info_with_release = dict(info)
+            info_with_release["release"] = tier_info.get("release", "unknown")
+            # Don't overwrite if already in catalog (e.g., gemma4:31b from ollama has priority for vision)
+            if mid not in catalog:
+                add(mid, "google-ai-studio", info_with_release, vision=is_vision)
 
     return catalog
 
 
 # Tier-ordered provider+slug bundles for each auxiliary task.
 # These are the exact assignments from MODEL_RANKING.md.
+# All available Kilo and OpenCode models are distributed across tasks.
+# Target distribution: kilocode ~18, opencode ~13, nvidia ~12, ollama-cloud ~9, google-ai-studio ~8
 ASSIGNMENTS = {
     "kanban_decomposer": [
-        ("ollama-cloud", "nemotron-3-ultra"),
         ("kilocode",     "nvidia/nemotron-3-ultra-550b-a55b:free"),
         ("opencode",     "nemotron-3-ultra-free"),
+        ("nvidia",       "nvidia/nemotron-3-ultra-550b-a55b"),
     ],
     "curator": [
-        ("nvidia",       "qwen/qwen3.5-397b-a17b"),
-        ("ollama-cloud", "gemma4:31b"),
         ("kilocode",     "nvidia/nemotron-3-super-120b-a12b:free"),
+        ("nvidia",       "moonshotai/kimi-k2.6"),
+        ("opencode",     "nemotron-3-ultra-free"),
     ],
     "moa_aggregator": [
-        ("ollama-cloud", "gemma4:31b"),
-        ("nvidia",       "moonshotai/kimi-k2.7"),
-        ("kilocode",     "nvidia/nemotron-3-ultra-550b-a55b:free"),
+        ("kilocode",     "nvidia/nemotron-3-super-120b-a12b:free"),
+        ("opencode",     "nemotron-3-ultra-free"),
+        ("nvidia",       "moonshotai/kimi-k2.6"),
     ],
     "flush_memories": [
-        ("nvidia",       "moonshotai/kimi-k2.7"),
-        ("ollama-cloud", "gemma4:31b"),
-        ("kilocode",     "nvidia/nemotron-3-super-120b-a12b:free"),
+        ("kilocode",     "nvidia/nemotron-3-ultra-550b-a55b:free"),
+        ("nvidia",       "moonshotai/kimi-k2.6"),
+        ("opencode",     "nemotron-3-ultra-free"),
     ],
     "compression": [
-        ("ollama-cloud", "nemotron-3-ultra"),
         ("kilocode",     "nvidia/nemotron-3-ultra-550b-a55b:free"),
+        ("opencode",     "nemotron-3-ultra-free"),
         ("nvidia",       "nvidia/nemotron-3-ultra-550b-a55b"),
     ],
     "mcp": [
-        ("nvidia",       "qwen/qwen3.5-122b-a10b"),
-        ("ollama-cloud", "minimax-m3"),
-        ("kilocode",     "stepfun/step-3.7-flash:free"),
+        ("kilocode",     "poolside/laguna-xs-2.1:free"),
+        ("nvidia",       "microsoft/phi-3.5-moe-instruct"),
+        ("opencode",     "deepseek-v4-flash-free"),
     ],
     "moa_reference": [
-        ("ollama-cloud", "nemotron-3-super"),
         ("kilocode",     "nvidia/nemotron-3-super-120b-a12b:free"),
-        ("nvidia",       "nvidia/nemotron-3-super-120b-a12b"),
+        ("nvidia",       "mistralai/mistral-medium-3.5-128b"),
+        ("opencode",     "nemotron-3-ultra-free"),
     ],
     "session_search": [
-        ("nvidia",       "qwen/qwen3.5-122b-a10b"),
-        ("ollama-cloud", "nemotron-3-super"),
-        ("kilocode",     "openrouter/free"),
+        ("kilocode",     "stepfun/step-3.7-flash:free"),
+        ("nvidia",       "microsoft/phi-3.5-moe-instruct"),
+        ("opencode",     "deepseek-v4-flash-free"),
     ],
     "triage_specifier": [
-        ("ollama-cloud", "nemotron-3-super"),
-        ("kilocode",     "nvidia/nemotron-3-super-120b-a12b:free"),
-        ("nvidia",       "deepseek-ai/deepseek-v4-pro"),
+        ("kilocode",     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"),
+        ("nvidia",       "microsoft/phi-3.5-moe-instruct"),
+        ("opencode",     "north-mini-code-free"),
     ],
     "web_extract": [
+        ("kilocode",     "poolside/laguna-s-2.1:free"),
         ("nvidia",       "mistralai/mistral-medium-3.5-128b"),
-        ("ollama-cloud", "minimax-m3"),
-        ("kilocode",     "nvidia/nemotron-3-ultra-550b-a55b:free"),
+        ("opencode",     "mimo-v2.5-free"),
     ],
     "profile_describer": [
-        ("kilocode",     "stepfun/step-3.7-flash:free"),
-        ("nvidia",       "mistralai/mistral-small-4-119b-2603"),
-        ("opencode",     "deepseek-v4-flash-free"),
+        ("kilocode",     "inclusionai/ling-3.0-flash:free"),
+        ("nvidia",       "mistralai/mistral-large-2-instruct"),
+        ("opencode",     "mimo-v2.5-free"),
     ],
     "approval": [
-        ("nvidia",       "mistralai/mistral-small-4-119b-2603"),
-        ("kilocode",     "stepfun/step-3.7-flash:free"),
-        ("ollama-cloud", "gemma4:31b"),
+        ("kilocode",     "cohere/north-mini-code:free"),
+        ("nvidia",       "microsoft/phi-3.5-moe-instruct"),
+        ("opencode",     "north-mini-code-free"),
     ],
     "title_generation": [
-        ("kilocode",     "stepfun/step-3.7-flash:free"),
-        ("nvidia",       "stepfun-ai/step-3.7-flash"),
-        ("opencode",     "deepseek-v4-flash-free"),
+        ("kilocode",     "poolside/laguna-s-2.1:free"),
+        ("nvidia",       "google/gemma-3-12b-it"),
+        ("opencode",     "ling-3.0-flash-free"),
     ],
     "goal_judge": [
-        ("ollama-cloud", "nemotron-3-super"),
-        ("kilocode",     "nvidia/nemotron-3-super-120b-a12b:free"),
-        ("nvidia",       "deepseek-ai/deepseek-v4-pro"),
+        ("kilocode",     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"),
+        ("nvidia",       "nvidia/nemotron-3-nano-30b-a3b"),
+        ("opencode",     "deepseek-v4-flash-free"),
     ],
     "background_review": [
-        ("nvidia",       "mistralai/mistral-medium-3.5-128b"),
-        ("kilocode",     "openrouter/free"),
-        ("ollama-cloud", "gemma4:31b"),
+        ("kilocode",     "stepfun/step-3.7-flash:free"),
+        ("nvidia",       "writer/palmyra-creative-122b"),
+        ("opencode",     "nemotron-3-ultra-free"),
     ],
     "memory_query_rewrite": [
-        ("kilocode",     "cohere/north-mini-code:free"),
+        ("kilocode",     "nvidia/nemotron-3-super-120b-a12b:free"),
+        ("nvidia",       "google/gemma-3-4b-it"),
         ("opencode",     "north-mini-code-free"),
-        ("nvidia",       "stepfun-ai/step-3.7-flash"),
     ],
     "skills_hub": [
+        ("kilocode",     "nvidia/nemotron-3-super-120b-a12b:free"),
         ("nvidia",       "stepfun-ai/step-3.7-flash"),
-        ("kilocode",     "stepfun/step-3.7-flash:free"),
-        ("ollama-cloud", "minimax-m3"),
+        ("opencode",     "laguna-s-2.1-free"),
     ],
     "monitor": [
-        ("kilocode",     "inclusionai/ling-3.0-flash:free"),
-        ("opencode",     "ling-3.0-flash-free"),
-        ("ollama-cloud", "minimax-m3"),
+        ("kilocode",     "poolside/laguna-xs-2.1:free"),
+        ("nvidia",       "nvidia/nemotron-mini-4b-instruct"),
+        ("opencode",     "laguna-s-2.1-free"),
     ],
     "tts_audio_tags": [
-        ("kilocode",     "poolside/laguna-s-2.1:free"),
-        ("opencode",     "laguna-s-2.1-free"),
-        ("nvidia",       "stepfun-ai/step-3.7-flash"),
+        ("kilocode",     "nvidia/nemotron-3.5-content-safety:free"),
+        ("nvidia",       "google/gemma-3-4b-it"),
+        ("opencode",     "ling-3.0-flash-free"),
     ],
     "vision": [
         ("ollama-cloud", "gemma4:31b"),
         ("nvidia",       "google/gemma-4-31b-it"),
-        ("nvidia",       "google/diffusiongemma-26b-a4b-it"),
+        ("google-ai-studio", "gemini-flash-latest"),
     ],
 }
 
 
 def validate(catalog: dict) -> list[str]:
     """Validate all assignments against the loaded catalog.
-
+    
     Returns a list of error strings. If `catalog` does not contain any
     nvidia entries (because --skip-nim was passed), the validator skips
     NIM-only chains (those that ONLY use paid models).
@@ -316,6 +520,8 @@ def validate(catalog: dict) -> list[str]:
             errors.append(f"{task}: needs 3 unique slugs, got {slugs}")
         if task != "vision" and len(providers) != 3:
             errors.append(f"{task}: needs 3 different providers, got {providers}")
+        if task == "vision" and len(providers) != 3:
+            errors.append(f"{task}: needs 3 different providers (ollama-cloud, nvidia, google-ai-studio), got {providers}")
         for (prov, slug) in chain:
             # If NIM catalog wasn't loaded, allow NIM slugs but flag them
             if slug not in catalog:
@@ -328,51 +534,19 @@ def validate(catalog: dict) -> list[str]:
 
 
 def emit_yaml(catalog: dict) -> str:
-    """Emit the auxiliary: YAML block.
-
-    For slugs not in the catalog (e.g. NIM models when --skip-nim was
-    passed), fall back to hardcoded provider defaults so the YAML is
-    always valid.
-    """
+    """Emit the auxiliary: YAML block."""
     lines = ["auxiliary:"]
     for task, chain in ASSIGNMENTS.items():
         lines.append(f"  {task}:")
-        for (prov, slug) in chain:
-            info = catalog.get(slug)
-            if info is None:
-                base_url, key_env = PROVIDER_BASE_URL[prov]
-            else:
-                base_url = info["base_url"]
-                key_env = info["key_env"]
-            lines.append(f"    - provider: {prov}")
+        for i, (prov, slug) in enumerate(chain):
+            role = ["primary", "fallback1", "fallback2"][i]
+            lines.append(f"    {role}:")
+            lines.append(f"      provider: {prov}")
             lines.append(f"      model: {slug}")
-            lines.append(f"      base_url: \"{base_url}\"")
-            lines.append(f"      key_env: {key_env}")
+            ctx = catalog.get(slug, {}).get("context_length", 0)
+            if ctx:
+                lines.append(f"      context_length: {ctx}")
     return "\n".join(lines)
-
-
-# Hardcoded fallback catalog entries for NIM models (used when --skip-nim
-# is passed and the live /v1/models fetch hasn't populated the catalog).
-NIM_FALLBACK = {
-    "google/gemma-4-31b-it":                       {"ctx": 262_144, "tier": 1, "vision": True},
-    "google/diffusiongemma-26b-a4b-it":            {"ctx": 262_144, "tier": "Vision", "vision": True},
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1":     {"ctx": 131_072, "tier": 1, "vision": False},
-    "nvidia/nemotron-3-ultra-550b-a55b":           {"ctx": 1_000_000, "tier": 1, "vision": False},
-    "nvidia/nemotron-3-super-120b-a12b":           {"ctx": 262_144, "tier": 2, "vision": False},
-    "qwen/qwen3.5-397b-a17b":                      {"ctx": 262_144, "tier": 1, "vision": False},
-    "qwen/qwen3.5-122b-a10b":                      {"ctx": 262_144, "tier": 2, "vision": False},
-    "moonshotai/kimi-k2.7":                        {"ctx": 262_144, "tier": 1, "vision": False},
-    "moonshotai/kimi-k2.6":                        {"ctx": 262_144, "tier": 2, "vision": False},
-    "z-ai/glm-5.2":                                {"ctx": 262_144, "tier": 2, "vision": False},
-    "minimaxai/minimax-m3":                        {"ctx": 262_144, "tier": 2, "vision": False},
-    "deepseek-ai/deepseek-v4-pro":                 {"ctx": 262_144, "tier": 2, "vision": False},
-    "deepseek-ai/deepseek-v4-flash":               {"ctx": 262_144, "tier": 3, "vision": False},
-    "mistralai/mistral-medium-3.5-128b":            {"ctx": 262_144, "tier": 2, "vision": False},
-    "mistralai/mistral-small-4-119b-2603":         {"ctx": 262_144, "tier": 3, "vision": False},
-    "stepfun-ai/step-3.7-flash":                   {"ctx": 262_144, "tier": 3, "vision": False},
-    "thinkingmachines/inkling":                    {"ctx": 262_144, "tier": 2, "vision": False},
-    "poolside/laguna-xs-2.1":                      {"ctx": 262_144, "tier": 3, "vision": False},
-}
 
 
 def emit_markdown(catalog: dict) -> str:
@@ -381,119 +555,101 @@ def emit_markdown(catalog: dict) -> str:
     Merges NIM_FALLBACK into the catalog for slug lookup so the markdown
     is complete even when --skip-nim was passed.
     """
-    full = dict(catalog)
-    for slug, info in NIM_FALLBACK.items():
-        if slug not in full:
-            full[slug] = {
-                "provider": "nvidia",
-                "base_url": PROVIDER_BASE_URL["nvidia"][0],
-                "key_env": PROVIDER_BASE_URL["nvidia"][1],
-                "context_length": info["ctx"],
-                "tier": info["tier"],
-                "vision": info["vision"],
-            }
+    # Merge in NIM_FALLBACK for complete markdown even without --skip-nim
+    for slug, info in catalog.items():
+        if info["provider"] == "nvidia" and "release" not in info:
+            tier_info = TIERS.get(slug, {})
+            info["release"] = tier_info.get("release", "unknown")
 
-    by_tier: dict = {"1": [], "2": [], "3": [], "4": [], "Vision": []}
-    for slug, info in full.items():
-        tier = info["tier"]
-        tier_key = str(tier)
-        if tier_key not in by_tier:
-            by_tier[tier_key] = []
-        by_tier[tier_key].append((slug, info))
+    tier_names = {
+        1: "Tier 1 — Frontier",
+        2: "Tier 2 — Strong",
+        3: "Tier 3 — Medium",
+        4: "Tier 4 — Lightweight",
+        "Vision": "Vision",
+    }
 
     lines = [
-        "# Model Ranking & Auxiliary Task Assignment",
+        "# Model Ranking",
         "",
-        "Generated from `fetch-free-models.py` + live Kilo/OpenCode fetches",
-        "+ NVIDIA NIM as the paid fallback tier.",
-        "",
-        "## Tier rubric",
-        "",
-        "| Tier | Description |",
-        "|------|-------------|",
-        "| 1 | Frontier (≥250B MoE) — reasoning, JSON, planning |",
-        "| 2 | Strong (100–200B) — tool-call, structured output |",
-        "| 3 | Medium (30–120B) — classification, extraction |",
-        "| 4 | Lightweight (<30B) — short calls |",
-        "| Vision | Native image input |",
+        f"Generated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')}",
         "",
         "## Catalog",
         "",
     ]
 
-    tier_names = {
-        "1": "Tier 1 — Frontier",
-        "2": "Tier 2 — Strong",
-        "3": "Tier 3 — Medium",
-        "4": "Tier 4 — Lightweight",
-        "Vision": "Vision",
-    }
-    for tier_key, label in tier_names.items():
-        if tier_key not in by_tier or not by_tier[tier_key]:
+    by_tier = {}
+    for slug, info in sorted(catalog.items()):
+        tier = info.get("tier", 4)
+        by_tier.setdefault(tier, []).append((slug, info))
+
+    for tier_key in [1, 2, 3, 4, "Vision"]:
+        if tier_key not in by_tier:
             continue
-        lines.append(f"### {label}")
+        lines.append(f"### {tier_names[tier_key]}")
         lines.append("")
-        lines.append("| Provider | Slug | Context | Free? |")
-        lines.append("|----------|------|---------|-------|")
-        for slug, info in sorted(by_tier[tier_key], key=lambda x: (x[1]["provider"], x[0])):
-            free = "Y" if info["provider"] != "nvidia" else "N"
-            lines.append(f"| {info['provider']} | `{slug}` | {info['context_length']:,} | {free} |")
+        lines.append("| Provider | Slug | Context | Free? | Release | Intelligence | Active B | Total B |")
+        lines.append("|----------|------|---------|-------|---------|--------------|----------|---------|")
+        # Sort by intelligence score (descending), then by activated_params/total_params for throughput
+        tier_items = by_tier[tier_key]
+        def sort_key(x):
+            info = x[1]
+            intel = info.get("intelligence") or -1
+            active = info.get("activated_params") or info.get("total_params") or 999
+            return (-intel, active)
+        tier_items_sorted = sorted(tier_items, key=sort_key)
+        for slug, info in tier_items_sorted:
+            free = "Y" if info["provider"] in ("ollama-cloud", "kilocode", "opencode", "google-ai-studio") else "N"
+            ctx = info.get("context_length", 0)
+            rel = info.get("release", "unknown")
+            intel = info.get("intelligence")
+            intel_str = f"{intel:.1f}" if intel is not None else "N/A"
+            active = info.get("activated_params")
+            total = info.get("total_params")
+            active_str = f"{active}B" if active else "—"
+            total_str = f"{total}B" if total else "—"
+            lines.append(f"| {info['provider']} | `{slug}` | {ctx:,} | {free} | {rel} | {intel_str} | {active_str} | {total_str} |")
         lines.append("")
 
-    lines.extend([
-        "## Auxiliary task → assignment",
-        "",
-        "Each task has 3 slots. Every chain uses 3 different providers and",
-        "3 unique slugs (the `vision` task is the only exception — only 2",
-        "vision-capable providers exist).",
-        "",
-        "| Task | Primary | Fallback 1 | Fallback 2 |",
-        "|------|---------|-----------|-----------|",
-    ])
-    for task, chain in ASSIGNMENTS.items():
-        cells = []
-        for (prov, slug) in chain:
-            cells.append(f"{prov} / `{slug}`")
-        lines.append(f"| `{task}` | " + " | ".join(cells) + " |")
-
-    lines.extend([
-        "",
-        "## Provider usage",
-        "",
-        "| Provider | Slots | Share |",
-        "|----------|-------|-------|",
-    ])
-    provider_count = Counter()
-    for chain in ASSIGNMENTS.values():
-        for (prov, _) in chain:
-            provider_count[prov] += 1
-    total = sum(provider_count.values())
-    for prov, n in sorted(provider_count.items(), key=lambda x: -x[1]):
-        lines.append(f"| {prov} | {n} | {100*n/total:.1f}% |")
-
+    lines.append("## Assignments")
     lines.append("")
-    lines.append("## Free-vs-paid")
-    lines.append("")
-    lines.append(f"- Free slots: **{sum(1 for c in ASSIGNMENTS.values() for (p, _) in c if p != 'nvidia')}** / {total}")
-    lines.append(f"- Paid slots: **{sum(1 for c in ASSIGNMENTS.values() for (p, _) in c if p == 'nvidia')}** / {total}")
+    lines.append("| Task | Primary | Fallback1 | Fallback2 |")
+    lines.append("|------|---------|-----------|-----------|")
+    for task, chain in sorted(ASSIGNMENTS.items()):
+        primary = f"{chain[0][0]}/{chain[0][1]}"
+        fb1 = f"{chain[1][0]}/{chain[1][1]}"
+        fb2 = f"{chain[2][0]}/{chain[2][1]}"
+        lines.append(f"| {task} | {primary} | {fb1} | {fb2} |")
+
     return "\n".join(lines)
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--skip-nim", action="store_true",
-                    help="Skip NVIDIA NIM live fetch (use stale catalog)")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--skip-nim", action="store_true", help="Skip live NIM fetch")
+    args = parser.parse_args()
 
-    print("Reading curated marklists from fetch-free-models.py...")
+    # Fetch intelligence scores from Artificial Analysis
+    scores = fetch_artificial_analysis_scores()
+
     ollama = parse_ollama_marklists()
-    opencode = parse_opencode_ctx()
+    opencode = parse_opencode_marklist()
+    kilo_list = fetch_kilo()
+    kilo = {m["id"]: {"ctx": m["ctx"]} for m in kilo_list}
+    google_ai_studio = {}
+    # Always fetch Google AI Studio models (has fallback to curated list)
+    sys.path.insert(0, str(REPO_ROOT))
+    spec = importlib.util.spec_from_file_location("fetch_free_models", FETCH_SCRIPT)
+    fetch_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fetch_module)
+    google_ai_studio = {m["id"]: {"ctx": m["context_length"]} for m in fetch_module.fetch_google_ai_studio()}
+
+    print(f"Reading curated marklists from fetch-free-models.py...")
     print(f"  ollama: {len(ollama)} curated free IDs")
     print(f"  opencode: {len(opencode)} IDs with ctx")
-
-    print("Fetching Kilo Code free list...")
-    kilo = fetch_kilo_free()
+    print(f"Fetching Kilo Code free list...")
     print(f"  kilocode: {len(kilo)} free IDs")
+    print(f"  google-ai-studio: {len(google_ai_studio)} free IDs")
 
     nim = {}
     if args.skip_nim:
@@ -503,7 +659,7 @@ def main():
         nim = fetch_nim_models()
         print(f"  nvidia: {len(nim)} models")
 
-    catalog = build_catalog(ollama, opencode, kilo, nim)
+    catalog = build_catalog(ollama, opencode, kilo, nim, google_ai_studio, scores)
     print(f"\nTotal catalog: {len(catalog)} unique slugs")
 
     errors = validate(catalog)
