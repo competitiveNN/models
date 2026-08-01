@@ -36,6 +36,12 @@ OUTPUT_MD = REPO_ROOT / "MODEL_RANKING.md"
 OUTPUT_YAML = Path("/tmp/auxiliary_yaml.yaml")
 OUTPUT_JSON = Path("/tmp/assignments.json")
 
+# Ensure repo root is on sys.path so model_utils can be imported
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from model_utils import CACHE_FILE, CACHE_TTL_HOURS, HIDE_MODELS, fuzzy_match_slug, is_model_hidden, load_cache, normalize_slug, save_cache  # noqa: F401
+
 PROVIDER_BASE_URL = {
     "ollama-cloud":  ("https://ollama.com/v1",                       "OLLAMA_API_KEY"),
     "opencode":      ("https://opencode.ai/zen/v1",                  "OPENCODE_API_KEY"),
@@ -47,15 +53,26 @@ PROVIDER_BASE_URL = {
 
 def fetch_artificial_analysis_scores() -> dict[str, float]:
     """Fetch intelligence scores from Artificial Analysis API.
-    
+
     Returns a dict mapping model slugs to intelligence index scores.
+    Uses a local cache (free-models-cache.json) to avoid redundant API calls.
     Requires ARTIFICIAL_ANALYSIS_API_KEY environment variable.
     """
+    # Try cache first
+    cached = load_cache()
+    if cached is not None:
+        scores = {}
+        for slug, entry in cached.items():
+            if "intelligence" in entry:
+                scores[slug] = entry["intelligence"]
+        print(f"Artificial Analysis: using cached intelligence scores ({len(scores)} models)", file=sys.stderr)
+        return scores
+
     api_key = os.getenv("ARTIFICIAL_ANALYSIS_API_KEY")
     if not api_key:
         print("Artificial Analysis: API key not set, skipping intelligence scores", file=sys.stderr)
         return {}
-    
+
     print("Fetching intelligence scores from Artificial Analysis API...", file=sys.stderr)
     req = urllib.request.Request(
         "https://artificialanalysis.ai/api/v2/data/llms/models",
@@ -67,19 +84,28 @@ def fetch_artificial_analysis_scores() -> dict[str, float]:
     except Exception as e:
         print(f"Artificial Analysis: fetch failed: {e}", file=sys.stderr)
         return {}
-    
+
     if not data or not isinstance(data, dict) or "data" not in data:
         print("Artificial Analysis: no data or unexpected format", file=sys.stderr)
         return {}
-    
+
     scores = {}
+    enrichment = {}
     for model in data["data"]:
         slug = model.get("slug", "")
         evaluations = model.get("evaluations", {})
         intelligence = evaluations.get("artificial_analysis_intelligence_index")
         if slug and intelligence is not None:
             scores[slug] = float(intelligence)
-    
+        released = model.get("released") or model.get("release_date") or model.get("published_at")
+        entry: dict[str, Any] = {}
+        if intelligence is not None:
+            entry["intelligence"] = float(intelligence)
+        if released:
+            entry["released"] = str(released)
+        if entry:
+            enrichment[slug] = entry
+    save_cache(enrichment)
     print(f"Artificial Analysis: found {len(scores)} models with intelligence scores", file=sys.stderr)
     return scores
 
@@ -210,8 +236,10 @@ def fetch_nim_models() -> dict:
     for model in data["data"]:
         mid = model.get("id", "")
         if mid in nim_tiers:
-            # Use fallback context length since API returns null
-            ctx = NIM_CTX_FALLBACK.get(mid, model.get("context_length", 0) or 0)
+            # Prefer API-returned context length, fall back to hard-coded
+            ctx = model.get("context_length") or 0
+            if ctx == 0:
+                ctx = NIM_CTX_FALLBACK.get(mid, 0)
             if ctx > 0:
                 models[mid] = {"ctx": ctx}
 
@@ -334,7 +362,7 @@ def build_catalog(ollama: dict, opencode: dict, kilo: dict, nim: dict, google_ai
             return
         tier_info = TIERS.get(slug, {"tier": 4, "release": "unknown", "provider": provider})
         tier_val = tier_info["tier"]
-        
+
         # Try to find intelligence score
         intelligence = None
         if scores:
@@ -342,17 +370,18 @@ def build_catalog(ollama: dict, opencode: dict, kilo: dict, nim: dict, google_ai
             if slug in scores:
                 intelligence = scores[slug]
             else:
-                # Try normalized match
-                norm = slug
-                if "/" in norm:
-                    norm = norm.split("/", 1)[1]
-                if norm.endswith(":free"):
-                    norm = norm[:-5]
-                if norm.endswith("-free"):
-                    norm = norm[:-5]
-                if norm in scores:
-                    intelligence = scores[norm]
-        
+                # Try fuzzy match with weight-stripping
+                matched_slug = fuzzy_match_slug(slug, scores)
+                if matched_slug:
+                    intelligence = scores[matched_slug]
+
+        release = tier_info.get("release", "unknown")
+
+        # Apply hide list — skip models we would never use
+        # Only filters nvidia-nim models; all other providers always display
+        if is_model_hidden(slug, intelligence, release if release != "unknown" else None, provider):
+            return
+
         catalog[slug] = {
             "provider": provider,
             "base_url": PROVIDER_BASE_URL[provider][0],
@@ -360,7 +389,7 @@ def build_catalog(ollama: dict, opencode: dict, kilo: dict, nim: dict, google_ai
             "context_length": ctx,
             "tier": tier_val,
             "vision": vision,
-            "release": tier_info.get("release", "unknown"),
+            "release": release,
             "intelligence": intelligence,
             "activated_params": tier_info.get("activated_params"),
             "total_params": tier_info.get("total_params"),

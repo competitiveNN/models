@@ -26,21 +26,30 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from model_utils import (  # noqa: F401
+    CACHE_FILE,
+    CACHE_TTL_HOURS,
+    HIDE_MODELS,
+    fuzzy_match_slug,
+    is_model_hidden,
+    load_cache,
+    normalize_slug,
+    save_cache,
+)
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 KILO_ENDPOINT = "https://api.kilo.ai/api/gateway/v1/models"
 OPENCODE_ENDPOINT = "https://opencode.ai/zen/v1/models"
 GOOGLE_AI_STUDIO_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
 NVIDIA_NIM_ENDPOINT = "https://integrate.api.nvidia.com/v1/models"
+ARTIFICIAL_ANALYSIS_ENDPOINT = "https://artificialanalysis.ai/api/v2/data/llms/models"
 TIMEOUT = 30
 MAX_RETRIES = 3
 BACKOFF_BASE = 2
-
-
 
 # Authoritative free-tier list for Ollama Cloud (curated by user).  Ollama
 # does not expose this flag in /v1/models or any chat-completions header,
@@ -163,17 +172,73 @@ HEADERS = {
     "Accept": "application/json",
 }
 
+
 # NVIDIA NIM release date mapping: model_id -> "YYYY-MM"
 # These are the ORIGINAL MODEL RELEASE DATES, not when NVIDIA added them to NIM.
 # Only models released within the last 4 months are considered recent (from current date).
 # Format: "YYYY-MM"
 NVIDIA_NIM_RELEASE_DATES: dict[str, str] = {
     # Add known release dates here as discovered
-    "nvidia/nemotron-3-nano-30b-a3b": "2026-04",
-    "nvidia/nemotron-3-super-120b-a12b": "2026-04",
-    "nvidia/nemotron-3-ultra-550b-a55b": "2026-04",
+    "nvidia/nemotron-3-nano-30b-a3b": "2025-12",
+    "nvidia/nemotron-3-super-120b-a12b": "2026-03",
+    "nvidia/nemotron-3-ultra-550b-a55b": "2026-06",
     "google/gemma-4-31b-it": "2026-03",
     "google/gemma-4-26b-a4b-it": "2026-03",
+    "01-ai/yi-large": "2024-05",
+    "baai/bge-m3": "2024-01",
+    "bigcode/starcoder2-15b": "2024-02",
+    "google/deplot": "2023-01",
+    "ibm/granite-34b-code-instruct": "2024-04",
+    "ibm/granite-8b-code-instruct": "2024-04",
+    "meta/llama-guard-4-12b": "2024-04",
+    "microsoft/phi-3-vision-128k-instruct": "2024-04",
+    "microsoft/phi-3.5-moe-instruct": "2024-08",
+    "mistralai/mistral-7b-instruct-v0.3": "2024-05",
+    "mistralai/mistral-nemotron": "2024-07",
+    "nvidia/llama3-chatqa-1.5-70b": "2024-06",
+    "poolside/laguna-xs-2.1": "2026-07",
+    "z-ai/glm-5.2": "2026-06",
+    "zyphra/zamba2-7b-instruct": "2024-05",
+    "deepseek-ai/deepseek-v4-flash": "2026-04",
+    "deepseek-ai/deepseek-v4-pro": "2026-04",
+    "google/gemma-3-12b-it": "2025-03",
+    "google/gemma-3-4b-it": "2025-03",
+    "google/codegemma-1.1-7b": "2024-04",
+    "google/codegemma-7b": "2024-04",
+    "meta/llama-3.1-70b-instruct": "2024-07",
+    "meta/llama-3.1-8b-instruct": "2024-07",
+    "meta/llama-3.2-11b-vision-instruct": "2024-09",
+    "meta/llama-3.2-1b-instruct": "2024-09",
+    "meta/llama-3.2-3b-instruct": "2024-09",
+    "meta/llama-3.2-90b-vision-instruct": "2024-09",
+    "meta/llama-3.3-70b-instruct": "2024-12",
+    "meta/codellama-70b": "2024-01",
+    "mistralai/codestral-22b-instruct-v0.1": "2024-05",
+    "mistralai/mistral-large": "2024-02",
+    "mistralai/mistral-large-2-instruct": "2024-07",
+    "mistralai/mistral-medium-3.5-128b": "2026-03",
+    "mistralai/mixtral-8x22b-v0.1": "2024-04",
+    "moonshotai/kimi-k2.6": "2026-04",
+    "nv-mistralai/mistral-nemo-12b-instruct": "2024-07",
+    "nvidia/llama-3.1-nemotron-51b-instruct": "2024-10",
+    "nvidia/llama-3.1-nemotron-70b-instruct": "2024-10",
+    "nvidia/llama-3.1-nemotron-nano-8b-v1": "2024-10",
+    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": "2024-10",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1": "2024-10",
+    "nvidia/llama-3.3-nemotron-super-49b-v1": "2024-12",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5": "2025-01",
+    "nvidia/mistral-nemo-minitron-8b-8k-instruct": "2024-07",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "2026-04",
+    "nvidia/nemotron-4-340b-instruct": "2024-06",
+    "nvidia/nemotron-mini-4b-instruct": "2024-06",
+    "nvidia/nemotron-nano-12b-v2-vl": "2024-10",
+    "nvidia/nemotron-nano-3-30b-a3b": "2024-10",
+    "nvidia/nemotron-parse": "2024-10",
+    "nvidia/nvidia-nemotron-nano-9b-v2": "2024-10",
+    "openai/gpt-oss-120b": "2024-08",
+    "openai/gpt-oss-20b": "2024-08",
+    "stepfun-ai/step-3.7-flash": "2026-10",
+    "thinkingmachines/inkling": "2026-07",
     # Note: Add more mappings as needed
 }
 
@@ -184,7 +249,8 @@ def fetch_json(url: str, attempt: int = 1) -> dict[str, Any] | list[Any] | None:
     req = urllib.request.Request(url, headers=HEADERS)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            result = json.loads(resp.read().decode("utf-8"))
+            return result if isinstance(result, (dict, list)) else None
     except urllib.error.HTTPError as e:
         if e.code == 429 and attempt <= MAX_RETRIES:
             retry_after = int(e.headers.get("Retry-After", str(BACKOFF_BASE ** attempt)))
@@ -213,7 +279,7 @@ def fetch_json(url: str, attempt: int = 1) -> dict[str, Any] | list[Any] | None:
 def normalize_kilo(model: dict[str, Any]) -> dict[str, Any] | None:
     """Convert Kilo model format to common schema."""
     pricing = model.get("pricing", {})
-    def to_float(v):
+    def to_float(v: Any) -> float:
         try:
             return float(v)
         except (TypeError, ValueError):
@@ -224,7 +290,9 @@ def normalize_kilo(model: dict[str, Any]) -> dict[str, Any] | None:
         "name": model.get("name"),
         "provider": "kilocode",
         "context_length": model.get("context_length", 0),
-        "pricing": {
+        "intelligence": None,
+        "released": model.get("created") or model.get("release_date") or model.get("published_at"),
+          "pricing": {
             "input": to_float(pricing.get("prompt", 0)),
             "output": to_float(pricing.get("completion", 0)),
             "cache_read": to_float(pricing.get("input_cache_read", 0)),
@@ -237,18 +305,21 @@ def normalize_kilo(model: dict[str, Any]) -> dict[str, Any] | None:
             "open_weights": False,
         },
         "source": "kilocode",
-        "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "fetched_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "raw": model,
     }
 
 
-def normalize_opencode(model_id: str) -> dict[str, Any] | None:
+def normalize_opencode(model: dict[str, Any]) -> dict[str, Any] | None:
     """Convert OpenCode model format to common schema."""
+    model_id = model.get("id", "")
     return {
         "id": model_id,
         "name": model_id,
         "provider": "opencode",
         "context_length": OPENCODE_FREE_MODELS_CTX.get(model_id, 0),
+        "intelligence": None,
+        "released": model.get("created") or model.get("release_date") or model.get("published_at"),
         "pricing": {
             "input": 0,
             "output": 0,
@@ -262,7 +333,7 @@ def normalize_opencode(model_id: str) -> dict[str, Any] | None:
             "open_weights": False,
         },
         "source": "opencode",
-        "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "fetched_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "raw": {"id": model_id},
     }
 
@@ -274,6 +345,8 @@ def normalize_ollama(model_id: str) -> dict[str, Any] | None:
         "name": model_id,
         "provider": "ollama-cloud",
         "context_length": OLLAMA_FREE_MODELS_CTX.get(model_id, 0),
+        "intelligence": None,
+        "released": None,
         "pricing": {
             "input": 0,
             "output": 0,
@@ -287,7 +360,7 @@ def normalize_ollama(model_id: str) -> dict[str, Any] | None:
             "open_weights": False,
         },
         "source": "ollama-cloud",
-        "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "fetched_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "raw": {"id": model_id},
     }
 
@@ -315,54 +388,9 @@ def is_gemini_latest(model_id: str) -> bool:
     return model_lower.startswith("gemini-") and model_lower.endswith("-latest")
 
 
-def normalize_google_ai_studio(model: dict[str, Any], model_id: str) -> dict[str, Any] | None:
-    """Convert Google AI Studio model from API response to common schema."""
-    def normalize_nvidia_nim(model: dict[str, Any], model_id: str) -> dict[str, Any] | None:
-        """Convert NVIDIA NIM model from API response to common schema."""
-        model_lower = model_id.lower()
-
-        # Determine context length
-        ctx = 131_072  # default
-        for key, val in NVIDIA_NIM_CTX.items():
-            if key in model_lower:
-                ctx = val
-                break
-
-        # Determine capabilities
-        has_reasoning = any(x in model_lower for x in ["nemotron", "reasoning", "thinking", "r1", "r1-"])
-        has_vision = any(x in model_lower for x in ["vision", "vl", "vlm", "vila", "neva", "kosmos", "phi-3-vision"])
-        has_tool_call = "instruct" in model_lower or "chat" in model_lower or "coder" in model_lower
-
-        # Get release date from mapping if available
-        released = NVIDIA_NIM_RELEASE_DATES.get(model_id)
-
-        return {
-            "id": model_id,
-            "name": model_id,
-            "provider": "nvidia-nim",
-            "context_length": ctx,
-            "pricing": {
-                "input": 0,
-                "output": 0,
-                "cache_read": 0,
-                "cache_write": 0,
-            },
-            "capabilities": {
-                "reasoning": has_reasoning,
-                "tool_call": has_tool_call,
-                "vision": has_vision,
-                "open_weights": False,
-            },
-            "source": "nvidia-nim",
-            "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "raw": model,
-            "released": released,
-        }
-
-
 def normalize_google_ai_studio_curated(model_id: str) -> dict[str, Any] | None:
     """Convert curated Google AI Studio free-tier entry to common schema.
-    
+
     Uses the curated marklist (no API key needed) with context from GOOGLE_AI_STUDIO_FREE_MODELS_CTX.
     """
     return {
@@ -370,6 +398,8 @@ def normalize_google_ai_studio_curated(model_id: str) -> dict[str, Any] | None:
         "name": model_id,
         "provider": "google-ai-studio",
         "context_length": GOOGLE_AI_STUDIO_FREE_MODELS_CTX.get(model_id, 0),
+        "intelligence": None,
+        "released": None,
         "pricing": {
             "input": 0,
             "output": 0,
@@ -383,16 +413,18 @@ def normalize_google_ai_studio_curated(model_id: str) -> dict[str, Any] | None:
             "open_weights": "gemma" in model_id.lower(),
         },
         "source": "google-ai-studio",
-        "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "fetched_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "raw": {"id": model_id},
     }
 
 
 def is_nvidia_nim_recent_coding(model_id: str) -> bool:
-    """Check if a NVIDIA NIM model is a generalist coding model."""
+    """Check if a NVIDIA NIM model is a generalist coding model released within the last 24 months."""
     model_lower = model_id.lower()
 
     # Exclude embedding, retriever, safety, translation, vision-specialized, etc.
+    # Only exclude truly specialized/non-generalist models here.
+    # Outdated models are handled by HIDE_MODELS + recency check in is_model_hidden.
     exclude_patterns = (
         "embed",
         "nemoretriever",
@@ -416,17 +448,27 @@ def is_nvidia_nim_recent_coding(model_id: str) -> bool:
         "tts",
         "voice",
         "writer/",
-        "mistral-nemo",
-        "nvidia/llama",
-        "meta/",
         "gemma-2",
-        "gemma-3",
         "recurrentgemma",
-        "codegemma",
-    )
+          "nemotron-nano",
+        "nemotron-parse",
+      )
     for pattern in exclude_patterns:
         if pattern in model_lower:
             return False
+
+    # Recency check: only include models released within the last 24 months
+    # Use the hard-coded release date mapping
+    released = NVIDIA_NIM_RELEASE_DATES.get(model_id)
+    if released:
+        try:
+            rel_year, rel_month = released.split("-")
+            rel_date = datetime(int(rel_year), int(rel_month), 1, tzinfo=UTC)
+            age_months = (datetime.now(UTC) - rel_date).days / 30.44
+            if age_months > 24:
+                return False
+        except (ValueError, IndexError):
+            pass
 
     # If not excluded, assume it's a generalist LLM (text-based)
     return True
@@ -436,26 +478,37 @@ def normalize_nvidia_nim(model: dict[str, Any], model_id: str) -> dict[str, Any]
     """Convert NVIDIA NIM model from API response to common schema."""
     model_lower = model_id.lower()
 
-    # Determine context length
-    ctx = 131_072  # default
-    for key, val in NVIDIA_NIM_CTX.items():
-        if key in model_lower:
-            ctx = val
-            break
+    # Determine context length — prefer API value, fall back to hard-coded
+    ctx = model.get("context_length") or 0
+    if ctx == 0:
+        for key, val in NVIDIA_NIM_CTX.items():
+            if key in model_lower:
+                ctx = val
+                break
 
     # Determine capabilities
     has_reasoning = any(x in model_lower for x in ["nemotron", "reasoning", "thinking", "r1", "r1-"])
     has_vision = any(x in model_lower for x in ["vision", "vl", "vlm", "vila", "neva", "kosmos", "phi-3-vision"])
     has_tool_call = "instruct" in model_lower or "chat" in model_lower or "coder" in model_lower
 
-    # Get release date from our mapping if available
-    released = NVIDIA_NIM_RELEASE_DATES.get(model_id)
+    # Get release date from API "created" field, fall back to hard-coded mapping
+    released = model.get("created") or model.get("release_date") or model.get("published_at")
+    # The NVIDIA NIM API returns a placeholder timestamp (735790403 = 1993-04-26)
+    # for all models. Ignore it and use hard-coded mapping instead.
+    if isinstance(released, int) and released < 1577836800:  # before 2020-01-01
+        released = None
+    if not released:
+        released = NVIDIA_NIM_RELEASE_DATES.get(model_id)
+    # Convert Unix timestamp to "YYYY-MM" format for consistency
+    if isinstance(released, int):
+        released = datetime.fromtimestamp(released, tz=UTC).strftime("%Y-%m")
 
     return {
         "id": model_id,
         "name": model_id,
         "provider": "nvidia-nim",
         "context_length": ctx,
+        "intelligence": None,
         "released": released,
         "pricing": {
             "input": 0,
@@ -470,7 +523,7 @@ def normalize_nvidia_nim(model: dict[str, Any], model_id: str) -> dict[str, Any]
             "open_weights": False,
         },
         "source": "nvidia-nim",
-        "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "fetched_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "raw": model,
     }
 
@@ -508,7 +561,7 @@ def fetch_opencode() -> list[dict[str, Any]]:
     for model in data.get("data", []):
         model_id = model.get("id", "")
         if model_id.endswith("-free"):
-            normalized = normalize_opencode(model_id)
+            normalized = normalize_opencode(model)
             if normalized:
                 free_models.append(normalized)
 
@@ -537,10 +590,8 @@ def fetch_google_ai_studio() -> list[dict[str, Any]]:
         m = normalize_google_ai_studio_curated(mid)
         if m is not None:
             result.append(m)
+    print(f"Google AI Studio: found {len(result)} free models", file=sys.stderr)
     return result
-
-    print(f"Google AI Studio: found {len(filtered_models)} free models ({len(gemini_latest_models)} gemini-*-latest)", file=sys.stderr)
-    return filtered_models
 
 
 def fetch_nvidia_nim() -> list[dict[str, Any]]:
@@ -567,8 +618,63 @@ def fetch_nvidia_nim() -> list[dict[str, Any]]:
     return free_models
 
 
+def fetch_artificial_analysis_data() -> dict[str, dict[str, Any]]:
+    """Fetch intelligence scores and release dates from Artificial Analysis API.
+
+    Returns a dict mapping model slugs to {"intelligence": float, "released": str | None}.
+    Uses a local cache (free-models-cache.json) to avoid redundant API calls.
+    Requires ARTIFICIAL_ANALYSIS_API_KEY environment variable.
+    """
+    # Try cache first
+    cached = load_cache()
+    if cached is not None:
+        print(f"Artificial Analysis: using cached enrichment data ({len(cached)} models)", file=sys.stderr)
+        return cached
+
+    api_key = os.getenv("ARTIFICIAL_ANALYSIS_API_KEY")
+    if not api_key:
+        print("Artificial Analysis: API key not set, skipping enrichment (set ARTIFICIAL_ANALYSIS_API_KEY to enable)", file=sys.stderr)
+        return {}
+
+    print("Fetching intelligence scores and release dates from Artificial Analysis API...", file=sys.stderr)
+    req = urllib.request.Request(
+        ARTIFICIAL_ANALYSIS_ENDPOINT,
+        headers={"Accept": "application/json", "x-api-key": api_key}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Artificial Analysis: fetch failed: {e}", file=sys.stderr)
+        return {}
+
+    if not data or not isinstance(data, dict) or "data" not in data:
+        print("Artificial Analysis: no data or unexpected format", file=sys.stderr)
+        return {}
+
+    result = {}
+    for model in data["data"]:
+        slug = model.get("slug", "")
+        if not slug:
+            continue
+        evaluations = model.get("evaluations", {})
+        intelligence = evaluations.get("artificial_analysis_intelligence_index")
+        released = model.get("released") or model.get("release_date") or model.get("published_at")
+        entry: dict[str, Any] = {}
+        if intelligence is not None:
+            entry["intelligence"] = float(intelligence)
+        if released:
+            entry["released"] = str(released)
+        if entry:
+            result[slug] = entry
+
+    print(f"Artificial Analysis: found {len(result)} models with data", file=sys.stderr)
+    save_cache(result)
+    return result
+
+
 # ── Output ─────────────────────────────────────────────────────────────────────
-def output_json(data: list[dict], path: str | None):
+def output_json(data: list[dict], path: str | None) -> None:
     out = json.dumps(data, indent=2)
     if path:
         Path(path).write_text(out)
@@ -577,7 +683,7 @@ def output_json(data: list[dict], path: str | None):
         print(out)
 
 
-def output_csv(data: list[dict], path: str | None):
+def output_csv(data: list[dict], path: str | None) -> None:
     if not data:
         return
 
@@ -589,6 +695,8 @@ def output_csv(data: list[dict], path: str | None):
             "id": d.get("id"),
             "provider": d.get("provider"),
             "context_length": d.get("context_length"),
+            "intelligence": d.get("intelligence"),
+            "released": d.get("released"),
             "pricing_input": pricing.get("input"),
             "pricing_output": pricing.get("output"),
             "pricing_cache_read": pricing.get("cache_read"),
@@ -615,7 +723,7 @@ def output_csv(data: list[dict], path: str | None):
             out_io.close()
 
 
-def output_table(data: list[dict]):
+def output_table(data: list[dict]) -> None:
     if not data:
         print("No records")
         return
@@ -624,6 +732,7 @@ def output_table(data: list[dict]):
         ("id", 35),
         ("provider", 16),
         ("released", 12),
+        ("intelligence", 12),
         ("ctx", 10),
         ("reason", 6),
         ("tools", 5),
@@ -638,36 +747,39 @@ def output_table(data: list[dict]):
         caps = d.get("capabilities", {})
         ctx_val = d.get("context_length", 0) or 0
         ctx_disp = f"{ctx_val:,}" if ctx_val else "-"
-        
+
         release_val = d.get("released")
         if release_val is not None:
             # If it's a timestamp, convert to YYYY-MM format
             if isinstance(release_val, (int, float)) and release_val > 0:
-                from datetime import datetime
                 try:
                     dt = datetime.fromtimestamp(release_val)
                     release_disp = dt.strftime("%Y-%m")
-                except:
+                except (ValueError, OSError):
                     release_disp = str(release_val)
             else:
                 release_disp = str(release_val)
         else:
             release_disp = "-"
-            
+
+        intelligence_val = d.get("intelligence")
+        intelligence_disp = f"{intelligence_val:.1f}" if intelligence_val is not None else "-"
+
         row = [
             d.get("id", "")[:35],
             d.get("provider", "")[:16],
             release_disp,
+            intelligence_disp,
             ctx_disp,
             "Y" if caps.get("reasoning") else "N",
             "Y" if caps.get("tool_call") else "N",
             "Y" if caps.get("vision") else "N",
         ]
-        print(" | ".join(f"{v:<{w}}" for (_, w), v in zip(cols, row)))
+        print(" | ".join(f"{v:<{w}}" for (_, w), v in zip(cols, row, strict=True)))
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Fetch free models from Kilo Code, OpenCode, Ollama Cloud, Google AI Studio, and NVIDIA NIM APIs"
     )
@@ -722,8 +834,40 @@ def main():
         print("No free models found", file=sys.stderr)
         sys.exit(1)
 
+    # Enrich with Artificial Analysis data (intelligence scores + release dates)
+    aa_data = fetch_artificial_analysis_data()
+    if aa_data:
+        for model in all_models:
+            model_id = model.get("id", "")
+            # Try direct match first, then fuzzy match with weight-stripping
+            aa_entry = aa_data.get(model_id)
+            if not aa_entry:
+                matched_slug = fuzzy_match_slug(model_id, aa_data)
+                if matched_slug:
+                    aa_entry = aa_data.get(matched_slug)
+            if aa_entry:
+                if "intelligence" in aa_entry:
+                    model["intelligence"] = aa_entry["intelligence"]
+                if "released" in aa_entry and model.get("released") is None:
+                    model["released"] = aa_entry["released"]
+
+    # Apply hide list — remove models we would never use
+    # Only filters nvidia-nim models; all other providers always display
+    before_hide = len(all_models)
+    all_models = [
+        m for m in all_models
+        if not is_model_hidden(
+            m.get("id", ""),
+            m.get("intelligence"),
+            m.get("released"),
+            m.get("provider"),
+        )
+    ]
+    if len(all_models) < before_hide:
+        print(f"Hide list: filtered {before_hide - len(all_models)} models", file=sys.stderr)
+
     # Per-source breakdown in the summary line
-    by_source = {}
+    by_source: dict[str, int] = {}
     for m in all_models:
         by_source.setdefault(m.get("source", "?"), 0)
         by_source[m["source"]] += 1
