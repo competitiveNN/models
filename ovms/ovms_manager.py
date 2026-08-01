@@ -15,6 +15,7 @@ Examples:
     python ovms_manager.py add /models/ov/mistral/llama-2-7b-chat
     python ovms_manager.py add /models/ov/mistral/phi-3-mini --name phi3-mini
     python ovms_manager.py add /models/ov/mistral/ministral --name ministral --llm
+    python ovms_manager.py add /models/ov/mistral/qwen2.5-7b --name qwen2.5 --llm --pipeline-type LM_CB
     python ovms_manager.py remove llama-2-7b-chat
     python ovms_manager.py list
     python ovms_manager.py reload
@@ -200,7 +201,8 @@ class OVMSConfigManager:
                              model_distribution_policy: Optional[str] = "PIPELINE_PARALLEL",
                              execution_mode_hint: Optional[str] = "PERFORMANCE",
                              scheduling_core_type: Optional[str] = "PCORE_ONLY",
-                             enable_cpu_pinning: Optional[bool] = False) -> bool:
+                             enable_cpu_pinning: Optional[bool] = False,
+                               pipeline_type: Optional[str] = None) -> bool:
         """Create a unique graph.pbtxt by copying a template and updating configuration."""
         p_template = self._map_path(template_path)
         
@@ -292,6 +294,19 @@ class OVMSConfigManager:
             device_pattern = r'(device:\s*["\'])([^"\']*)(["\'])'
             content = re.sub(device_pattern, lambda m: f"{m.group(1)}{device}{m.group(3)}", content)
 
+            # 5. Update pipeline_type (LLMCalculatorOptions enum, e.g. LM, LM_CB, VLM)
+            if pipeline_type:
+                pt_pattern = r'(pipeline_type:\s*)([A-Za-z_]+)'
+                content, pt_count = re.subn(pt_pattern, lambda m: f"{m.group(1)}{pipeline_type}", content)
+                if pt_count == 0:
+                    # Insert after the first models_path line (inside LLMCalculatorOptions)
+                    models_path_line = re.search(r'(^\s*models_path:\s*[^\n]*\n)', content, flags=re.MULTILINE)
+                    if models_path_line:
+                        insert_at = models_path_line.end(1)
+                        content = content[:insert_at] + f"pipeline_type: {pipeline_type}\n" + content[insert_at:]
+                    else:
+                        content = content.rstrip("\n") + f"\npipeline_type: {pipeline_type}\n"
+
             # Determine target write path
             p_target = self._map_path(target_path)
             p_target.parent.mkdir(parents=True, exist_ok=True)
@@ -337,6 +352,7 @@ class OVMSConfigManager:
 
     def add_model(self, model_path: str, model_name: Optional[str] = None, 
                   is_llm: bool = False, device: Optional[str] = None,
+                  pipeline_type: Optional[str] = None,
                   kv_cache_precision: Optional[str] = "u8",
                   cache_size: Optional[int] = None,
                   performance_hint: Optional[str] = "CUMULATIVE_THROUGHPUT",
@@ -349,6 +365,12 @@ class OVMSConfigManager:
                   num_assistant_tokens: int = 5,
                   draft_device: Optional[str] = None) -> None:
         """Add a model to the configuration."""
+        # pipeline_type is an LLM-graph (LLMCalculatorOptions) setting;
+        # passing it implies the LLM/MediaPipe path even without --llm
+        if pipeline_type and not is_llm:
+            print(f"Note: --pipeline-type {pipeline_type} implies LLM graph mode")
+            is_llm = True
+
         # Resolve real path and determine symlink target
         symlink_target = model_path
         exists = os.path.exists(model_path)
@@ -447,7 +469,8 @@ class OVMSConfigManager:
                                              model_distribution_policy,
                                              execution_mode_hint,
                                              scheduling_core_type,
-                                             enable_cpu_pinning):
+                                             enable_cpu_pinning,
+                                             pipeline_type=pipeline_type):
                 print("Failed to create unique graph. Aborting configuration update.")
                 return
 
@@ -728,6 +751,7 @@ def main():
   %(prog)s add /models/ov/mistral/llama-2-7b-chat
   %(prog)s add /models/ov/mistral/phi-3-mini --name phi3-mini
   %(prog)s add /models/ov/mistral/ministral --name ministral --llm
+  %(prog)s add /models/ov/mistral/qwen2.5-7b --name qwen2.5 --llm --pipeline-type LM_CB
   %(prog)s remove llama-2-7b-chat
   %(prog)s list
   %(prog)s reload
@@ -761,6 +785,10 @@ def main():
     add_parser.add_argument("--device", "-d", help="Target device (e.g. CPU, GPU, MULTI:GPU.1,GPU.0)")
     add_parser.add_argument("--llm", action="store_true",
                            help="Add as LLM graph (MediaPipe pipeline)")
+    add_parser.add_argument("--pipeline-type",
+                           choices=["LM", "LM_CB", "VLM", "VLM_CB", "AUTO"],
+                           help="LLM pipeline type written into graph.pbtxt (choices: LM, LM_CB, VLM, VLM_CB, AUTO; "
+                                "default: leave template's value). Implies --llm.")
     add_parser.add_argument("--kv-cache-precision", default="u8", 
                            help="KV cache precision (default: u8, set to 'none' to skip)")
     add_parser.add_argument("--cache-size", type=int,
@@ -827,7 +855,8 @@ def main():
     
     # Execute command
     if args.command == "add":
-        manager.add_model(args.path, args.name, args.llm, args.device, 
+        manager.add_model(args.path, args.name, args.llm, args.device,
+                         args.pipeline_type,
                          args.kv_cache_precision,
                          args.cache_size,
                          args.performance_hint, args.inference_precision_hint,

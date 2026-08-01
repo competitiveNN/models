@@ -8,7 +8,7 @@ set -euo pipefail
 #   setup-agent.sh all     — install every supported agent
 #
 # Agents:
-#   pi, little-coder, engram, tokensave, oh-my-pi, zerostack, codex, opencodex, hwatu
+#   pi, little-coder, engram, tokensave, oh-my-pi, zerostack, codex, opencodex, hwatu, grok-build
 #
 # Agents are installed into ~/.npm-global (npm agents) or ~/.local/bin (rtk)
 # so they live on the same volume that holds the config files
@@ -733,6 +733,37 @@ install_hwatu() {
 	ok "Hwatu installed: $(${LOCAL_BIN}/hwatu --version 2>&1 | head -1)"
 }
 
+install_grok_build() {
+	local version="${1:-latest}"
+	log "Installing Grok Build (${version})..."
+
+	# Grok Build installs via the official installer script
+	# The installer downloads a prebuilt binary and places it in ~/.grok/bin
+	# We symlink the binary to LOCAL_BIN for PATH access
+	local GROK_BACKING="${PERSISTENT_SHARE}/grok"
+	mkdir -p "${GROK_BACKING}"
+	ln -sfn "${GROK_BACKING}" "${CONTAINER_HOME}/.grok"
+
+	if [[ "$version" != "latest" && -n "$version" ]]; then
+		export GROK_VERSION="${version#v}"
+	fi
+	export GROK_QUIET=1
+
+	log "Running the official installer: curl -fsSL https://x.ai/cli/install.sh | bash"
+	if ! bash -c 'curl -fsSL https://x.ai/cli/install.sh | bash'; then
+		unset GROK_VERSION GROK_QUIET 2>/dev/null || true
+		warn "Grok Build install failed"
+		return 1
+	fi
+	unset GROK_VERSION GROK_QUIET 2>/dev/null || true
+
+	# Expose the binary on PATH via the persistent local bin
+	mkdir -p "${LOCAL_BIN}"
+	ln -sf "${CONTAINER_HOME}/.grok/bin/grok" "${LOCAL_BIN}/grok" 2>/dev/null || true
+
+	ok "Grok Build installed: $(${LOCAL_BIN}/grok --version 2>&1 | head -1)"
+}
+
 install_qwen_code() {
 	local version="${1:-latest}"
 	log "Installing Qwen-Code (${version})..."
@@ -888,6 +919,8 @@ Agents:
   zerostack    Zerostack development environment (Python)
   codex        OpenAI Codex coding agent (Node.js)
   opencodex    OpenCodex universal provider proxy (Node.js)
+  hwatu        Hwatu coding agent (Rust)
+  grok-build   Grok Build coding agent (Rust)
   all          Install every supported agent
 
 Examples:
@@ -914,6 +947,8 @@ engram) install_engram "$VERSION" ;;
  zerostack) install_zerostack "$VERSION" ;;
  codex) install_codex "$VERSION" ;;
  opencodex) install_opencodex "$VERSION" ;;
+   hwatu) install_hwatu "$VERSION" ;;
+  grok-build) install_grok_build "$VERSION" ;;
 
 all)
 	log "Installing all agents..."
@@ -926,6 +961,7 @@ all)
  	install_codex "$VERSION"
  	install_opencodex "$VERSION"
  	install_hwatu "$VERSION"
+ 	install_grok_build "$VERSION"
 
 	ok "All agents installed"
 	;;
