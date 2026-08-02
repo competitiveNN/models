@@ -16,7 +16,7 @@ if [ ! -d "$VENV_PATH" ]; then
     echo "Please create a virtual environment first:"
     echo "  python -m venv .venv"
     echo "  source .venv/bin/activate"
-    echo "  pip install huggingface_hub"
+    echo "  pip install requests"
     exit 1
 fi
 
@@ -29,10 +29,10 @@ fi
 # Activate virtual environment and run the Python script
 source "$VENV_PATH/bin/activate"
 
-# Check if huggingface_hub is installed
-if ! python -c "import huggingface_hub" 2>/dev/null; then
-    echo "Error: huggingface_hub is not installed in the virtual environment"
-    echo "Please install it with: pip install huggingface_hub"
+# Check if requests is installed
+if ! python -c "import requests" 2>/dev/null; then
+    echo "Error: requests is not installed in the virtual environment"
+    echo "Please install it with: pip install requests"
     exit 1
 fi
 

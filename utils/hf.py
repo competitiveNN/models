@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hugging Face model downloader script.
+Hugging Face model downloader script (without huggingface_hub dependency).
 Downloads models with specified quantization, similar to git clone behavior.
 
 Usage:
@@ -18,14 +18,11 @@ Examples:
 import argparse
 import os
 import sys
+import re
+import json
+import tempfile
 from pathlib import Path
-
-try:
-    from huggingface_hub import snapshot_download, HfApi, hf_hub_download
-    from huggingface_hub.utils import HfHubHTTPError
-except ImportError:
-    print("Error: huggingface_hub is required. Install with: pip install huggingface_hub")
-    sys.exit(1)
+import requests
 
 HF_TOKEN = os.environ.get("HF_TOKEN")
 if not HF_TOKEN:
@@ -63,11 +60,20 @@ def list_repo_files(repo_id):
         list: List of file paths in the repository
     """
     try:
-        api = HfApi(token=HF_TOKEN)
-        repo_info = api.repo_info(repo_id)
+        url = f"https://huggingface.co/api/models/{repo_id}"
+        headers = {}
+        if HF_TOKEN:
+            headers["Authorization"] = f"Bearer {HF_TOKEN}"
+        
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            print(f"Error listing files in {repo_id}: HTTP {response.status_code} - {response.text}")
+            return []
+        
+        repo_info = response.json()
         files = []
-        for sibling in repo_info.siblings:
-            files.append(sibling.rfilename)
+        for sibling in repo_info.get("siblings", []):
+            files.append(sibling.get("rfilename", ""))
         return files
     except Exception as e:
         print(f"Error listing files in {repo_id}: {e}")
@@ -131,14 +137,23 @@ def select_smallest_file(repo_id, files):
     if not files:
         return []
     try:
-        api = HfApi(token=HF_TOKEN)
-        repo_info = api.repo_info(repo_id)
+        url = f"https://huggingface.co/api/models/{repo_id}"
+        headers = {}
+        if HF_TOKEN:
+            headers["Authorization"] = f"Bearer {HF_TOKEN}"
+        
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            return [sorted(files)[0]]
+        
+        repo_info = response.json()
         sizes = {}
-        for sibling in repo_info.siblings:
-            if sibling.rfilename in files:
-                size = getattr(sibling, "size", None)
+        for sibling in repo_info.get("siblings", []):
+            filename = sibling.get("rfilename", "")
+            if filename in files:
+                size = sibling.get("size")
                 if isinstance(size, int):
-                    sizes[sibling.rfilename] = size
+                    sizes[filename] = size
 
         if sizes:
             smallest = min(sizes.items(), key=lambda kv: kv[1])[0]
@@ -153,8 +168,6 @@ def select_smallest_sharded_group(repo_id, files):
     if not files:
         return []
 
-    import re
-
     shard_re = re.compile(r"^(?P<base>.*?)-\d{5}-of-\d{5}\.gguf$", re.IGNORECASE)
     groups = {}
     for f in files:
@@ -167,13 +180,20 @@ def select_smallest_sharded_group(repo_id, files):
 
     sizes = {}
     try:
-        api = HfApi(token=HF_TOKEN)
-        repo_info = api.repo_info(repo_id)
-        for sibling in repo_info.siblings:
-            if sibling.rfilename in files:
-                size = getattr(sibling, "size", None)
-                if isinstance(size, int):
-                    sizes[sibling.rfilename] = size
+        url = f"https://huggingface.co/api/models/{repo_id}"
+        headers = {}
+        if HF_TOKEN:
+            headers["Authorization"] = f"Bearer {HF_TOKEN}"
+        
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            repo_info = response.json()
+            for sibling in repo_info.get("siblings", []):
+                filename = sibling.get("rfilename", "")
+                if filename in files:
+                    size = sibling.get("size")
+                    if isinstance(size, int):
+                        sizes[filename] = size
     except Exception:
         sizes = {}
 
@@ -215,8 +235,6 @@ def find_quantized_files(files, quantization):
     Returns:
         list: List of matching files
     """
-    import re
-    
     # Common quantization patterns
     patterns = [
         rf".*{re.escape(quantization)}.*\.gguf$",  # Exact match with .gguf extension
@@ -251,16 +269,31 @@ def download_specific_files(repo_id, files, local_dir):
     
     try:
         for file in files:
-            hf_hub_download(
-                repo_id=repo_id,
-                filename=file,
-                local_dir=local_dir,
-                token=HF_TOKEN
-            )
+            download_file(repo_id, file, local_dir)
         print(f"✓ Successfully downloaded files to {local_dir}")
     except Exception as e:
         print(f"✗ Error downloading files: {e}")
         sys.exit(1)
+
+
+def download_file(repo_id, filename, local_dir):
+    """Download a single file from Hugging Face."""
+    url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
+    headers = {}
+    if HF_TOKEN:
+        headers["Authorization"] = f"Bearer {HF_TOKEN}"
+    
+    response = requests.get(url, headers=headers, stream=True)
+    if response.status_code != 200:
+        msg = response.text[:500] if response.text else "No response body"
+        raise Exception(f"HTTP {response.status_code}: {msg}")
+    
+    filepath = Path(local_dir) / filename
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(filepath, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
 
 
 def check_repo_exists(repo_id):
@@ -274,10 +307,14 @@ def check_repo_exists(repo_id):
         bool: True if repository exists
     """
     try:
-        api = HfApi(token=HF_TOKEN)
-        api.repo_info(repo_id)
-        return True
-    except HfHubHTTPError:
+        url = f"https://huggingface.co/api/models/{repo_id}"
+        headers = {}
+        if HF_TOKEN:
+            headers["Authorization"] = f"Bearer {HF_TOKEN}"
+        
+        response = requests.get(url, headers=headers)
+        return response.status_code == 200
+    except Exception:
         return False
 
 
@@ -314,11 +351,10 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
     if detected_format == "openvino":
         print(f"OpenVINO format detected - downloading entire repository ({len(files)} files)...")
         try:
-            snapshot_download(
-                repo_id=repo_id,
-                local_dir=local_dir,
-                token=HF_TOKEN
-            )
+            # For OpenVINO, we need to download all files
+            # We'll download all non-.gguf files (config, tokenizer, etc.)
+            non_gguf_files = [f for f in files if not f.endswith('.gguf')]
+            download_specific_files(repo_id, non_gguf_files, local_dir)
             print(f"✓ Successfully downloaded OpenVINO model {repo_id} to {local_dir}")
             return
         except Exception as e:
@@ -338,8 +374,8 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
                 download_specific_files(repo_id, files_to_download, local_dir)
                 return
             elif choice == 'a':
-                # Download everything
-                snapshot_download(repo_id=repo_id, local_dir=local_dir)
+                # Download everything - we'll download all files
+                download_specific_files(repo_id, files, local_dir)
                 print(f"✓ Successfully downloaded all files from {repo_id} to {local_dir}")
                 return
             # Default to GGUF processing (choice == 'g' or other)
@@ -433,11 +469,7 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
         # Download entire repository
         print(f"Downloading entire repository ({len(files)} files)...")
         try:
-            snapshot_download(
-                repo_id=repo_id,
-                local_dir=local_dir,
-                token=HF_TOKEN
-            )
+            download_specific_files(repo_id, files, local_dir)
             print(f"✓ Successfully downloaded {repo_id} to {local_dir}")
             return
         except Exception as e:
@@ -450,7 +482,7 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Download models from Hugging Face Hub with quantization support",
+        description="Download models from Hugging Face Hub with quantization support (no huggingface_hub dependency)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
   hf.py llama-2-7b-chat
