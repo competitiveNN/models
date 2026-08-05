@@ -31,7 +31,7 @@ Usage:
   agents-cli --help                Show this help
   agents-cli --privileged          Run container with --privileged (extended caps)
 
-ℹ️  Supported agents: pi, little-coder, engram, tokensave, oh-my-pi, zerostack, codex, opencodex, hwatu, grok-build
+ℹ️  Supported agents: pi, little-coder, engram, tokensave, oh-my-pi, zerostack, codex, opencodex, hwatu, grok-build, vtcode
 
 ⚠️  Note: agents-cli must be run from the host, not from inside a container.
     For containerized execution (e.g., toolbox), use agents-cli-bwrap instead.
