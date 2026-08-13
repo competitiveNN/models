@@ -16,6 +16,8 @@ Examples:
     python ovms_manager.py add /models/ov/mistral/phi-3-mini --name phi3-mini
     python ovms_manager.py add /models/ov/mistral/ministral --name ministral --llm
     python ovms_manager.py add /models/ov/mistral/qwen2.5-7b --name qwen2.5 --llm --pipeline-type LM_CB
+    python ovms_manager.py add /models/ov/mistral/qwen2.5-7b --name qwen2.5 --llm --pipeline-type LM_CB \\
+        --draft-model-path /models/ov/z-lab/Qwen3.5-27B-DFlash --draft-device GPU.1
     python ovms_manager.py remove llama-2-7b-chat
     python ovms_manager.py list
     python ovms_manager.py reload
@@ -202,7 +204,9 @@ class OVMSConfigManager:
                              execution_mode_hint: Optional[str] = "PERFORMANCE",
                              scheduling_core_type: Optional[str] = "PCORE_ONLY",
                              enable_cpu_pinning: Optional[bool] = False,
-                               pipeline_type: Optional[str] = None) -> bool:
+                               pipeline_type: Optional[str] = None,
+                               draft_models_path: Optional[str] = None,
+                               draft_device: Optional[str] = None) -> bool:
         """Create a unique graph.pbtxt by copying a template and updating configuration."""
         p_template = self._map_path(template_path)
         
@@ -306,6 +310,35 @@ class OVMSConfigManager:
                         content = content[:insert_at] + f"pipeline_type: {pipeline_type}\n" + content[insert_at:]
                     else:
                         content = content.rstrip("\n") + f"\npipeline_type: {pipeline_type}\n"
+
+            # 6. Add draft model config for speculative decoding (DFlash / EAGLE3)
+            if draft_models_path:
+                # Check if draft_models_path already exists in the graph
+                dmp_pattern = r'(draft_models_path:\s*["\'])([^"\']*)(["\'])'
+                dmp_match = re.search(dmp_pattern, content)
+                if dmp_match:
+                    content = re.sub(dmp_pattern, lambda m: f"{m.group(1)}{draft_models_path}{m.group(3)}", content)
+                else:
+                    # Insert after the models_path line (inside LLMCalculatorOptions)
+                    models_path_line = re.search(r'(^\s*models_path:\s*[^\n]*\n)', content, flags=re.MULTILINE)
+                    if models_path_line:
+                        insert_at = models_path_line.end(1)
+                        content = content[:insert_at] + f'            draft_models_path: "{draft_models_path}",\n' + content[insert_at:]
+                    else:
+                        content = content.rstrip("\n") + f'\n            draft_models_path: "{draft_models_path}",\n'
+
+                if draft_device:
+                    dd_pattern = r'(draft_device:\s*["\'])([^"\']*)(["\'])'
+                    dd_match = re.search(dd_pattern, content)
+                    if dd_match:
+                        content = re.sub(dd_pattern, lambda m: f"{m.group(1)}{draft_device}{m.group(3)}", content)
+                    else:
+                        content = content.replace(
+                            f'            draft_models_path: "{draft_models_path}",\n',
+                            f'            draft_models_path: "{draft_models_path}",\n            draft_device: "{draft_device}",\n'
+                        )
+
+                print(f"✓ Added draft model config (draft_models_path={draft_models_path}, draft_device={draft_device})")
 
             # Determine target write path
             p_target = self._map_path(target_path)
@@ -462,6 +495,11 @@ class OVMSConfigManager:
             # 1. Create unique graph
             template_graph_path = "/models/ov/server/graph.pbtxt"
             print(f"Creating unique graph from template: {template_graph_path}")
+            
+            # Draft model path is relative to the model directory (./draft)
+            draft_graph_path = "./draft" if managed_draft_path else None
+            resolved_draft_device = draft_device or device
+            
             if not self._create_unique_graph(template_graph_path, unique_graph_path, target_model_dir,
                                              kv_cache_precision, 
                                              cache_size, device, symlink_target,
@@ -470,7 +508,9 @@ class OVMSConfigManager:
                                              execution_mode_hint,
                                              scheduling_core_type,
                                              enable_cpu_pinning,
-                                             pipeline_type=pipeline_type):
+                                             pipeline_type=pipeline_type,
+                                             draft_models_path=draft_graph_path,
+                                             draft_device=resolved_draft_device):
                 print("Failed to create unique graph. Aborting configuration update.")
                 return
 
@@ -486,12 +526,9 @@ class OVMSConfigManager:
             }
             if device:
                 model_config["config"]["target_device"] = device
-                
-            if managed_draft_path:
-                draft_base_path = os.path.dirname(managed_draft_path)
-                model_config["config"]["draft_model_path"] = draft_base_path
-                model_config["config"]["num_assistant_tokens"] = num_assistant_tokens
-                model_config["config"]["draft_device"] = draft_device or device or "HETERO:GPU.1,GPU.0,CPU,NPU"
+
+            # Note: draft model settings (draft_models_path, draft_device) are configured
+            # in the graph.pbtxt LLMCalculatorOptions, not in the model config JSON.
 
             # Clean up existing conflicting names
             self.config["model_config_list"] = [
@@ -751,8 +788,9 @@ def main():
   %(prog)s add /models/ov/mistral/llama-2-7b-chat
   %(prog)s add /models/ov/mistral/phi-3-mini --name phi3-mini
   %(prog)s add /models/ov/mistral/ministral --name ministral --llm
-  %(prog)s add /models/ov/mistral/qwen2.5-7b --name qwen2.5 --llm --pipeline-type LM_CB
-  %(prog)s remove llama-2-7b-chat
+   %(prog)s add /models/ov/mistral/qwen2.5-7b --name qwen2.5 --llm --pipeline-type LM_CB
+   %(prog)s add /models/ov/mistral/qwen2.5-7b --name qwen2.5 --llm --pipeline-type LM_CB --draft-model-path /models/ov/z-lab/Qwen3.5-27B-DFlash --draft-device GPU.1
+   %(prog)s remove llama-2-7b-chat
   %(prog)s list
   %(prog)s reload
   %(prog)s status"""

@@ -59,14 +59,15 @@ python ovms_manager.py add /models/ov/llama-2-7b --llm --kv-cache-precision f16
 # Set specific cache size in GB (default: heuristic calculation based on available GPU memory)
 python ovms_manager.py add /models/ov/llama-2-7b --llm --cache-size 10
 
-# Set number of streams (default: uses max_num_seqs from template)
-python ovms_manager.py add /models/ov/llama-2-7b --llm --num-streams 2
-
 # Set performance hint (default: THROUGHPUT)
 python ovms_manager.py add /models/ov/llama-2-7b --llm --performance-hint LATENCY
 
-# Set inference precision hint (e.g. f32, f16, bf16). Default: None (not set)
+# Set inference precision hint (e.g. f32, f16, bf16). Default: f16
 python ovms_manager.py add /models/ov/llama-2-7b --llm --inference-precision-hint f16
+
+# Add a DFlash draft model for speculative decoding
+python ovms_manager.py add /models/ov/llama-2-7b --llm \
+    --draft-model-path /models/ov/z-lab/Qwen3.5-27B-DFlash --draft-device GPU.1
 ```
 
 ### Global Options
@@ -81,7 +82,7 @@ python ovms_manager.py add /models/ov/llama-2-7b --llm --inference-precision-hin
 
 | Command | Description | Options |
 |---------|-------------|---------|
-| `add <path>` | Add model/graph to configuration | `--name`, `--device`, `--llm`, `--kv-cache-precision`, `--cache-size`, `--num-streams`, `--performance-hint`, `--inference-precision-hint` |
+| `add <path>` | Add model/graph to configuration | `--name`, `--device`, `--llm`, `--pipeline-type`, `--kv-cache-precision`, `--cache-size`, `--performance-hint`, `--inference-precision-hint`, `--model-distribution-policy`, `--execution-mode-hint`, `--scheduling-core-type`, `--enable-cpu-pinning`, `--draft-model-path`, `--draft-device`, `--num-assistant-tokens` |
 | `remove <name>` | Remove model/graph by name | None |
 | `clear` | Remove all models and graphs | `--force` |
 | `list` | List all configured models and graphs | None |
@@ -94,11 +95,46 @@ When using the `--llm` flag, the script performs several automated steps:
 
 1.  **Unique Graph Generation**: Creates a unique `graph.pbtxt` for the model in its managed directory.
 2.  **Path Resolution**: Updates the `models_path` in the graph to point to the correct location (handling symlinks).
-3.  **Plugin Configuration**: Injects optimization parameters (`KV_CACHE_PRECISION`, `NUM_STREAMS`, `PERFORMANCE_HINT`) into the graph's `plugin_config`.
+3.  **Plugin Configuration**: Injects optimization parameters (`KV_CACHE_PRECISION`, `PERFORMANCE_HINT`, `INFERENCE_PRECISION_HINT`, `MODEL_DISTRIBUTION_POLICY`, `EXECUTION_MODE_HINT`, `SCHEDULING_CORE_TYPE`, `ENABLE_CPU_PINNING`) into the graph's `plugin_config`.
 4.  **Configuration Entry**: Adds an entry to `mediapipe_config_list` pointing to the new unique graph.
 
 **Heuristic Cache Sizing**:
 If `--cache-size` is not provided and the target device is a GPU, the script uses `openvino` to detect the GPU's total memory. It then subtracts the estimated model size and a system overhead buffer (~1.5GB) to automatically set the optimal `cache_size`.
+
+## Speculative Decoding (DFlash Draft Models)
+
+The script supports adding **draft models** for speculative decoding (e.g. [DFlash](https://github.com/z-lab/dflash) block-diffusion drafters). When `--draft-model-path` is provided with `--llm`, the script:
+
+1. Creates a managed symlink for the draft model under `./draft/1` inside the model's managed directory.
+2. Writes `draft_models_path: "./draft"` and `draft_device` into the generated `graph.pbtxt`'s `LLMCalculatorOptions`, which is where OVMS reads draft configuration.
+3. The main model config (`model_config_list`) remains clean — draft settings are **not** stored in the JSON config.
+
+**Requirements:** The draft model must be an OpenVINO-exported model with `--all-layers` (to output hidden states for KV injection). DFlash draft models from `z-lab` are available on HuggingFace (e.g. `z-lab/Qwen3.5-27B-DFlash`).
+
+**Note:** `num_assistant_tokens` is a **request-time generation parameter** — set it via `generation_config.json` in the model directory or pass it per-request in the API body, not via `ovms_manager.py`.
+
+```bash
+# Add a model with a DFlash draft model
+python ovms_manager.py add /models/ov/mistral/qwen3.5-27b --name qwen3.5-27b --llm \
+    --pipeline-type LM_CB \
+    --device GPU.1 \
+    --draft-model-path /models/ov/z-lab/Qwen3.5-27B-DFlash \
+    --draft-device GPU.1
+```
+
+This generates a `graph.pbtxt` containing:
+```
+node_options: {
+    [type.googleapis.com / mediapipe.LLMCalculatorOptions]: {
+        models_path: "/models/ov/server/qwen3.5-27b/1",
+        plugin_config: '{"KV_CACHE_PRECISION": "u8", ...}',
+        cache_size: 0,
+        device: "GPU.1",
+        draft_models_path: "./draft",
+        draft_device: "GPU.1",
+    }
+}
+```
 
 ## Configuration Format
 
