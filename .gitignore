@@ -14,3 +14,9 @@ ovms/model_server/*
 !.gitkeep
 .soulforge
 **/.envrc
+.maki
+llama.cpp-setup/beellama.cpp/
+llama.cpp-setup/ik_llama.cpp/
+llama.cpp-setup/llama.cpp/
+vllm-setup/vllm/
+vllm-setup/vllm.sh
