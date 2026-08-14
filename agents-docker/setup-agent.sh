@@ -613,6 +613,22 @@ install_hwatu() {
 	ok "Hwatu installed: $(${LOCAL_BIN}/hwatu --version 2>&1 | head -1)"
 }
 
+install_maki() {
+	local version="${1:-latest}"
+	log "Installing Maki (${version})..."
+	export MAKI_INSTALL_DIR="${LOCAL_BIN}"
+	mkdir -p "${LOCAL_BIN}"
+	# Use official install script
+	if ! bash -c 'curl -fsSL https://raw.githubusercontent.com/tontinton/maki/main/install.sh | bash' "$version"; then
+		warn "Maki install failed"
+		return 1
+	fi
+	# Persist config
+	mkdir -p "${CONTAINER_HOME}/.config/maki"
+	ln -sfn "${CONTAINER_HOME}/.config/maki" "${CONTAINER_HOME}/.maki" 2>/dev/null || true
+	ok "Maki installed: $(${LOCAL_BIN}/maki --version 2>&1 | head -1)"
+}
+
 install_grok_build() {
 	local version="${1:-latest}"
 	log "Installing Grok Build (${version})..."
@@ -797,6 +813,7 @@ Agents:
   tokensave    TokenSave Code Graph System (Rust)
   oh-my-pi     oh-my-pi shell configuration (Bash)
   zerostack    Zerostack development environment (Python)
+  maki         Maki coding agent (Rust)
   hwatu        Hwatu coding agent (Rust)
   grok-build   Grok Build coding agent (Rust)
 
@@ -823,6 +840,7 @@ engram) install_engram "$VERSION" ;;
  tokensave) install_tokensave "$VERSION" ;;
  oh-my-pi) install_oh_my_pi "$VERSION" ;;
  zerostack) install_zerostack "$VERSION" ;;
+  maki) install_maki "$VERSION" ;;
    hwatu) install_hwatu "$VERSION" ;;
   grok-build) install_grok_build "$VERSION" ;;
 
@@ -830,12 +848,13 @@ engram) install_engram "$VERSION" ;;
 all)
 	log "Installing all agents..."
 	install_pi "$VERSION"
-	install_little_coder "$VERSION"
+
 	install_engram "$VERSION"
  	install_tokensave "$VERSION"
  	install_oh_my_pi "$VERSION"
- 	install_zerostack "$VERSION"
- 	install_hwatu "$VERSION"
+	install_zerostack "$VERSION"
+	install_maki "$VERSION"
+	install_hwatu "$VERSION"
  	install_grok_build "$VERSION"
  
 
