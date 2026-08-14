@@ -91,15 +91,7 @@ if [[ -d "${CONTAINER_HOME}/.config/pi" ]]; then
 	ln -sfn "${CONTAINER_HOME}/.config/pi" "${CONTAINER_HOME}/.pi" 2>/dev/null || true
 fi
 
-# Recreate Codex directory symlink to persist it in the .config volume
-if [[ -d "${CONTAINER_HOME}/.config/codex" ]]; then
-	ln -sfn "${CONTAINER_HOME}/.config/codex" "${CONTAINER_HOME}/.codex" 2>/dev/null || true
-fi
 
-# Recreate OpenCodex directory symlink to persist it in the .config volume
-if [[ -d "${CONTAINER_HOME}/.config/opencodex" ]]; then
-	ln -sfn "${CONTAINER_HOME}/.config/opencodex" "${CONTAINER_HOME}/.opencodex" 2>/dev/null || true
-fi
 
 # Ensure oh-my-pi's full ~/.omp user directory is symlinked to the persistent
 # -local volume so it (agent sessions, secrets.yml, plugins, ...) survives

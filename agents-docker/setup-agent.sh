@@ -8,7 +8,6 @@ set -euo pipefail
 #   setup-agent.sh all     — install every supported agent
 #
 # Agents:
-#   pi, little-coder, engram, tokensave, oh-my-pi, zerostack, codex, opencodex, hwatu, grok-build, vtcode
 #
 # Agents are installed into ~/.npm-global (npm agents) or ~/.local/bin (rtk)
 # so they live on the same volume that holds the config files
@@ -632,48 +631,7 @@ install_zerostack() {
 	ok "Zerostack installed: $(${LOCAL_BIN}/zerostack --version 2>&1 | head -1)"
 }
 
-install_codex() {
-	local version="${1:-latest}"
-	log "Installing OpenAI Codex (${version})..."
 
-	# Codex installs to ~/.codex/ (binary, config, memory). Symlink to the
-	# persistent -local volume so the install survives container restarts.
-	local CODEX_BACKING="${PERSISTENT_SHARE}/codex"
-	mkdir -p "${CODEX_BACKING}"
-	ln -sfn "${CODEX_BACKING}" "${CONTAINER_HOME}/.codex"
-
-	# The official installer downloads a standalone binary. It respects
-	# CODEX_VERSION for pinning (expects x.y.z, no leading v).
-	if [[ "$version" != "latest" && -n "$version" ]]; then
-		export CODEX_VERSION="${version#v}"
-	fi
-	export CODEX_QUIET=1
-
-	log "Running the official installer: curl -fsSL https://chatgpt.com/codex/install.sh | sh"
-	if ! bash -c 'curl -fsSL https://chatgpt.com/codex/install.sh | sh'; then
-		unset CODEX_VERSION CODEX_QUIET 2>/dev/null || true
-		warn "Codex install failed"
-		return 1
-	fi
-	unset CODEX_VERSION CODEX_QUIET 2>/dev/null || true
-
-	ok "Codex installed: $(${CONTAINER_HOME}/.codex/bin/codex --version 2>&1 | head -1)"
-}
-
-install_opencodex() {
-	local version="${1:-latest}"
-	log "Installing OpenCodex (${version})..."
-	if [[ "$version" == "latest" ]]; then
-		npm install --prefix "${PERSISTENT_NPM}" @bitkyc08/opencodex
-	else
-		npm install --prefix "${PERSISTENT_NPM}" "@bitkyc08/opencodex@${version}"
-	fi
-	# Recreate persistent directory symlink
-	mkdir -p "${CONTAINER_HOME}/.config/opencodex"
-	ln -sfn "${CONTAINER_HOME}/.config/opencodex" "${CONTAINER_HOME}/.opencodex" 2>/dev/null || true
-
-	ok "OpenCodex installed: $(${NPM_BIN}/ocx --version 2>&1 | head -1)"
-}
 
 install_hwatu() {
 	local version="${1:-latest}"
@@ -764,127 +722,6 @@ install_grok_build() {
 	ok "Grok Build installed: $(${LOCAL_BIN}/grok --version 2>&1 | head -1)"
 }
 
-install_vtcode() {
-	local version="${1:-latest}"
-	log "Installing VT Code (${version})..."
-
-	# VT Code is a Rust binary distributed as platform-specific tarballs on GitHub:
-	# https://github.com/vinhnx/VTCode/releases
-	local arch=""
-	case "$(uname -m)" in
-	x86_64) arch="x86_64" ;;
-	aarch64|arm64) arch="aarch64" ;;
-	*)
-		warn "Unsupported architecture for VT Code: $(uname -m)"
-		return 1
-		;;
-	esac
-
-	local platform=""
-	if [[ "$(uname -s)" == "Linux" ]]; then
-		# Prefer musl (static) for broad glibc compatibility; fall back to gnu.
-		platform="unknown-linux-musl"
-	elif [[ "$(uname -s)" == "Darwin" ]]; then
-		platform="apple-darwin"
-	else
-		warn "Unsupported platform for VT Code: $(uname -s)"
-		return 1
-	fi
-
-	local TMP_DIR
-	TMP_DIR=$(mktemp -d)
-	local download_url=""
-	local release_tag=""
-
-	if command -v curl &>/dev/null && command -v jq &>/dev/null; then
-		local api_url="https://api.github.com/repos/vinhnx/vtcode/releases/latest"
-		if [[ "$version" != "latest" && -n "$version" ]]; then
-			# Release tags are unprefixed (e.g. 0.141.12); accept optional leading v.
-			api_url="https://api.github.com/repos/vinhnx/vtcode/releases/tags/${version#v}"
-		fi
-		local release_info
-		release_info=$(curl -fsSL "$api_url" 2>/dev/null || true)
-
-		if [[ -n "$release_info" ]]; then
-			if echo "$release_info" | jq -e '.message' >/dev/null 2>&1; then
-				warn "API error: $(echo "$release_info" | jq -r '.message')"
-			else
-				release_tag=$(echo "$release_info" | jq -r '.tag_name // empty')
-				# Prefer musl on Linux; fall back to gnu if musl asset is missing.
-				download_url=$(echo "$release_info" | jq -r \
-					".assets[]? | select(.name | test(\"^vtcode-.*-${arch}-${platform}\\\\.tar\\\\.gz$\")) | .browser_download_url" \
-					2>/dev/null | head -1)
-				if [[ -z "$download_url" && "$platform" == "unknown-linux-musl" ]]; then
-					download_url=$(echo "$release_info" | jq -r \
-						".assets[]? | select(.name | test(\"^vtcode-.*-${arch}-unknown-linux-gnu\\\\.tar\\\\.gz$\")) | .browser_download_url" \
-						2>/dev/null | head -1)
-				fi
-			fi
-		fi
-	fi
-
-	if [[ -z "$download_url" ]]; then
-		warn "Could not resolve VT Code download URL (version=${version})"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	log "Downloading from: $download_url"
-	local tar_name
-	tar_name=$(basename "$download_url")
-	if ! curl -fsSL "$download_url" -o "${TMP_DIR}/${tar_name}"; then
-		warn "Download failed for ${tar_name}"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	# Verify checksum from release checksums.txt when available
-	if [[ -n "$release_tag" ]]; then
-		local checksums_url="https://github.com/vinhnx/vtcode/releases/download/${release_tag}/checksums.txt"
-		if curl -fsSL "$checksums_url" -o "${TMP_DIR}/checksums.txt" 2>/dev/null; then
-			log "Verifying checksum..."
-			local expected
-			expected=$(grep -F "$tar_name" "${TMP_DIR}/checksums.txt" 2>/dev/null | awk '{print $1}' | head -1 || true)
-			if [[ -n "$expected" ]] && command -v sha256sum &>/dev/null; then
-				local actual
-				actual=$(sha256sum "${TMP_DIR}/${tar_name}" | awk '{print $1}')
-				if [[ "$actual" != "$expected" ]]; then
-					warn "Checksum mismatch for ${tar_name} (expected ${expected}, got ${actual})"
-					rm -rf "$TMP_DIR"
-					return 1
-				fi
-			fi
-		fi
-	fi
-
-	log "Extracting..."
-	cd "$TMP_DIR"
-	if ! tar xzf "${tar_name}"; then
-		warn "Extraction failed"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	local vtcode_bin
-	vtcode_bin=$(find . -type f \( -name "vtcode" -o -name "vtcode.exe" \) ! -name "*.tar.gz" | head -1)
-
-	if [[ -z "$vtcode_bin" || ! -f "$vtcode_bin" ]]; then
-		warn "vtcode binary not found in the extracted archive"
-		rm -rf "$TMP_DIR"
-		return 1
-	fi
-
-	mkdir -p "${LOCAL_BIN}"
-	install -m 0755 "$vtcode_bin" "${LOCAL_BIN}/vtcode"
-
-	# Persist user/config data under the shared .config volume
-	mkdir -p "${CONTAINER_HOME}/.config/vtcode"
-	ln -sfn "${CONTAINER_HOME}/.config/vtcode" "${CONTAINER_HOME}/.vtcode" 2>/dev/null || true
-
-	rm -rf "$TMP_DIR"
-
-	ok "VT Code installed: $(${LOCAL_BIN}/vtcode --version 2>&1 | head -1)"
-}
 
 install_qwen_code() {
 	local version="${1:-latest}"
@@ -1039,11 +876,9 @@ Agents:
   tokensave    TokenSave Code Graph System (Rust)
   oh-my-pi     oh-my-pi shell configuration (Bash)
   zerostack    Zerostack development environment (Python)
-  codex        OpenAI Codex coding agent (Node.js)
-  opencodex    OpenCodex universal provider proxy (Node.js)
   hwatu        Hwatu coding agent (Rust)
   grok-build   Grok Build coding agent (Rust)
-  vtcode       VT Code coding agent (Rust)
+
   all          Install every supported agent
 
 Examples:
@@ -1068,11 +903,9 @@ engram) install_engram "$VERSION" ;;
  tokensave) install_tokensave "$VERSION" ;;
  oh-my-pi) install_oh_my_pi "$VERSION" ;;
  zerostack) install_zerostack "$VERSION" ;;
- codex) install_codex "$VERSION" ;;
- opencodex) install_opencodex "$VERSION" ;;
    hwatu) install_hwatu "$VERSION" ;;
   grok-build) install_grok_build "$VERSION" ;;
-  vtcode) install_vtcode "$VERSION" ;;
+
 
 all)
 	log "Installing all agents..."
@@ -1082,11 +915,9 @@ all)
  	install_tokensave "$VERSION"
  	install_oh_my_pi "$VERSION"
  	install_zerostack "$VERSION"
- 	install_codex "$VERSION"
- 	install_opencodex "$VERSION"
  	install_hwatu "$VERSION"
  	install_grok_build "$VERSION"
- 	install_vtcode "$VERSION"
+ 
 
 	ok "All agents installed"
 	;;
