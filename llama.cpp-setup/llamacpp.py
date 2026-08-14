@@ -2,6 +2,7 @@
 """Llamacpp launcher — Python replacement for llamacpp.sh with TOML config."""
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -12,6 +13,36 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.toml")
 def load_config(path=CONFIG_PATH):
     with open(path, "rb") as f:
         return tomllib.load(f)
+
+
+def parse_ctx_size(value):
+    """Parse a context size like '64k' or '4m' into a token count."""
+    m = re.fullmatch(r"([0-9]+)([kmKM]?)", str(value))
+    if not m:
+        return value
+    num = int(m.group(1))
+    suffix = m.group(2).lower()
+    if suffix == "k":
+        return num * 1024
+    if suffix == "m":
+        return num * 1024 * 1024
+    return num
+
+
+def parse_size_value(value):
+    """Parse a size like '512m' or '2g' into bytes."""
+    m = re.fullmatch(r"([0-9]+)([kmgKMG]?)", str(value))
+    if not m:
+        return value
+    num = int(m.group(1))
+    suffix = m.group(2).lower()
+    if suffix == "k":
+        return num * 1024
+    if suffix == "m":
+        return num * 1024 * 1024
+    if suffix == "g":
+        return num * 1024 * 1024 * 1024
+    return num
 
 
 def build_docker_args(config, selected_gpus=None, cpu_mode=False):
@@ -29,6 +60,7 @@ def build_docker_args(config, selected_gpus=None, cpu_mode=False):
             elif g == "1":
                 devices.append("--device /dev/dri/card1 --device /dev/dri/renderD129")
     common = [
+        "--net=host",
         "--security-opt", "label=disable",
         "-it", "--rm",
         "-v", f"{os.path.expandvars(cfg_llama.get('models_path', '$HOME/data/models/gguf'))}:/models",
@@ -44,8 +76,7 @@ def build_docker_args(config, selected_gpus=None, cpu_mode=False):
 
 def build_model_args(config, extra_args=None, manual_ctx_size=None, fit_ctx_size=None,
                      use_fit_mode=False, n_gpu_layers="all", n_cpu_moe=0,
-                     cpu_mode=False, preserve_thinking=False, mtp=False,
-                     spec_enabled=True, reasoning_budget=False):
+                     cpu_mode=False, preserve_thinking=False, reasoning_budget=False):
     model_key = config["defaults"].get("model", "")
     model_path = config.get("model_paths", {}).get(model_key, model_key)
     args = [
@@ -92,21 +123,11 @@ def build_model_args(config, extra_args=None, manual_ctx_size=None, fit_ctx_size
         args.extend(["--ctx-size", str(config["defaults"].get("ctx_size", 16384))])
     if preserve_thinking:
         args.extend(["--chat-template-kwargs", '{"preserve_thinking": true}'])
-    if mtp:
-        spec_cfg = config.get("spec", {})
-        args.extend([
-            "--spec-draft-n-max", str(spec_cfg.get("spec_draft_max_mtp", 3)),
-            "--spec-draft-n-min", str(spec_cfg.get("spec_draft_min_mtp", 0)),
-            "--spec-type", "draft-mtp",
-            "--spec-draft-type-k", "q4_0",
-            "--spec-draft-type-v", "q4_0",
-            "--spec-draft-p-min", "0.75",
-        ])
     return args
 
 
 def build_spec_args(config, spec_draft_model="", spec_draft_max="", spec_draft_min="",
-                    spec_type="ngram-map-k", spec_ngram_size_n=24,
+                    spec_type="ngram-simple", spec_ngram_size_n=24,
                     spec_draft_kv_k="", spec_draft_kv_v="", spec_draft_p_min="",
                     cache_type_k_draft="", cache_type_v_draft="", no_spec=False,
                     ngram_type=None):
@@ -114,6 +135,13 @@ def build_spec_args(config, spec_draft_model="", spec_draft_max="", spec_draft_m
     if no_spec:
         return args
     spec_cfg = config.get("spec", {})
+    # ngram-simple is always enabled: it is only disabled when --no-spec is
+    # passed. Add it to the spec type list even when MTP or another draft type
+    # is in use, so it is never silently dropped.
+    spec_types = [t.strip() for t in (spec_type or "ngram-simple").split(",") if t.strip()]
+    if "ngram-simple" not in spec_types:
+        spec_types.append("ngram-simple")
+    spec_type = ",".join(spec_types)
     if spec_draft_model and spec_draft_model != "1":
         args.extend(["--model-draft", spec_draft_model])
     if spec_draft_max:
@@ -132,23 +160,24 @@ def build_spec_args(config, spec_draft_model="", spec_draft_max="", spec_draft_m
         args.extend(["--cache-type-k-draft", cache_type_k_draft])
     if cache_type_v_draft:
         args.extend(["--cache-type-v-draft", cache_type_v_draft])
-    if spec_ngram_size_n and spec_type and spec_type.startswith("ngram"):
-        if spec_type == "ngram-simple":
-            args.extend(["--spec-ngram-simple-size-n", str(spec_ngram_size_n)])
-        elif spec_type == "ngram-map-k":
-            args.extend(["--spec-ngram-map-k-size-n", str(spec_ngram_size_n)])
-        elif spec_type == "ngram-map-k4v":
-            args.extend(["--spec-ngram-map-k4v-size-n", str(spec_ngram_size_n)])
-        elif spec_type == "ngram-mod":
-            args.extend(["--spec-ngram-mod-n-match", str(spec_ngram_size_n)])
+    if spec_ngram_size_n and spec_type:
+        for spec_type_i in [t.strip() for t in spec_type.split(",") if t.strip()]:
+            if spec_type_i == "ngram-simple":
+                args.extend(["--spec-ngram-simple-size-n", str(spec_ngram_size_n)])
+            elif spec_type_i == "ngram-map-k":
+                args.extend(["--spec-ngram-map-k-size-n", str(spec_ngram_size_n)])
+            elif spec_type_i == "ngram-map-k4v":
+                args.extend(["--spec-ngram-map-k4v-size-n", str(spec_ngram_size_n)])
+            elif spec_type_i == "ngram-mod":
+                args.extend(["--spec-ngram-mod-n-match", str(spec_ngram_size_n)])
     return args
 
 
 def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
              fit_ctx_size=None, use_fit_mode=False, n_gpu_layers="all",
              n_cpu_moe=0, cpu_mode=False, preserve_thinking=False,
-             mtp=False, spec_enabled=True, spec_draft_model="",
-             spec_draft_max="", spec_draft_min="", spec_type="ngram-map-k",
+             spec_draft_model="",
+             spec_draft_max="", spec_draft_min="", spec_type="ngram-simple",
              spec_ngram_size_n=24, spec_draft_kv_k="", spec_draft_kv_v="",
              spec_draft_p_min="", cache_type_k_draft="", cache_type_v_draft="",
              no_spec=False, timeout=3600, reasoning_budget=False):
@@ -156,7 +185,7 @@ def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
         config, extra_args=extra_args, manual_ctx_size=manual_ctx_size,
         fit_ctx_size=fit_ctx_size, use_fit_mode=use_fit_mode,
         n_gpu_layers=n_gpu_layers, n_cpu_moe=n_cpu_moe, cpu_mode=cpu_mode,
-        preserve_thinking=preserve_thinking, mtp=mtp, spec_enabled=spec_enabled,
+        preserve_thinking=preserve_thinking,
         reasoning_budget=reasoning_budget,
     )
     cmd_args = model_args[:]
@@ -166,14 +195,14 @@ def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
         spec_draft_model=spec_draft_model or spec_cfg.get("spec_draft_model", ""),
         spec_draft_max=str(spec_draft_max or spec_cfg.get("spec_draft_max", "")),
         spec_draft_min=str(spec_draft_min or spec_cfg.get("spec_draft_min", "")),
-        spec_type=spec_type or spec_cfg.get("spec_type", "ngram-map-k"),
+        spec_type=spec_type or spec_cfg.get("spec_type", "ngram-simple"),
         spec_ngram_size_n=spec_ngram_size_n or spec_cfg.get("ngram_size_n", 24),
         spec_draft_kv_k=spec_draft_kv_k or spec_cfg.get("spec_draft_kv_k", ""),
         spec_draft_kv_v=spec_draft_kv_v or spec_cfg.get("spec_draft_kv_v", ""),
         spec_draft_p_min=str(spec_draft_p_min) if spec_draft_p_min else str(spec_cfg.get("spec_draft_p_min", spec_cfg.get("spec-draft-p-min", ""))),
         cache_type_k_draft=cache_type_k_draft or spec_cfg.get("cache_type_k_draft", ""),
         cache_type_v_draft=cache_type_v_draft or spec_cfg.get("cache_type_v_draft", ""),
-        no_spec=no_spec or not spec_cfg.get("spec_enabled", True)
+        no_spec=no_spec
     )
     if mode == "server":
         cmd_args.extend(spec_args)
@@ -219,8 +248,8 @@ def main():
     parser.add_argument("--timeout", type=str, default="3600", help="Timeout")
     parser.add_argument("--draft-max", "--spec-draft-n-max", type=str, default="48", dest="draft_max")
     parser.add_argument("--draft-min", "--spec-draft-n-min", type=str, default="12", dest="draft_min")
-    parser.add_argument("--spec-type", type=str, default="ngram-map-k")
-    parser.add_argument("--spec-ngram-map-k-size-n", "--spec-ngram-size-n", type=str, default="24", dest="spec_ngram_n")
+    parser.add_argument("--spec-type", type=str, default="ngram-simple")
+    parser.add_argument("--spec-ngram-map-k-size-n", "--spec-ngram-simple-size-n", "--spec-ngram-size-n", type=str, default="24", dest="spec_ngram_n")
     parser.add_argument("--spec-draft-type-k", "-ctkd", type=str, default="")
     parser.add_argument("--spec-draft-type-v", "-ctvd", type=str, default="")
     parser.add_argument("--spec-draft-p-min", "--draft-p-min", type=str, default="0.8", dest="spec_draft_p_min")
@@ -268,11 +297,16 @@ def main():
     spec_draft_model = args.draft_model or config.get("spec", {}).get("spec_draft_model", "")
     if mtp:
         spec_draft_model = "1"
-        args.spec_type = "draft-mtp"
+        # Keep ngram-based spec enabled: add MTP alongside, don't replace the spec type
+        spec_types = [t.strip() for t in args.spec_type.split(",") if t.strip()] if args.spec_type else []
+        if "draft-mtp" not in spec_types:
+            spec_types.insert(0, "draft-mtp")
+        args.spec_type = ",".join(spec_types)
         args.draft_max = "3"
         args.draft_min = "0"
         args.spec_draft_type_k = "q4_0"
         args.spec_draft_type_v = "q4_0"
+        args.spec_draft_p_min = "0.75"
         # Add extra MTP args handled by build_spec_args
 
     # Detect
@@ -287,10 +321,30 @@ def main():
     fit_ctx_size = None
     use_fit_mode = False
     extra_args_for_fit = []
-    if args.fit_ctx is not None or args.fit is not None or args.fit_target is not None:
+    if args.fit_ctx is not None:
         use_fit_mode = True
-    # Simplified: don't fully implement --fit-* parsing (complex) but keep placeholders
-    # For full parity, we'd replicate parse_size_value and parse_ctx_size logic
+        extra_args_for_fit.append("--fit-ctx")
+        if args.fit_ctx != "fit-ctx":
+            fit_ctx_size = parse_ctx_size(args.fit_ctx)
+            extra_args_for_fit.append(str(fit_ctx_size))
+        else:
+            extra_args_for_fit.append("4096")
+    if args.fit is not None:
+        use_fit_mode = True
+        extra_args_for_fit.append("--fit")
+        if args.fit != "fit":
+            extra_args_for_fit.append(str(args.fit))
+    if args.fit_target is not None:
+        use_fit_mode = True
+        extra_args_for_fit.append("--fit-target")
+        if args.fit_target != "fit-target":
+            if re.search(r"[kmgKMG]$", str(args.fit_target)):
+                size_mib = parse_size_value(args.fit_target) // (1024 * 1024)
+            else:
+                size_mib = int(args.fit_target)
+            extra_args_for_fit.append(str(size_mib))
+    if args.ctx_size is not None and args.ctx_size != "ctx-size":
+        manual_ctx_size = parse_ctx_size(args.ctx_size)
 
     # Preserve thinking
     preserve_thinking = args.pthinking
@@ -312,8 +366,6 @@ def main():
         n_cpu_moe=int(args.moe) if args.moe else 0,
         cpu_mode=cpu_mode,
         preserve_thinking=preserve_thinking,
-        mtp=mtp,
-        spec_enabled=not args.no_spec,
         spec_draft_model=spec_draft_model,
         spec_draft_max=args.draft_max,
         spec_draft_min=args.draft_min,

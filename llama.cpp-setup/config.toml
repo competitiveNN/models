@@ -1,20 +1,20 @@
 [llama]
 models_path = "$HOME/data/models/gguf"
-image = "localhost/bee-llama-cpp-intel"
+image = "localhost/llama-cpp-intel"
 mode = "bench"
 alias = "model"
 
 [defaults]
-model = "gemma4_26b_qat"
+model = "qwen36_27b_iq4"
 n_gpu_layers = "all"
-n_cpu_moe = 0
+n_cpu_moe = "all"
 threads = 8
-ctx_size = 16384
-batch_size = 2048
-ubatch_size = 2048
-reasoning_budget = 0
+ctx_size = 0
+batch_size = 512
+ubatch_size = 1024
+reasoning_budget = false
 no_mmap = true
-verbosity = 4
+verbosity = 3
 
 [gpu]
 devices = [
@@ -35,22 +35,20 @@ spec-draft-p-min = 0.8
 [model_paths]
 
 qwen35_08b = "/models/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-UD-Q4_K_XL.gguf"
-qwen35_9b = "/models/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf"
-qwen36_35b = "/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+qwen35_9b = "/models/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF/Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-NEO-MAX-MTP-IQ4_NL.gguf"
 qwen36_35b_xs = "/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
 qwen36_35b_bpw_419 = "/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf"
 qwen36_27b_iq4 = "/models/Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved-i1-GGUF/Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved.i1-Q4_K_S.gguf"
 qwen36_35b_ream_q5 = "/models/Qwen3.6-35B-A3B-REAM-192-heretic-APEX-GGUF/Qwen3.6-35B-A3B-REAM-192-heretic-APEX-IBalanced-Q5_K_M.gguf"
+ornith1_35b_q4 = "/models/Ornith-1.0-35B-MTP-APEX-GGUF/Ornith-1.0-35B-MTP-APEX-I-Compact.gguf"
+kat_coder_25 = "/models/KAT-Coder-V2.5-Dev-APEX-MTP-GGUF/Kwaipilot_KAT-Coder-V2.5-Dev-APEX-MTP-I-Compact-v2D-lite.gguf"
+
 
 gemma4_26b_qat = "/models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf"
-gemma4_26b_mtp = "/models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP/mtp-gemma-4-26B-A4B-it.gguf"
 gemma4_31b_qat = "/models/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf"
 gemma4_12b_qat = "/models/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf"
 gemma4_e2b = "/models/gemma-4-E2B-it-QAT-GGUF/gemma-4-E2B-it-QAT-Q4_0.gguf"
-bonsai_27b = "/models/Ternary-Bonsai-27B-gguf/Ternary-Bonsai-27B-PQ2_0.gguf"
-nex_n2_mini_mtp = "/models/Huihui-Nex-N2-mini-abliterated-APEX-MTP-GGUF/Huihui-Nex-N2-mini-APEX-I-Quality-MTP.gguf"
-nex_n2_mini_nomtp = "/models/Huihui-Nex-N2-mini-abliterated-APEX-MTP-GGUF/Huihui-Nex-N2-mini-APEX-I-Quality-noMTP.gguf"
-ornith1_35b_q4 = "/models/ornith-35b-GGUF/ornith-35b-UD-Q4_K_XL.gguf"
+bonsai_27b = "/models/Ternary-Bonsai-27B-gguf/Ternary-Bonsai-27B-Q2_g64.gguf"
 
 phi3_2b = "/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf"
 lfm2_24b = "/models/LFM2-24B-A2B-GGUF/LFM2-24B-A2B-Q4_K_M.gguf"
@@ -59,7 +57,7 @@ lfm25_1_2b = "/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.
 [options]
 timeout = 3600
 cpu_mode = false
-mtp_enabled = false
+mtp_enabled = true
 preserve_thinking = false
 spec_enabled = true
 fit_mode = false

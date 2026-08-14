@@ -2,16 +2,16 @@
   "model_config_list": [
     {
       "config": {
-        "name": "qwen3-6-27b-int4-ov_model",
-        "base_path": "/models/ov/server/qwen3-6-27b-int4-ov",
-        "target_device": "HETERO:GPU.1,GPU.0"
+        "name": "qwen3-5-9b-int4-asym-ov_model",
+        "base_path": "/models/ov/server/qwen3-5-9b-int4-asym-ov",
+        "target_device": "GPU.1"
       }
     }
   ],
   "mediapipe_config_list": [
     {
-      "name": "qwen3-6-27b-int4-ov",
-      "graph_path": "/models/ov/server/qwen3-6-27b-int4-ov/graph.pbtxt"
+      "name": "qwen3-5-9b-int4-asym-ov",
+      "graph_path": "/models/ov/server/qwen3-5-9b-int4-asym-ov/graph.pbtxt"
     }
   ]
 }

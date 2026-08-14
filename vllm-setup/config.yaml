@@ -10,23 +10,23 @@ model: /home/fra/data/models/safetensors/Ornith-1.0-9B-AWQ-INT4
 served-model-name: "model"
 host: "0.0.0.0"
 port: 8009
-# tensor-parallel-size: 2
-pipeline-parallel-size: 2
-gpu-memory-utilization: 0.75
+tensor-parallel-size: 2
+# pipeline-parallel-size: 2
+gpu-memory-utilization: 0.81
 trust-remote-code: true
 enforce-eager: true
 disable-custom-all-reduce: true
 
-enable-prefix-caching: false
-enable-chunked-prefill: true   
-max-num-seqs: 8
-max-model-len: "auto"
+enable-prefix-caching: true
+enable-chunked-prefill: true
+max-num-seqs: 1
+max-model-len: 512
 max-num-batched-tokens: 8192
 block-size: 64
 # cpu-offload-gb: 20
 
-#attention-backend: "TURBOQUANT" 
-#kv-cache-dtype: "turboquant_k8v4"     # Options: turboquant_k8v4, turboquant_4bit_nc, turboquant_k3v4_nc
+attention-backend: "TURBOQUANT" 
+kv-cache-dtype: "turboquant_k8v4"     # Options: turboquant_k8v4, turboquant_4bit_nc, turboquant_k3v4_nc
 #dtype: "bfloat16"
 
 # kv_cache_dtype: "fp8"

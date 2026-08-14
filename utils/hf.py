@@ -20,13 +20,21 @@ import os
 import sys
 import re
 import json
+import subprocess
 import tempfile
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
+from tqdm import tqdm
 
 HF_TOKEN = os.environ.get("HF_TOKEN")
 if not HF_TOKEN:
     print("Warning: HF_TOKEN not set; downloads may be slower or fail for gated repos.")
+
+# Files larger than this are downloaded sequentially with aria2c progress bar.
+# Smaller files are downloaded in parallel with tqdm.
+LARGE_FILE_THRESHOLD = 100 * 1024 * 1024  # 100 MB
+
 
 def parse_model_path(model_input, default_user="unsloth"):
     """
@@ -78,6 +86,36 @@ def list_repo_files(repo_id):
     except Exception as e:
         print(f"Error listing files in {repo_id}: {e}")
         return []
+
+
+def get_file_sizes(repo_id, files):
+    """Fetch file sizes from the Hugging Face API.
+
+    Args:
+        repo_id: Repository ID
+        files: List of filenames
+
+    Returns:
+        dict: {filename: size_in_bytes}
+    """
+    try:
+        url = f"https://huggingface.co/api/models/{repo_id}"
+        headers = {}
+        if HF_TOKEN:
+            headers["Authorization"] = f"Bearer {HF_TOKEN}"
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            return {}
+        repo_info = response.json()
+        sizes = {}
+        for sibling in repo_info.get("siblings", []):
+            filename = sibling.get("rfilename", "")
+            size = sibling.get("size")
+            if filename in files and isinstance(size, int):
+                sizes[filename] = size
+        return sizes
+    except Exception:
+        return {}
 
 
 def detect_model_format(files):
@@ -254,46 +292,92 @@ def find_quantized_files(files, quantization):
     return matching_files
 
 
-def download_specific_files(repo_id, files, local_dir):
+def download_specific_files(repo_id, files, local_dir, file_sizes=None):
     """
-    Download specific files from a repository.
-    
+    Download specific files from a repository in two phases:
+    Phase 1: Small files downloaded in parallel with tqdm progress bar.
+    Phase 2: Large files downloaded sequentially with aria2c progress bar.
+
     Args:
         repo_id: Repository ID to download from
         files: List of files to download
         local_dir: Local directory to save files
+        file_sizes: Optional dict mapping filename to size in bytes
     """
-    print(f"Downloading {len(files)} file(s) from {repo_id}...")
-    for file in files:
-        print(f"  - {file}")
-    
-    try:
-        for file in files:
-            download_file(repo_id, file, local_dir)
-        print(f"✓ Successfully downloaded files to {local_dir}")
-    except Exception as e:
-        print(f"✗ Error downloading files: {e}")
-        sys.exit(1)
+    if file_sizes is None:
+        file_sizes = {}
+
+    small_files = []
+    large_files = []
+    for f in files:
+        size = file_sizes.get(f)
+        if size is not None and size >= LARGE_FILE_THRESHOLD:
+            large_files.append(f)
+        else:
+            small_files.append(f)
+
+    # Phase 1: Download small files in parallel with tqdm progress
+    if small_files:
+        print(f"Downloading {len(small_files)} small file(s) in parallel...")
+        try:
+            max_workers = min(len(small_files), 4)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(download_file, repo_id, f, local_dir): f for f in small_files}
+                for future in tqdm(as_completed(futures), total=len(small_files), desc="Downloading", unit="file"):
+                    f = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        print(f"\n✗ Error downloading {f}: {e}")
+                        sys.exit(1)
+        except Exception as e:
+            print(f"✗ Error downloading small files: {e}")
+            sys.exit(1)
+
+    # Phase 2: Download large files sequentially with aria2c progress bar
+    if large_files:
+        print(f"Downloading {len(large_files)} large file(s) sequentially...")
+        for f in large_files:
+            try:
+                print(f"  → {f}")
+                download_file(repo_id, f, local_dir, show_progress=True)
+            except Exception as e:
+                print(f"\n✗ Error downloading {f}: {e}")
+                sys.exit(1)
+
+    print(f"✓ Successfully downloaded files to {local_dir}")
 
 
-def download_file(repo_id, filename, local_dir):
-    """Download a single file from Hugging Face."""
+def download_file(repo_id, filename, local_dir, show_progress=False):
+    """Download a single file from Hugging Face using aria2c for multi-connection speed."""
     url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
-    headers = {}
-    if HF_TOKEN:
-        headers["Authorization"] = f"Bearer {HF_TOKEN}"
-    
-    response = requests.get(url, headers=headers, stream=True)
-    if response.status_code != 200:
-        msg = response.text[:500] if response.text else "No response body"
-        raise Exception(f"HTTP {response.status_code}: {msg}")
-    
     filepath = Path(local_dir) / filename
     filepath.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(filepath, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
+
+    cmd = [
+        "aria2c",
+        "--max-connection-per-server=4",
+        "--split=4",
+        "--min-split-size=1M",
+        "--continue=true",
+        "--allow-overwrite=true",
+        "--auto-file-renaming=false",
+        "--dir", str(local_dir),
+        "--out", filename,
+        "--summary-interval=1",
+        url,
+    ]
+
+    if not show_progress:
+        cmd.extend(["--quiet=true"])
+
+    if HF_TOKEN:
+        cmd.insert(1, "--header=Authorization: Bearer " + HF_TOKEN)
+
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        raise Exception(f"aria2c failed with exit code {result.returncode}")
+
 
 
 def check_repo_exists(repo_id):
@@ -338,7 +422,9 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
         if not files:
             print(f"✗ Could not list files in repository {repo_id}")
             sys.exit(1)
-    
+
+    file_sizes = get_file_sizes(repo_id, files)
+
     # Detect model format if auto
     if format_type == "auto":
         detected_format = detect_model_format(files)
@@ -354,7 +440,7 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
             # For OpenVINO, we need to download all files
             # We'll download all non-.gguf files (config, tokenizer, etc.)
             non_gguf_files = [f for f in files if not f.endswith('.gguf')]
-            download_specific_files(repo_id, non_gguf_files, local_dir)
+            download_specific_files(repo_id, non_gguf_files, local_dir, file_sizes)
             print(f"✓ Successfully downloaded OpenVINO model {repo_id} to {local_dir}")
             return
         except Exception as e:
@@ -371,11 +457,11 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
                 openvino_files = [f for f in files if f.endswith(('.xml', '.bin')) or 'openvino' in f.lower()]
                 non_model_files = [f for f in files if not f.endswith(('.gguf', '.xml', '.bin'))]
                 files_to_download = non_model_files + openvino_files
-                download_specific_files(repo_id, files_to_download, local_dir)
+                download_specific_files(repo_id, files_to_download, local_dir, file_sizes)
                 return
             elif choice == 'a':
                 # Download everything - we'll download all files
-                download_specific_files(repo_id, files, local_dir)
+                download_specific_files(repo_id, files, local_dir, file_sizes)
                 print(f"✓ Successfully downloaded all files from {repo_id} to {local_dir}")
                 return
             # Default to GGUF processing (choice == 'g' or other)
@@ -469,7 +555,7 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
         # Download entire repository
         print(f"Downloading entire repository ({len(files)} files)...")
         try:
-            download_specific_files(repo_id, files, local_dir)
+            download_specific_files(repo_id, files, local_dir, file_sizes)
             print(f"✓ Successfully downloaded {repo_id} to {local_dir}")
             return
         except Exception as e:
@@ -477,7 +563,7 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
             sys.exit(1)
     
     # Download specific files
-    download_specific_files(repo_id, files_to_download, local_dir)
+    download_specific_files(repo_id, files_to_download, local_dir, file_sizes)
 
 
 def main():

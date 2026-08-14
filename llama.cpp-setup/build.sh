@@ -3,6 +3,16 @@ set -e
 
 BACKEND=$1
 
+# Pass --build-arg=GGML_SYCL_DEVICE_ARCH=bmg_g21 to SYCL builds when WITH_SYCL_ARCH=1.
+# Default is off (the Dockerfile/SYCL runtime selects the GPU arch).
+WITH_SYCL_ARCH="${WITH_SYCL_ARCH:-0}"
+
+if [ "$WITH_SYCL_ARCH" = "1" ]; then
+	SYCL_DEVICE_ARCH_ARG="--build-arg=GGML_SYCL_DEVICE_ARCH=bmg_g21"
+else
+	SYCL_DEVICE_ARCH_ARG=""
+fi
+
 if [ -z "$BACKEND" ]; then
 	echo "Usage: $0 <backend>"
 	echo "Supported backends: openvino, intel, vulkan, ik_llama_cpu, bee_intel, bee_vulkan"
@@ -20,7 +30,7 @@ intel)
 	IMAGE_TAG="llama-cpp-intel"
 	DOCKERFILE="llama.cpp/.devops/intel.Dockerfile"
 	CONTEXT="llama.cpp"
-	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON --build-arg=GGML_SYCL_DEVICE_ARCH=bmg_g21"
+	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON $SYCL_DEVICE_ARCH_ARG"
 	;;
 vulkan)
 	IMAGE_TAG="llama-cpp-vulkan"
@@ -32,7 +42,7 @@ bee_intel)
 	IMAGE_TAG="bee-llama-cpp-intel"
 	DOCKERFILE="beellama.cpp/.devops/intel.Dockerfile"
 	CONTEXT="beellama.cpp"
-	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON --build-arg=GGML_SYCL_DEVICE_ARCH=bmg_g21"
+	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON $SYCL_DEVICE_ARCH_ARG"
 	;;
 bee_vulkan)
 	IMAGE_TAG="bee-llama-cpp-vulkan"

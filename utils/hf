@@ -36,5 +36,12 @@ if ! python -c "import requests" 2>/dev/null; then
     exit 1
 fi
 
+# Check if aria2c is installed
+if ! command -v aria2c &>/dev/null; then
+    echo "Error: aria2c is not installed"
+    echo "Please install it with: sudo dnf install aria2"
+    exit 1
+fi
+
 # Run the Python script with all passed arguments
 python "$PYTHON_SCRIPT" "$@"
