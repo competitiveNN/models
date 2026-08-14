@@ -49,7 +49,7 @@ if [ -t 0 ] && [ "$1" = "bash" ]; then
 	echo "  │                                                  │"
 	echo "  │    setup-agent.sh all          — all agents      │"
 	echo "  │    setup-agent.sh pi           — Pi agent        │"
-	echo "  │    setup-agent.sh little-coder — little-coder    │"
+
 	echo "  │                                                  │"
 	echo "  │  See setup-agent.sh --help for more.             │"
 	echo "  └─────────────────────────────────────────────────┘"
