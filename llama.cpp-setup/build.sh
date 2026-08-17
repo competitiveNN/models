@@ -30,7 +30,7 @@ intel)
 	IMAGE_TAG="llama-cpp-intel"
 	DOCKERFILE="llama.cpp/.devops/intel.Dockerfile"
 	CONTEXT="llama.cpp"
-	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON $SYCL_DEVICE_ARCH_ARG"
+	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON --build-arg=GGML_SYCL_DNN=ON --build-arg=GGML_SYCL_GRAPH=ON --build-arg=GGML_SYCL_HOST_MEM_FALLBACK=ON --build-arg=GGML_SYCL_SUPPORT_LEVEL_ZERO_API=ON $SYCL_DEVICE_ARCH_ARG"
 	;;
 vulkan)
 	IMAGE_TAG="llama-cpp-vulkan"
