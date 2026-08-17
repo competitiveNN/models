@@ -22,14 +22,15 @@ DRAFT_DEVICE="HETERO:GPU.1,GPU.0"
 NUM_ASSISTANT_TOKENS=10
 ASSISTANT_CONFIDENCE_THRESHOLD=0.5
 
-BASE_PATH="$HOME/data/models/ov"
+#BASE_PATH="$HOME/data/models/ov"
+BASE_PATH="/models"
 qwq_05b="$BASE_PATH/QwQwen-0.5B-int8_asym-ov"
 qwen3_06b="$BASE_PATH/Qwen3-0.6B-int8_asym-ov/"
 qwen3_6l06b="$BASE_PATH/Qwen3-pruned-6L-from-0.6B-int8-ov/"
 qwen3_4b="$BASE_PATH/Qwen3-4B-Instruct-2507-int4_asym-awq-ov/"
 qwen3_8b="$BASE_PATH/Qwen3-8B-int4-cw-ov/"
 qwen3_14b="$BASE_PATH/Qwen3-14B-int4_sym-ov/"
-qwen36_27b="$BASE_PATH/qwen3.6-27B-int4-asym-ov/"
+qwen36_27b="$BASE_PATH/Qwen3.6-27B-int4-ov/"
 qwen35_9b="$BASE_PATH/Qwen3.5-9B-int4_asym-ov/"
 qwen3c_30b="$BASE_PATH/Qwen3-30B-A3B-Instruct-2507-int4-ov"
 lfm_12b="$BASE_PATH/LFM2.5-1.2B-Thinking-int4_asym-ov/"
@@ -60,6 +61,7 @@ if [[ -n "${DRAFT_MODEL_PATH}" ]]; then
 	)
 fi
 
+echo "${ARGS[@]}"
 docker exec openarc openarc add "${ARGS[@]}"
 docker exec openarc openarc unload $MODEL_NAME
 docker exec openarc openarc load $MODEL_NAME

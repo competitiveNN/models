@@ -19,7 +19,6 @@ import argparse
 import os
 import sys
 import re
-import json
 import subprocess
 import tempfile
 from pathlib import Path
@@ -91,6 +90,10 @@ def list_repo_files(repo_id):
 def get_file_sizes(repo_id, files):
     """Fetch file sizes from the Hugging Face API.
 
+    Uses the tree listing API, which reports the true size of LFS-tracked
+    files. The model-info endpoint reports `size: null` for LFS files, which
+    would otherwise cause every file to be treated as "small".
+
     Args:
         repo_id: Repository ID
         files: List of filenames
@@ -98,24 +101,64 @@ def get_file_sizes(repo_id, files):
     Returns:
         dict: {filename: size_in_bytes}
     """
+    sizes = {}
+    wanted = set(files)
+    headers = {}
+    if HF_TOKEN:
+        headers["Authorization"] = f"Bearer {HF_TOKEN}"
+
+    def _parse_entries(entries):
+        for entry in entries:
+            path = entry.get("path")
+            if path in wanted:
+                size = entry.get("size")
+                if isinstance(size, int):
+                    sizes[path] = size
+
     try:
-        url = f"https://huggingface.co/api/models/{repo_id}"
-        headers = {}
-        if HF_TOKEN:
-            headers["Authorization"] = f"Bearer {HF_TOKEN}"
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            return {}
-        repo_info = response.json()
-        sizes = {}
-        for sibling in repo_info.get("siblings", []):
-            filename = sibling.get("rfilename", "")
-            size = sibling.get("size")
-            if filename in files and isinstance(size, int):
-                sizes[filename] = size
-        return sizes
+        # Tree listing API (paginated via cursor in the Link header).
+        cursor = None
+        while True:
+            url = f"https://huggingface.co/api/models/{repo_id}/tree/main"
+            if cursor:
+                url += f"?cursor={cursor}"
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                break
+            entries = response.json()
+            if not isinstance(entries, list):
+                break
+            _parse_entries(entries)
+
+            link = response.headers.get("Link", "")
+            nxt = None
+            for part in link.split(","):
+                if 'rel="next"' in part:
+                    m = re.search(r"cursor=([^&>]+)", part)
+                    if m:
+                        nxt = m.group(1)
+            if nxt and nxt != cursor:
+                cursor = nxt
+            else:
+                break
     except Exception:
-        return {}
+        pass
+
+    # Fall back to the model-info endpoint for any file still missing a size.
+    if len(sizes) < len(wanted):
+        try:
+            url = f"https://huggingface.co/api/models/{repo_id}"
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                for sibling in response.json().get("siblings", []):
+                    filename = sibling.get("rfilename", "")
+                    size = sibling.get("size")
+                    if filename in wanted and filename not in sizes and isinstance(size, int):
+                        sizes[filename] = size
+        except Exception:
+            pass
+
+    return sizes
 
 
 def detect_model_format(files):
@@ -174,31 +217,10 @@ def select_smallest_file(repo_id, files):
     """Select the smallest file from a list using Hub metadata."""
     if not files:
         return []
-    try:
-        url = f"https://huggingface.co/api/models/{repo_id}"
-        headers = {}
-        if HF_TOKEN:
-            headers["Authorization"] = f"Bearer {HF_TOKEN}"
-        
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            return [sorted(files)[0]]
-        
-        repo_info = response.json()
-        sizes = {}
-        for sibling in repo_info.get("siblings", []):
-            filename = sibling.get("rfilename", "")
-            if filename in files:
-                size = sibling.get("size")
-                if isinstance(size, int):
-                    sizes[filename] = size
-
-        if sizes:
-            smallest = min(sizes.items(), key=lambda kv: kv[1])[0]
-            return [smallest]
-    except Exception:
-        pass
-
+    sizes = get_file_sizes(repo_id, files)
+    if sizes:
+        smallest = min(sizes.items(), key=lambda kv: kv[1])[0]
+        return [smallest]
     return [sorted(files)[0]]
 
 
@@ -216,24 +238,7 @@ def select_smallest_sharded_group(repo_id, files):
     if len(groups) == 1:
         return sorted(next(iter(groups.values())))
 
-    sizes = {}
-    try:
-        url = f"https://huggingface.co/api/models/{repo_id}"
-        headers = {}
-        if HF_TOKEN:
-            headers["Authorization"] = f"Bearer {HF_TOKEN}"
-        
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            repo_info = response.json()
-            for sibling in repo_info.get("siblings", []):
-                filename = sibling.get("rfilename", "")
-                if filename in files:
-                    size = sibling.get("size")
-                    if isinstance(size, int):
-                        sizes[filename] = size
-    except Exception:
-        sizes = {}
+    sizes = get_file_sizes(repo_id, files)
 
     def group_total(gfiles):
         total = 0
@@ -307,6 +312,10 @@ def download_specific_files(repo_id, files, local_dir, file_sizes=None):
     if file_sizes is None:
         file_sizes = {}
 
+    if not files:
+        print("No files to download.")
+        return
+
     small_files = []
     large_files = []
     for f in files:
@@ -317,26 +326,41 @@ def download_specific_files(repo_id, files, local_dir, file_sizes=None):
             small_files.append(f)
 
     # Phase 1: Download small files in parallel with tqdm progress
+    pbar = None
     if small_files:
         print(f"Downloading {len(small_files)} small file(s) in parallel...")
         try:
             max_workers = min(len(small_files), 4)
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(download_file, repo_id, f, local_dir): f for f in small_files}
-                for future in tqdm(as_completed(futures), total=len(small_files), desc="Downloading", unit="file"):
+                pbar = tqdm(as_completed(futures), total=len(small_files),
+                            desc="Downloading", unit="file", leave=False)
+                for future in pbar:
                     f = futures[future]
                     try:
                         future.result()
                     except Exception as e:
+                        pbar.close()
                         print(f"\n✗ Error downloading {f}: {e}")
                         sys.exit(1)
         except Exception as e:
+            if pbar is not None:
+                pbar.close()
             print(f"✗ Error downloading small files: {e}")
             sys.exit(1)
+
+    # Cleanly close the parallel progress bar so aria2c's own bar has a clean terminal.
+    if pbar is not None:
+        pbar.close()
+    sys.stdout.flush()
+    sys.stderr.flush()
 
     # Phase 2: Download large files sequentially with aria2c progress bar
     if large_files:
         print(f"Downloading {len(large_files)} large file(s) sequentially...")
+        # Move to a fresh line so aria2c's carriage-return-based bar renders cleanly.
+        sys.stdout.write("\n")
+        sys.stdout.flush()
         for f in large_files:
             try:
                 print(f"  → {f}")
@@ -354,8 +378,7 @@ def download_file(repo_id, filename, local_dir, show_progress=False):
     filepath = Path(local_dir) / filename
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        "aria2c",
+    options = [
         "--max-connection-per-server=4",
         "--split=4",
         "--min-split-size=1M",
@@ -365,16 +388,36 @@ def download_file(repo_id, filename, local_dir, show_progress=False):
         "--dir", str(local_dir),
         "--out", filename,
         "--summary-interval=1",
-        url,
+        # Force aria2c's live progress bar. It only renders when output is a
+        # terminal, so it is shown here because stdout/stderr are inherited.
+        "--show-console-readout=true",
     ]
-
     if not show_progress:
-        cmd.extend(["--quiet=true"])
+        options += ["--quiet=true", "--console-log-level=error"]
+    else:
+        # error level keeps the live progress bar but silences the NOTICE
+        # chatter ("Downloading N item(s)", netrc warnings, "Download complete").
+        options += ["--console-log-level=error"]
 
+    # Pass the auth token via a 0600 temp config file instead of argv, so the
+    # secret is not exposed in the process list (`ps`).
+    conf_path = None
+    cmd = ["aria2c"]
     if HF_TOKEN:
-        cmd.insert(1, "--header=Authorization: Bearer " + HF_TOKEN)
+        fd, conf_path = tempfile.mkstemp(prefix=".aria2-", suffix=".conf")
+        os.chmod(conf_path, 0o600)
+        with os.fdopen(fd, "w") as cf:
+            cf.write(f"header=Authorization: Bearer {HF_TOKEN}\n")
+        cmd.append(f"--conf-path={conf_path}")
 
-    result = subprocess.run(cmd)
+    cmd += options + [url]
+
+    try:
+        result = subprocess.run(cmd)
+    finally:
+        if conf_path and os.path.exists(conf_path):
+            os.remove(conf_path)
+
     if result.returncode != 0:
         raise Exception(f"aria2c failed with exit code {result.returncode}")
 

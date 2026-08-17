@@ -24,22 +24,16 @@ API_KEY = os.getenv("NVIDIA_API_KEY", "")  # NVIDIA API key from environment var
 MODELS = [
     "google/gemma-4-31b-it",
     "google/diffusiongemma-26b-a4b-it",
-    "qwen/qwen3.5-397b-a17b",
-    "moonshotai/kimi-k2.7",
-    "moonshotai/kimi-k2.6",
     "z-ai/glm-5.2",
     "minimaxai/minimax-m3",
     "nvidia/nemotron-3-super-120b-a12b",
     "nvidia/nemotron-3-ultra-550b-a55b",
     "stepfun-ai/step-3.7-flash",
-    "qwen/qwen3.5-122b-a10b",
-    "deepseek-ai/deepseek-v4-flash",
-    "deepseek-ai/deepseek-v4-pro",
-    "mistralai/mistral-medium-3.5-128b",
     "thinkingmachines/inkling",
+    "meta/muse-glimmer-30b",
     "poolside/laguna-xs-2.1",
     "nvidia/nemotron-3-nano-30b-a3b",
-    # "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
 ]
 
 # Test prompt - keep it short for consistent measurements

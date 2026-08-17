@@ -4,8 +4,30 @@ image = "localhost/llama-cpp-intel"
 mode = "bench"
 alias = "model"
 
+[presets]
+path = "models.ini"
+# Optional: name of a section in the presets file to mark as both
+# load-on-startup and default-model. The launcher generates a temp copy of the
+# presets file with these two flags set, so the model is preloaded at launch
+# and serves as the fallback for requests that omit the "model" field.
+# default = "qwen35_08b"
+
+[beellama]
+# beellama.cpp ("bee intel") build options. These flags are beellama-only and
+# will error on a plain llama.cpp image, so only set them for the bee build.
+# Target KV cache types. KVarN types (kvarn2..kvarn8) are beellama-only.
+# The launcher passes --kv-tail-tokens ONLY when BOTH -ctk and -ctv are
+# KVarN-based (the precision tail needs a quantized/KVarN target cache to help).
+# Plain llama.cpp rejects KVarN types, so this also keeps the tail off on
+# non-bee images automatically.
+cache_type_k = "kvarn5"
+cache_type_v = "kvarn4"
+# Precision tail: keep the newest N tokens exact in F16/BF16 over the KVarN
+# target KV cache. 1024 is the documented balanced starting point; "auto"
+# requests 1024 exact tokens per cache group (capped by context window).
+kv_tail_tokens = 1024
+
 [defaults]
-model = "qwen36_27b_iq4"
 n_gpu_layers = "all"
 n_cpu_moe = "all"
 threads = 8
@@ -31,28 +53,6 @@ ngram_size_n = 24
 spec_ngram_size_n = 24
 spec_draft_model = ""
 spec-draft-p-min = 0.8
-
-[model_paths]
-
-qwen35_08b = "/models/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-UD-Q4_K_XL.gguf"
-qwen35_9b = "/models/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF/Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-NEO-MAX-MTP-IQ4_NL.gguf"
-qwen36_35b_xs = "/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
-qwen36_35b_bpw_419 = "/models/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf"
-qwen36_27b_iq4 = "/models/Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved-i1-GGUF/Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved.i1-Q4_K_S.gguf"
-qwen36_35b_ream_q5 = "/models/Qwen3.6-35B-A3B-REAM-192-heretic-APEX-GGUF/Qwen3.6-35B-A3B-REAM-192-heretic-APEX-IBalanced-Q5_K_M.gguf"
-ornith1_35b_q4 = "/models/Ornith-1.0-35B-MTP-APEX-GGUF/Ornith-1.0-35B-MTP-APEX-I-Compact.gguf"
-kat_coder_25 = "/models/KAT-Coder-V2.5-Dev-APEX-MTP-GGUF/Kwaipilot_KAT-Coder-V2.5-Dev-APEX-MTP-I-Compact-v2D-lite.gguf"
-
-
-gemma4_26b_qat = "/models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf"
-gemma4_31b_qat = "/models/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf"
-gemma4_12b_qat = "/models/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf"
-gemma4_e2b = "/models/gemma-4-E2B-it-QAT-GGUF/gemma-4-E2B-it-QAT-Q4_0.gguf"
-bonsai_27b = "/models/Ternary-Bonsai-27B-gguf/Ternary-Bonsai-27B-Q2_g64.gguf"
-
-phi3_2b = "/models/Phi-3-mini-4k-instruct-gguf/Phi-3-mini-4k-instruct-q4.gguf"
-lfm2_24b = "/models/LFM2-24B-A2B-GGUF/LFM2-24B-A2B-Q4_K_M.gguf"
-lfm25_1_2b = "/models/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gguf"
 
 [options]
 timeout = 3600

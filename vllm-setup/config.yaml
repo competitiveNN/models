@@ -1,7 +1,7 @@
 # Using AWQ 4-bit model with auto-detect quantization
-#model: /home/fra/data/models/safetensors/Qwen3.6-27B-int4-AutoRound
+model: /home/fra/data/models/safetensors/Qwen3.6-27B-int4-AutoRound
 #model: /home/fra/data/models/safetensors/Qwen3.6-27B-AWQ-INT4
-model: /home/fra/data/models/safetensors/Ornith-1.0-9B-AWQ-INT4
+#model: /home/fra/data/models/safetensors/Ornith-1.0-9B-AWQ-INT4
 #model: /home/fra/data/models/safetensors/Qwen3.6-35B-A3B-int4-mixed-AutoRound/
 #model: /home/fra/data/models/safetensors/Qwen3.6-35B-A3B-int2-mixed-AutoRound-LLMC/
 #model: /home/fra/data/models/safetensors/gemma-4-26B-A4B-it-qat-AWQ-INT4
@@ -12,22 +12,25 @@ host: "0.0.0.0"
 port: 8009
 tensor-parallel-size: 2
 # pipeline-parallel-size: 2
-gpu-memory-utilization: 0.81
+gpu-memory-utilization: 0.90
 trust-remote-code: true
 enforce-eager: true
 disable-custom-all-reduce: true
 
 enable-prefix-caching: true
 enable-chunked-prefill: true
+kv-offloading-backend: "native"
+kv-offloading-size: 12
+kv-transfer-config: '{"kv_connector":"OffloadingConnector","kv_role":"kv_both"}'
 max-num-seqs: 1
-max-model-len: 512
-max-num-batched-tokens: 8192
+max-model-len: 128
+max-num-batched-tokens: 128
 block-size: 64
 # cpu-offload-gb: 20
 
-attention-backend: "TURBOQUANT" 
-kv-cache-dtype: "turboquant_k8v4"     # Options: turboquant_k8v4, turboquant_4bit_nc, turboquant_k3v4_nc
-#dtype: "bfloat16"
+# attention-backend: "TURBOQUANT" 
+# kv-cache-dtype: "turboquant_k8v4"     # Options: turboquant_k8v4, turboquant_4bit_nc, turboquant_k3v4_nc
+# dtype: "bfloat16"
 
 # kv_cache_dtype: "fp8"
 # Optional: Keep the first and last layers completely unquantized for perfect accuracy
