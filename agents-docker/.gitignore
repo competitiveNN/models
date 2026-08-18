@@ -11,6 +11,7 @@
 .npm-cache/
 .cache/
 free-models-cache.json
+free-models.json
 
 # Environment files
 .envrc

@@ -144,6 +144,9 @@ def normalize_slug(slug: str) -> str:
     if "/" in slug:
       slug = slug.split("/", 1)[1]
     slug = slug.replace(".", "-")
+    # Strip :free suffix used by Kilo / OpenCode
+    if slug.endswith(":free"):
+        slug = slug[:-5]
     for suffix in ("-chat", "-instruct", "-free", "-latest", "-max", "-high"):
       if slug.endswith(suffix):
           slug = slug[: -len(suffix)]

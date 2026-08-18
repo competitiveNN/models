@@ -48,6 +48,7 @@ PROVIDER_BASE_URL = {
     "kilocode":      ("https://api.kilo.ai/api/gateway/v1",          "KILOCODE_API_KEY"),
     "nvidia":        ("https://integrate.api.nvidia.com/v1",         "NVIDIA_API_KEY"),
     "google-ai-studio": ("https://generativelanguage.googleapis.com/v1beta", "GOOGLE_API_KEY"),
+    "tencent":       ("https://api.tencent.com/v1",                   "TENCENT_API_KEY"),
 }
 
 
@@ -275,6 +276,7 @@ TIERS = {
     "writer/palmyra-creative-122b": {"tier": 1, "release": "2026-04", "provider": "nvidia", "total_params": 122},
     "stepfun-ai/step-3.7-flash": {"tier": 1, "release": "2026-04", "provider": "nvidia", "total_params": 120},
     "thinkingmachines/inkling": {"tier": 1, "release": "2026-04", "provider": "nvidia", "total_params": 120},
+    "tencent/hy3": {"tier": 1, "release": "2026-07", "provider": "tencent", "total_params": 295, "activated_params": 21},
 
     # Tier 2 — Strong (100–200B / reasoning)
     "minimax-m3": {"tier": 2, "release": "2026-03", "provider": "ollama", "total_params": 120},
@@ -418,6 +420,14 @@ def build_catalog(ollama: dict, opencode: dict, kilo: dict, nim: dict, google_ai
             # Don't overwrite if already in catalog (e.g., gemma4:31b from ollama has priority for vision)
             if mid not in catalog:
                 add(mid, "google-ai-studio", info_with_release, vision=is_vision)
+
+    # Manual entries for models not exposed via live APIs but present in TIERS
+    manual_models = {
+        "tencent/hy3": {"ctx": 256_000, "provider": "tencent"},
+    }
+    for slug, meta in manual_models.items():
+        if slug in TIERS and slug not in catalog:
+            add(slug, meta["provider"], {"ctx": meta["ctx"]})
 
     return catalog
 
