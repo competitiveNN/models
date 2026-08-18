@@ -300,7 +300,6 @@ def normalize_kilo(model: dict[str, Any]) -> dict[str, Any] | None:
         },
         "capabilities": {
             "reasoning": "reasoning" in model.get("supported_parameters", []),
-            "tool_call": "tools" in model.get("supported_parameters", []),
             "vision": "image" in model.get("architecture", {}).get("input_modalities", []),
             "open_weights": False,
         },
@@ -328,7 +327,6 @@ def normalize_opencode(model: dict[str, Any]) -> dict[str, Any] | None:
         },
         "capabilities": {
             "reasoning": False,
-            "tool_call": True,
             "vision": False,
             "open_weights": False,
         },
@@ -355,7 +353,6 @@ def normalize_ollama(model_id: str) -> dict[str, Any] | None:
         },
         "capabilities": {
             "reasoning": False,
-            "tool_call": True,
             "vision": "gemma4:31b" in model_id,
             "open_weights": False,
         },
@@ -408,7 +405,6 @@ def normalize_google_ai_studio_curated(model_id: str) -> dict[str, Any] | None:
         },
         "capabilities": {
             "reasoning": "3.6" in model_id.lower() or "pro" in model_id.lower(),
-            "tool_call": True,
             "vision": "gemini" in model_id.lower() or "gemma4" in model_id.lower(),
             "open_weights": "gemma" in model_id.lower(),
         },
@@ -518,7 +514,6 @@ def normalize_nvidia_nim(model: dict[str, Any], model_id: str) -> dict[str, Any]
         },
         "capabilities": {
             "reasoning": has_reasoning,
-            "tool_call": has_tool_call,
             "vision": has_vision,
             "open_weights": False,
         },
@@ -702,7 +697,6 @@ def output_csv(data: list[dict], path: str | None) -> None:
             "pricing_cache_read": pricing.get("cache_read"),
             "pricing_cache_write": pricing.get("cache_write"),
             "reasoning": caps.get("reasoning"),
-            "tool_call": caps.get("tool_call"),
             "vision": caps.get("vision"),
             "open_weights": caps.get("open_weights"),
             "source": d.get("source"),
@@ -735,7 +729,6 @@ def output_table(data: list[dict]) -> None:
         ("intelligence", 12),
         ("ctx", 10),
         ("reason", 6),
-        ("tools", 5),
         ("vision", 6),
     ]
 
@@ -772,7 +765,6 @@ def output_table(data: list[dict]) -> None:
             intelligence_disp,
             ctx_disp,
             "Y" if caps.get("reasoning") else "N",
-            "Y" if caps.get("tool_call") else "N",
             "Y" if caps.get("vision") else "N",
         ]
         print(" | ".join(f"{v:<{w}}" for (_, w), v in zip(cols, row, strict=True)))
