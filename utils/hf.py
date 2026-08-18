@@ -19,6 +19,8 @@ import argparse
 import os
 import sys
 import re
+import select
+import pty
 import subprocess
 import tempfile
 from pathlib import Path
@@ -33,6 +35,14 @@ if not HF_TOKEN:
 # Files larger than this are downloaded sequentially with aria2c progress bar.
 # Smaller files are downloaded in parallel with tqdm.
 LARGE_FILE_THRESHOLD = 100 * 1024 * 1024  # 100 MB
+
+# Where downloaded GGUF models are registered for the llama.cpp setup.
+MODELS_INI_PATH = os.path.expanduser("~/dev/models/llama.cpp-setup/models.ini")
+# In models.ini, paths use the container mount point /models, which on the host
+# maps to this directory (llamacpp.py mounts models_path there). Override with
+# the MODELS_ROOT env var if your layout differs.
+MODELS_HOST_ROOT = os.path.expanduser(os.environ.get("MODELS_ROOT", "~/data/models/gguf"))
+MODELS_MOUNT_POINT = "/models"
 
 
 def parse_model_path(model_input, default_user="unsloth"):
@@ -369,6 +379,11 @@ def download_specific_files(repo_id, files, local_dir, file_sizes=None):
                 print(f"\n✗ Error downloading {f}: {e}")
                 sys.exit(1)
 
+    # Post-processing: register any downloaded GGUF models in models.ini.
+    gguf_downloaded = [f for f in files if f.endswith(".gguf")]
+    if gguf_downloaded:
+        register_gguf_models(local_dir, gguf_downloaded)
+
     print(f"✓ Successfully downloaded files to {local_dir}")
 
 
@@ -388,8 +403,9 @@ def download_file(repo_id, filename, local_dir, show_progress=False):
         "--dir", str(local_dir),
         "--out", filename,
         "--summary-interval=1",
-        # Force aria2c's live progress bar. It only renders when output is a
-        # terminal, so it is shown here because stdout/stderr are inherited.
+        # Render the live '#' progress bar. _run_aria2c attaches aria2c to a
+        # pty with a known size so this bar is shown instead of the verbose
+        # 'Download Progress Summary' fallback text.
         "--show-console-readout=true",
     ]
     if not show_progress:
@@ -412,14 +428,309 @@ def download_file(repo_id, filename, local_dir, show_progress=False):
 
     cmd += options + [url]
 
+    result = _run_aria2c(cmd, show_progress, conf_path)
+    if result != 0:
+        raise Exception(f"aria2c failed with exit code {result}")
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# Matches aria2c's '#' progress line, e.g.
+# "[#413226 13GiB/13GiB(96%) CN:4 DL:109MiB ETA:5s]"
+_PROGRESS_RE = re.compile(r"\[#\S+\s+(\S+)/(\S+)\((\d+)%\)\s*(.*)")
+
+
+def _render_progress(line_bytes):
+    """Render a clean single-line progress bar from an aria2c output line.
+
+    Returns True if the line was a progress line (and was rendered).
+    """
+    line = _ANSI_RE.sub("", line_bytes.decode("utf-8", "replace")).rstrip("\r")
+    m = _PROGRESS_RE.search(line)
+    if not m:
+        return False
+    _render_match(m)
+    return True
+
+
+def _render_match(m):
+    cur, total, pct, extra = m.group(1), m.group(2), m.group(3), m.group(4).strip().rstrip("]")
+    sys.stdout.write(f"\r\033[KDownloading: {pct}%  {cur}/{total}  {extra}")
+    sys.stdout.flush()
+
+
+def _run_aria2c(cmd, show_progress, conf_path=None):
+    """Run aria2c.
+
+    For the progress bar we run aria2c inside a pty (so its output is live and
+    unbuffered) and parse its '#' progress line ourselves, rendering a single
+    clean progress line. This avoids aria2c's verbose 'Download Progress
+    Summary' blocks entirely. All other output (headers, separators, the final
+    results table) is suppressed; on failure the relevant error lines are shown.
+
+    The temp config file (holding the auth token) is removed only after the
+    process has finished, so aria2c can still read it.
+    """
     try:
-        result = subprocess.run(cmd)
+        if not show_progress:
+            # Quiet: inherit fds, no output. Return the integer exit code.
+            return subprocess.run(cmd).returncode
+
+        try:
+            pid, master = pty.fork()
+        except Exception:
+            return subprocess.run(cmd)
+
+        if pid == 0:
+            try:
+                os.execvp(cmd[0], cmd)
+            except Exception:
+                os._exit(127)
+
+        # Parent: read the pty, render a clean progress bar, collect errors.
+        try:
+            pending = b""
+            showed_progress = False
+            errbuf = []
+            while True:
+                try:
+                    r, _, _ = select.select([master], [], [], 0.2)
+                except (OSError, ValueError):
+                    break
+                if r:
+                    try:
+                        chunk = os.read(master, 4096)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    pending += chunk
+                    # Process all complete lines.
+                    while b"\n" in pending:
+                        line, pending = pending.split(b"\n", 1)
+                        if _render_progress(line):
+                            showed_progress = True
+                        elif line.strip():
+                            errbuf.append(line.decode("utf-8", "replace").strip())
+                            if len(errbuf) > 30:
+                                errbuf.pop(0)
+                    # Live-bar mode updates in place via \r (no newline): render
+                    # the most recent progress match from the buffered text.
+                    matches = list(_PROGRESS_RE.finditer(
+                        _ANSI_RE.sub("", pending.decode("utf-8", "replace"))))
+                    if matches:
+                        _render_match(matches[-1])
+                        showed_progress = True
+                elif os.waitpid(pid, os.WNOHANG)[0] != 0:
+                    # Child exited: drain any remaining buffered output.
+                    try:
+                        while True:
+                            chunk = os.read(master, 4096)
+                            if not chunk:
+                                break
+                            pending += chunk
+                    except OSError:
+                        pass
+                    while b"\n" in pending:
+                        line, pending = pending.split(b"\n", 1)
+                        if _render_progress(line):
+                            showed_progress = True
+                        elif line.strip():
+                            errbuf.append(line.decode("utf-8", "replace").strip())
+                            if len(errbuf) > 30:
+                                errbuf.pop(0)
+                    matches = list(_PROGRESS_RE.finditer(
+                        _ANSI_RE.sub("", pending.decode("utf-8", "replace"))))
+                    if matches:
+                        _render_match(matches[-1])
+                        showed_progress = True
+                    break
+
+            if showed_progress:
+                sys.stdout.write("\r\033[K")
+                sys.stdout.flush()
+
+            _, status = os.waitpid(pid, 0)
+            rc = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
+            if rc != 0 and errbuf:
+                sys.stdout.write("\n".join(errbuf[-12:]) + "\n")
+                sys.stdout.flush()
+            return rc
+        finally:
+            try:
+                os.close(master)
+            except OSError:
+                pass
     finally:
         if conf_path and os.path.exists(conf_path):
             os.remove(conf_path)
 
-    if result.returncode != 0:
-        raise Exception(f"aria2c failed with exit code {result.returncode}")
+
+def _sanitize_section(name):
+    """Turn an arbitrary filename into a valid, lowercase INI section key."""
+    s = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_").lower()
+    return s or "model"
+
+
+def register_gguf_models(local_dir, gguf_files):
+    """Register downloaded GGUF files in llama.cpp-setup/models.ini.
+
+    Each non-mmproj GGUF becomes its own [section]; an mmproj GGUF is attached
+    as an `mmproj =` line to the first model section. Paths follow the
+    /models/<local_dir>/<file> convention already used throughout models.ini.
+    Existing entries pointing at the same model path are left untouched, so
+    re-running the download does not create duplicates.
+    """
+    if not gguf_files:
+        return
+
+    model_ggufs, special_ggufs = categorize_gguf_files(gguf_files)
+    mmproj_files = [f for f in special_ggufs if "mmproj" in f.lower()]
+    model_entries = list(model_ggufs) + [f for f in special_ggufs if "mmproj" not in f.lower()]
+    if not model_entries:
+        return
+
+    folder = os.path.basename(local_dir)
+    ini_path = MODELS_INI_PATH
+
+    existing_sections = set()
+    existing_model_paths = set()
+    current = None
+    if os.path.exists(ini_path):
+        with open(ini_path, "r") as fh:
+            for line in fh:
+                m = re.match(r"^\s*\[([^\]]+)\]\s*$", line)
+                if m:
+                    current = m.group(1).strip()
+                    existing_sections.add(current)
+                    continue
+                mp = re.match(r"^\s*model\s*=\s*(.+?)\s*$", line)
+                if mp and current:
+                    existing_model_paths.add(mp.group(1).strip())
+
+    def unique_section(base):
+        base = _sanitize_section(base)
+        cand = base
+        i = 2
+        while cand in existing_sections:
+            cand = f"{base}_{i}"
+            i += 1
+        existing_sections.add(cand)
+        return cand
+
+    blocks = []
+    attached_mmproj = False
+    for gf in model_entries:
+        path = f"/models/{folder}/{gf}"
+        if path in existing_model_paths:
+            continue
+        sec = unique_section(os.path.splitext(os.path.basename(gf))[0])
+        lines = [f"[{sec}]", f"model = {path}"]
+        if not attached_mmproj and mmproj_files:
+            lines.append(f"mmproj = /models/{folder}/{mmproj_files[0]}")
+            attached_mmproj = True
+        blocks.append("\n".join(lines))
+
+    if not blocks:
+        return
+
+    os.makedirs(os.path.dirname(ini_path), exist_ok=True)
+    need_nl = False
+    if os.path.exists(ini_path) and os.path.getsize(ini_path) > 0:
+        with open(ini_path, "rb") as fb:
+            fb.seek(max(0, os.path.getsize(ini_path) - 1))
+            if fb.read(1) != b"\n":
+                need_nl = True
+
+    content = ("\n" if need_nl else "") + "\n".join(blocks) + "\n"
+    with open(ini_path, "a") as fh:
+        fh.write(content)
+    print(f"✓ Registered {len(blocks)} GGUF model(s) in {ini_path}")
+
+    # Validate the whole file: drop sections whose GGUF is no longer on disk.
+    removed = _prune_missing_models(ini_path)
+    if removed:
+        print(f"✗ Removed {removed} stale model entr{'y' if removed == 1 else 'ies'} "
+              f"from {ini_path} (referenced GGUF missing)")
+
+
+def _resolve_gguf_path(p):
+    """Resolve a models.ini path (often /models/...) to an existing host file.
+
+    Tries the literal path, then maps the /models mount point to the host
+    models root, and finally to the current working directory (the download
+    target when hf.py is run from the models directory).
+    """
+    if not p:
+        return None
+    candidates = [p]
+    if p == MODELS_MOUNT_POINT or p.startswith(MODELS_MOUNT_POINT + "/"):
+        rel = "" if p == MODELS_MOUNT_POINT else p[len(MODELS_MOUNT_POINT) + 1:]
+        candidates.append(os.path.join(MODELS_HOST_ROOT, rel))
+        candidates.append(os.path.join(os.getcwd(), rel))
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+    return None
+
+
+def _prune_missing_models(ini_path):
+    """Remove models.ini sections whose referenced GGUF files are absent.
+
+    A section is dropped entirely if its `model =` file is missing. A dangling
+    `mmproj =` line is removed (keeping the section) when the model is present
+    but the mmproj file is gone. Returns the number of removed sections.
+    """
+    if not os.path.exists(ini_path):
+        return 0
+    with open(ini_path, "r") as fh:
+        lines = fh.readlines()
+
+    preamble = []
+    sections = []  # list of (header_line, [body_lines])
+    cur_header = None
+    cur_body = None
+    for line in lines:
+        if re.match(r"^\s*\[[^\]]+\]\s*$", line):
+            if cur_header is not None:
+                sections.append((cur_header, cur_body))
+            cur_header = line
+            cur_body = []
+        elif cur_header is None:
+            preamble.append(line)
+        else:
+            cur_body.append(line)
+    if cur_header is not None:
+        sections.append((cur_header, cur_body))
+
+    kept = []
+    removed = 0
+    for header, body in sections:
+        model_path = None
+        mmproj_paths = []
+        for bl in body:
+            mp = re.match(r"^\s*model\s*=\s*(.+?)\s*$", bl)
+            if mp:
+                model_path = mp.group(1).strip()
+            mm = re.match(r"^\s*mmproj\s*=\s*(.+?)\s*$", bl)
+            if mm:
+                mmproj_paths.append(mm.group(1).strip())
+        if model_path and not _resolve_gguf_path(model_path):
+            removed += 1
+            continue
+        new_body = body
+        if mmproj_paths and not all(_resolve_gguf_path(p) for p in mmproj_paths):
+            new_body = [bl for bl in body if not re.match(r"^\s*mmproj\s*=", bl)]
+        kept.append((header, new_body))
+
+    rebuilt = "".join(preamble)
+    for header, body in kept:
+        rebuilt += header.rstrip("\n") + "\n"
+        rebuilt += "".join(body)
+
+    if rebuilt != "".join(lines):
+        with open(ini_path, "w") as fh:
+            fh.write(rebuilt)
+    return removed
 
 
 

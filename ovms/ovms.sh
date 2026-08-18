@@ -27,7 +27,7 @@ docker run \
   -v $CONFIG_FILE:/config.json:ro \
   -v $SCRIPT_DIR/cache:/opt/cache:rw \
   openvino/model_server:$TAG \
-  --log_level DEBUG \
+  --log_level INFO \
   --config_path /config.json \
   --rest_port 8000
   

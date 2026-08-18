@@ -34,6 +34,7 @@ MODELS = [
     "poolside/laguna-xs-2.1",
     "nvidia/nemotron-3-nano-30b-a3b",
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/nemotron-3.5-lightning-30b-a3b"
 ]
 
 # Test prompt - keep it short for consistent measurements
