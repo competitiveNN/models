@@ -487,9 +487,9 @@ def normalize_nvidia_nim(model: dict[str, Any], model_id: str) -> dict[str, Any]
                 break
 
     # Determine capabilities
-    has_reasoning = any(x in model_lower for x in ["nemotron", "reasoning", "thinking", "r1", "r1-"])
-    has_vision = any(x in model_lower for x in ["vision", "vl", "vlm", "vila", "neva", "kosmos", "phi-3-vision"])
-    has_tool_call = "instruct" in model_lower or "chat" in model_lower or "coder" in model_lower
+    has_reasoning = any(x in model_lower for x in ["nemotron", "reasoning", "thinking", "r1", "r1-", "super", "ultra", "nano-omni", "qwen3", "deepseek", "glm-5", "kimi-k2", "step-3"])
+    has_vision = any(x in model_lower for x in ["vision", "vl", "vlm", "vila", "neva", "kosmos", "phi-3-vision", "omni", "nano-omni", "nano-vl", "multimodal"])
+    has_tool_call = "instruct" in model_lower or "chat" in model_lower or "coder" in model_lower or "nemotron" in model_lower or "llama" in model_lower
 
     # Get release date from API "created" field, fall back to hard-coded mapping
     released = model.get("created") or model.get("release_date") or model.get("published_at")
