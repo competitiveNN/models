@@ -329,6 +329,13 @@ def download_specific_files(repo_id, files, local_dir, file_sizes=None):
     small_files = []
     large_files = []
     for f in files:
+        # GGUF files are always model weights (even when sharded into multiple
+        # parts), so they must take the large-file path: a failed/missing size
+        # lookup or a shard under the threshold must never push them into the
+        # parallel small-file downloader.
+        if f.endswith(".gguf"):
+            large_files.append(f)
+            continue
         size = file_sizes.get(f)
         if size is not None and size >= LARGE_FILE_THRESHOLD:
             large_files.append(f)
