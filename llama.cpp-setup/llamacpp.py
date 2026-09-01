@@ -38,6 +38,48 @@ def first_preset_model(presets_path):
     return ""
 
 
+def preset_model_draft(presets_path, section):
+    """Return the model-draft path from a preset section, or '' if absent.
+
+    Plain-text parse so the top-level ``version = N`` line doesn't break it.
+    """
+    if not presets_path or not section:
+        return ""
+    try:
+        with open(presets_path) as f:
+            text = f.read()
+    except OSError:
+        return ""
+    m = re.search(r"(?m)^\[" + re.escape(section) + r"\]", text)
+    if not m:
+        return ""
+    block = text[m.end():]
+    nm = re.search(r"(?m)^\[", block)
+    if nm:
+        block = block[:nm.start()]
+    dm = re.search(r"(?m)^\s*model-draft\s*=\s*(.+?)\s*$", block)
+    return dm.group(1) if dm else ""
+
+
+def first_preset_draft_model(presets_path):
+    """Return the model-draft of the first preset section that defines one."""
+    if not presets_path:
+        return ""
+    try:
+        with open(presets_path) as f:
+            text = f.read()
+    except OSError:
+        return ""
+    for m in re.finditer(r"(?m)^\[([^\]]+)\]", text):
+        start = m.end()
+        nm = re.search(r"(?m)^\[", text[start:])
+        end = start + nm.start() if nm else len(text)
+        dm = re.search(r"(?m)^\s*model-draft\s*=\s*(.+?)\s*$", text[start:end])
+        if dm:
+            return dm.group(1)
+    return ""
+
+
 def apply_preset_default(presets_text, section):
     """Return presets text with the given section flagged as both
     load-on-startup and default-model. Works on raw INI text so the top-level
@@ -134,7 +176,7 @@ def is_kvarn(value):
 def build_model_args(config, extra_args=None, manual_ctx_size=None, fit_ctx_size=None,
                       use_fit_mode=False, n_gpu_layers="all", n_cpu_moe=0,
                       cpu_mode=False, preserve_thinking=False, reasoning_budget=False,
-                      use_presets=False, cache_type_k="", cache_type_v="", kv_tail_tokens=""):
+                      use_presets=False, cache_type_k="", cache_type_v="", kv_tail_tokens="", load_mode="auto"):
     args = []
     if not use_presets:
         model_key = config["defaults"].get("model", "")
@@ -162,7 +204,8 @@ def build_model_args(config, extra_args=None, manual_ctx_size=None, fit_ctx_size
         "-fa", "on",
         "--reasoning-budget", str(config["defaults"]["reasoning_budget"] if reasoning_budget else 0),
         "--reasoning-budget-message", "\nBased on the analysis above, here is the complete solution:",
-        "--no-mmap",
+        *(["--load-mode", load_mode] if load_mode else []),
+        "--context-shift",
         "-lv", str(config["defaults"]["verbosity"]),
     ])
     # GPU layers
@@ -195,7 +238,7 @@ def build_model_args(config, extra_args=None, manual_ctx_size=None, fit_ctx_size
 
 
 def build_spec_args(config, spec_draft_model="", spec_draft_max="", spec_draft_min="",
-                    spec_type="ngram-simple", spec_ngram_size_n=24,
+                    spec_type="ngram-map-k4v", spec_ngram_size_n=24,
                     spec_draft_kv_k="", spec_draft_kv_v="", spec_draft_p_min="",
                     cache_type_k_draft="", cache_type_v_draft="", no_spec=False,
                     ngram_type=None, spec_draft_ngl="", spec_dm_controller="",
@@ -204,13 +247,12 @@ def build_spec_args(config, spec_draft_model="", spec_draft_max="", spec_draft_m
     if no_spec:
         return args
     spec_cfg = config.get("spec", {})
-    # ngram-simple is always enabled: it is only disabled when --no-spec is
-    # passed. Add it to the spec type list even when MTP or another draft type
-    # is in use, so it is never silently dropped. DFlash is a standalone
-    # drafter, so ngram-simple is not forced alongside it.
-    spec_types = [t.strip() for t in (spec_type or "ngram-simple").split(",") if t.strip()]
-    if "draft-dflash" not in spec_types and "ngram-simple" not in spec_types:
-        spec_types.append("ngram-simple")
+    # Default ngram drafter: applied only when no spec type is configured.
+    # An explicit spec type list (--spec-type / config) is honored literally,
+    # so e.g. ngram-simple is not silently extended with ngram-map-k4v.
+    spec_types = [t.strip() for t in (spec_type or "").split(",") if t.strip()]
+    if not spec_types:
+        spec_types = ["ngram-map-k4v"]
     spec_type = ",".join(spec_types)
     if spec_draft_model and spec_draft_model != "1":
         args.extend(["--model-draft", spec_draft_model])
@@ -253,12 +295,12 @@ def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
               fit_ctx_size=None, use_fit_mode=False, n_gpu_layers="all",
               n_cpu_moe=0, cpu_mode=False, preserve_thinking=False,
               spec_draft_model="",
-              spec_draft_max="", spec_draft_min="", spec_type="ngram-simple",
+              spec_draft_max="", spec_draft_min="", spec_type="ngram-map-k4v",
               spec_ngram_size_n=24, spec_draft_kv_k="", spec_draft_kv_v="",
               spec_draft_p_min="", cache_type_k_draft="", cache_type_v_draft="",
               no_spec=False, timeout=3600, reasoning_budget=False,
               spec_draft_ngl="", spec_dm_controller="", spec_dflash_cross_ctx="",
-              use_presets=False, presets_path="", presets_local_path="", cache_type_k="", cache_type_v="", kv_tail_tokens=""):
+              use_presets=False, presets_path="", presets_local_path="", cache_type_k="", cache_type_v="", kv_tail_tokens="", load_mode="auto"):
     model_args = build_model_args(
         config, extra_args=extra_args, manual_ctx_size=manual_ctx_size,
         fit_ctx_size=fit_ctx_size, use_fit_mode=use_fit_mode,
@@ -269,6 +311,7 @@ def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
         cache_type_k=cache_type_k,
         cache_type_v=cache_type_v,
         kv_tail_tokens=kv_tail_tokens,
+        load_mode=load_mode,
     )
     cmd_args = model_args[:]
     spec_cfg = config.get("spec", {})
@@ -277,7 +320,7 @@ def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
         spec_draft_model=spec_draft_model or spec_cfg.get("spec_draft_model", ""),
         spec_draft_max=str(spec_draft_max or spec_cfg.get("spec_draft_max", "")),
         spec_draft_min=str(spec_draft_min or spec_cfg.get("spec_draft_min", "")),
-        spec_type=spec_type or spec_cfg.get("spec_type", "ngram-simple"),
+        spec_type=spec_type or spec_cfg.get("spec_type", "ngram-map-k4v"),
         spec_ngram_size_n=spec_ngram_size_n or spec_cfg.get("ngram_size_n", 24),
         spec_draft_kv_k=spec_draft_kv_k or spec_cfg.get("spec_draft_kv_k", ""),
         spec_draft_kv_v=spec_draft_kv_v or spec_cfg.get("spec_draft_kv_v", ""),
@@ -337,7 +380,8 @@ def main():
     parser.add_argument("--moe", type=str, default="0", help="CPU MOE layers")
     parser.add_argument("--detect", action="store_true", help="Auto-detect memory")
     parser.add_argument("--mtp", action="store_true", help="Enable MTP")
-    parser.add_argument("--dflash", action="store_true", help="Enable DFlash speculative decoding (--spec-type draft-dflash)")
+    parser.add_argument("--dflash2", "--dflash", dest="dflash2", action="store_true", help="Enable DFlash/DFlash2 speculative decoding (--spec-type draft-dflash; DFlash2 is auto-detected from the draft model)")
+    parser.add_argument("--dspark", action="store_true", help="Enable DSpark speculative decoding (--spec-type draft-dspark)")
     parser.add_argument("--no-spec", action="store_true", help="Disable spec decoding")
     parser.add_argument("--spec-draft-ngl", "-ngld", type=str, default="", dest="spec_draft_ngl", help="Draft model GPU layers for DFlash (e.g. all)")
     parser.add_argument("--spec-dm-controller", type=str, default="", dest="spec_dm_controller", help="DFlash adaptive draft controller (profit|fringe|off)")
@@ -349,7 +393,7 @@ def main():
     parser.add_argument("--timeout", type=str, default="3600", help="Timeout")
     parser.add_argument("--draft-max", "--spec-draft-n-max", type=str, default="48", dest="draft_max")
     parser.add_argument("--draft-min", "--spec-draft-n-min", type=str, default="12", dest="draft_min")
-    parser.add_argument("--spec-type", type=str, default="ngram-simple")
+    parser.add_argument("--spec-type", type=str, default="")
     parser.add_argument("--spec-ngram-map-k-size-n", "--spec-ngram-simple-size-n", "--spec-ngram-size-n", type=str, default="24", dest="spec_ngram_n")
     parser.add_argument("--spec-draft-type-k", "-ctkd", type=str, default="")
     parser.add_argument("--spec-draft-type-v", "-ctvd", type=str, default="")
@@ -383,28 +427,38 @@ def main():
     use_presets = bool(presets_path)
     presets_container_path = ""
     presets_default = presets_cfg.get("default", "")
+    presets_abs = ""
     if use_presets:
         if not os.path.isabs(presets_path):
             presets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), presets_path)
         presets_abs = os.path.abspath(presets_path)
         presets_dir = os.path.dirname(presets_abs)
         presets_name = os.path.basename(presets_abs)
+        presets_container_path = f"/presets/{presets_name}"
+        # Build the served preset copy. Strip model-draft from sections when no
+        # drafter that needs an external draft model (--dflash/--dspark) is
+        # active, so llama-server does not auto-load the draft model (which
+        # would make MTP try to load layers from it).
+        with open(presets_abs) as f:
+            presets_text = f.read()
+        modified = False
         if presets_default:
-            # Generate a temp presets file with the chosen section flagged as
-            # both load-on-startup and default-model, so it is loaded at launch
-            # and serves as the fallback for requests that omit the model field.
-            with open(presets_abs) as f:
-                presets_text = f.read()
-            new_text, err = apply_preset_default(presets_text, presets_default)
+            presets_text, err = apply_preset_default(presets_text, presets_default)
             if err:
                 print(f"error: {err}", file=sys.stderr)
                 sys.exit(2)
+            modified = True
+        if not (args.dspark or args.dflash2):
+            stripped = re.sub(r"(?m)^\s*model-draft\s*=.*\n?", "", presets_text)
+            if stripped != presets_text:
+                presets_text = stripped
+                modified = True
+        if modified:
             tmp_dir = tempfile.mkdtemp(prefix="llamacpp-presets-")
             tmp_path = os.path.join(tmp_dir, presets_name)
             with open(tmp_path, "w") as f:
-                f.write(new_text)
+                f.write(presets_text)
             presets_dir = tmp_dir
-        presets_container_path = f"/presets/{presets_name}"
 
     # Resolve mode
     mode = "bench"
@@ -430,24 +484,64 @@ def main():
     # GPUs
     selected_gpus = args.gpus.split(",") if args.gpus else None
 
-    # MTP
-    mtp = args.mtp
+    # Resolve the spec type default (CLI > config > built-in) before MTP
+    # pairing below, so the default ngram drafter combines with MTP while
+    # explicit values pass through untouched.
+    args.spec_type = args.spec_type or config.get("spec", {}).get("spec_type", "") or "ngram-map-k4v"
+
+    # Pick a single draft-model spec type. llama.cpp allows at most one draft
+    # type combined with one ngram type, so the drafter flags are mutually
+    # exclusive: dspark > dflash > mtp.
+    chosen_draft = None
+    if args.dspark:
+        chosen_draft = "draft-dspark"
+    elif args.dflash2:
+        chosen_draft = "draft-dflash"
+    elif args.mtp:
+        chosen_draft = "draft-mtp"
+
     spec_draft_model = args.draft_model or config.get("spec", {}).get("spec_draft_model", "")
-    if mtp:
+
+    if chosen_draft == "draft-mtp":
         spec_draft_model = "1"
-        # Keep ngram-based spec enabled: add MTP alongside, don't replace the spec type
-        spec_types = [t.strip() for t in args.spec_type.split(",") if t.strip()] if args.spec_type else []
-        if "draft-mtp" not in spec_types:
-            spec_types.insert(0, "draft-mtp")
-        args.spec_type = ",".join(spec_types)
         args.draft_max = "3"
         args.draft_min = "0"
         args.spec_draft_type_k = "q4_0"
         args.spec_draft_type_v = "q4_0"
         args.spec_draft_p_min = "0.75"
-        # Add extra MTP args handled by build_spec_args
+    elif chosen_draft == "draft-dflash":
+        if not spec_draft_model or spec_draft_model == "1":
+            print("error: --dflash requires a draft model (use --draft-model)", file=sys.stderr)
+            sys.exit(2)
+    elif chosen_draft == "draft-dspark":
+        # Draft model comes from the preset (models.ini model-draft) so it
+        # tracks the served model; --draft-model overrides it on the CLI.
+        # Fall back to the first section with a model-draft when no default is set.
+        spec_draft_model = (spec_draft_model
+                            or preset_model_draft(presets_abs, presets_default)
+                            or first_preset_draft_model(presets_abs))
+        if not spec_draft_model or spec_draft_model == "1":
+            print("error: --dspark requires a draft model (set model-draft in the served preset or use --draft-model)", file=sys.stderr)
+            sys.exit(2)
+        # DSpark block size is 7 per the model card; propose up to 7 draft tokens.
+        args.draft_max = "7"
+        args.draft_min = "0"
+    else:
+        # No drafter that uses an external draft model; never load one.
+        spec_draft_model = ""
 
-    if not mtp:
+    # Build the spec type list: one chosen drafter plus the base ngram. When a
+    # drafter flag is active, force the base ngram to ngram-map-k4v.
+    spec_types = [t.strip() for t in args.spec_type.split(",") if t.strip()] if args.spec_type else []
+    if chosen_draft:
+        spec_types = [t for t in spec_types
+                      if not t.startswith("ngram-")
+                      and t not in ("draft-dspark", "draft-dflash", "draft-mtp")]
+        spec_types.insert(0, chosen_draft)
+        spec_types.append("ngram-map-k4v")
+    args.spec_type = ",".join(spec_types)
+
+    if not args.mtp:
         # Normalize kvarn-based quantization for draft cache types to q*_0 when MTP is disabled
         for field in ("spec_draft_type_k", "spec_draft_type_v"):
             val = getattr(args, field)
@@ -455,16 +549,6 @@ def main():
                 m = re.match(r'^kvarn(\d+)', val)
                 if m:
                     setattr(args, field, f'q{m.group(1)}_0')
-
-    # DFlash
-    dflash = args.dflash
-    if dflash:
-        spec_draft_model = args.draft_model or config.get("spec", {}).get("spec_draft_model", "")
-        if not spec_draft_model or spec_draft_model == "1":
-            print("error: --dflash requires a draft model (use --draft-model)", file=sys.stderr)
-            sys.exit(2)
-        # DFlash is a standalone drafter; override any default spec type
-        args.spec_type = "draft-dflash"
 
     # Detect
     detect = args.detect
@@ -503,6 +587,18 @@ def main():
     if args.ctx_size is not None and args.ctx_size != "ctx-size":
         manual_ctx_size = parse_ctx_size(args.ctx_size)
 
+    # Tensor split mode distributes the model across GPUs, so the single-GPU
+    # "fit" context sizing does not apply. Drop all --fit-* arguments then.
+    split_mode_tensor = False
+    for i, tok in enumerate(extra_remaining):
+        if tok == "--split-mode" and i + 1 < len(extra_remaining) and extra_remaining[i + 1] == "tensor":
+            split_mode_tensor = True
+        elif tok.startswith("--split-mode=") and tok.split("=", 1)[1] == "tensor":
+            split_mode_tensor = True
+    if split_mode_tensor:
+        use_fit_mode = False
+        extra_args_for_fit = []
+
     # Preserve thinking
     preserve_thinking = args.pthinking
 
@@ -515,6 +611,16 @@ def main():
     kv_tail = str(bee_cfg.get("kv_tail_tokens", "")).strip()
     cache_type_k = (args.ctk or str(bee_cfg.get("cache_type_k", ""))).strip()
     cache_type_v = (args.ctv or str(bee_cfg.get("cache_type_v", ""))).strip()
+
+    # Detect user-supplied --load-mode in extra args to override the default
+    load_mode = "auto"
+    for i, tok in enumerate(extra_remaining):
+        if tok == "--load-mode" and i + 1 < len(extra_remaining):
+            load_mode = extra_remaining[i + 1]
+            break
+        elif tok.startswith("--load-mode="):
+            load_mode = tok.split("=", 1)[1]
+            break
 
     # Build args
     docker_args = build_docker_args(config, selected_gpus=selected_gpus, cpu_mode=cpu_mode)
@@ -552,6 +658,7 @@ def main():
         cache_type_k=cache_type_k,
         cache_type_v=cache_type_v,
         kv_tail_tokens=kv_tail,
+        load_mode=load_mode,
     )
 
     # If bench mode, replace cmd_args with bench-specific values
