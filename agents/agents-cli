@@ -48,6 +48,11 @@ Bind-mounted paths (host → container):
   ~/.ssh                          → ${CONTAINER_HOME}/.ssh          (read-only)
   ~/.gitconfig                    → ${CONTAINER_HOME}/.gitconfig    (read-only)
   ~/.julia                        → ${CONTAINER_HOME}/.julia        (read-write)
+  ~/.Xauthority                   → ${CONTAINER_HOME}/.Xauthority   (read-only)
+
+  Host notification support (auto):
+  /run/user/\$(id -u)/bus        → /run/user/\$(id -u)/bus          (read-only)
+  /tmp/.X11-unix                 → /tmp/.X11-unix                  (read-write)
 
 Environment:
   IMAGE_NAME         Override image (default: agents-cli)
@@ -147,6 +152,18 @@ mount_if_exists "$HOME/.julia"                  "${CONTAINER_HOME}/.julia"      
 # GitHub CLI config
 mount_if_exists "$HOME/.config/gh"              "${CONTAINER_HOME}/.config/gh"      "rw"
 
+# ── Host notification support (KDE session / X11) ─────────────────────────────
+# When the host is running a graphical session (KDE, GNOME, etc.) these mounts
+# let container processes send desktop notifications via notify-send / kdialog
+# over the host's D-Bus session bus. The entrypoint.sh auto-detects the env
+# vars once the sockets are mounted — no -e flags needed here.
+HOST_UID="$(id -u 2>/dev/null || echo 1000)"
+if [[ "$HOST_UID" -ne 0 ]]; then
+    mount_if_exists "/run/user/${HOST_UID}/bus"   "/run/user/${HOST_UID}/bus"   "ro"
+    mount_if_exists "/tmp/.X11-unix"              "/tmp/.X11-unix"              "rw"
+    mount_if_exists "$HOME/.Xauthority"            "${CONTAINER_HOME}/.Xauthority" "ro"
+fi
+
 # ── Pass through API key env vars ────────────────────────────────────────────
 DOCKER_ENV=()
 pass_env() {
@@ -157,6 +174,12 @@ pass_env() {
 # Set terminal dimensions using tput
 COLUMNS="`tput cols`"
 LINES="`tput lines`"
+
+# Pass through host display/D-Bus env vars if set (entrypoint auto-detects
+# the rest from the mounts above)
+pass_env DISPLAY                     || true
+pass_env DBUS_SESSION_BUS_ADDRESS    || true
+pass_env XDG_RUNTIME_DIR             || true
 
 pass_env OPENAI_API_KEY          || true
 pass_env ANTHROPIC_API_KEY       || true

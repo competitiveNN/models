@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates jq ripgrep ffmpeg sudo direnv vim-tiny \
     python3-dev python3-yaml python3-httpx kitty-terminfo ncurses-base ncurses-bin \
     lsof strace procps netcat-openbsd dnsutils less tree file neovim \
+    libnotify-bin libdbus-1-3 dbus-user-session \
+    libx11-6 libxcb1 libxext6 libxrender1 libxrandr2 libxss1 libxtst6 \
+    libgl1 libglib2.0-0 libgtk-3-0 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \

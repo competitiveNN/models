@@ -34,6 +34,36 @@ if [[ -t 0 ]]; then
 	trap 'kill "$SIZE_WATCH_PID" 2>/dev/null' EXIT
 fi
 
+# ── D-Bus session bus forwarding (for host KDE notifications) ────────────────
+# The container user's UID matches the host user's UID (set at build time via
+# CONTAINER_UID). When the host's D-Bus session socket is mounted into the
+# container at /run/user/<uid>/bus, we set XDG_RUNTIME_DIR and
+# DBUS_SESSION_BUS_ADDRESS so that notify-send / kdialog talk to the host's
+# KDE notification daemon (plasmashell) instead of starting an isolated one.
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+	container_uid="$(id -u)"
+	if [[ -S "/run/user/${container_uid}/bus" ]]; then
+		export XDG_RUNTIME_DIR="/run/user/${container_uid}"
+		export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${container_uid}/bus"
+		ok "Forwarded host D-Bus session bus (for KDE notifications)"
+	fi
+fi
+
+# ── X11 forwarding (for host display / GUI pop-ups) ────────────────────────────
+# When the X11 socket directory is mounted, auto-detect the display number
+# and point XAUTHORITY at a bind-mounted copy of the host's .Xauthority.
+if [[ -z "${DISPLAY:-}" ]] && [[ -d /tmp/.X11-unix ]]; then
+	for _sock in /tmp/.X11-unix/X[0-9]*; do
+		[[ -e "$_sock" ]] || continue
+		export DISPLAY=":${_sock#/tmp/.X11-unix/X}"
+		break
+	done
+	if [[ -n "${DISPLAY:-}" ]]; then
+		[[ -z "${XAUTHORITY:-}" && -f "${HOME}/.Xauthority" ]] && export XAUTHORITY="${HOME}/.Xauthority"
+		ok "Forwarded host X11 display ${DISPLAY:-unset} (for GUI notifications)"
+	fi
+fi
+
 # Only show the banner when starting an interactive shell
 if [ -t 0 ] && [ "$1" = "bash" ]; then
 	echo ""
@@ -52,6 +82,9 @@ if [ -t 0 ] && [ "$1" = "bash" ]; then
 
 	echo "  │                                                  │"
 	echo "  │  See setup-agent.sh --help for more.             │"
+	echo "  │                                                  │"
+	echo "  │  Desktop notifications supported — see build.sh   │"
+	echo "  │  for docker run flags (D-Bus + X11 mounts).       │"
 	echo "  └─────────────────────────────────────────────────┘"
 	echo ""
 fi
