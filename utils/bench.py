@@ -138,18 +138,60 @@ PROMPTS = [
 async def make_request(client, model, prompt, max_tokens):
     try:
         start_time = time.perf_counter()
-        response = await client.chat.completions.create(
+        first_token_time = None
+        prompt_tokens = 0
+        completion_tokens = 0
+        # Use streaming so we can measure time-to-first-token (TTFT), which
+        # approximates the end of the prefill (prompt-processing) phase.
+        stream = await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
-            timeout=600
+            timeout=600,
+            stream=True,
+            stream_options={"include_usage": True},
         )
+        async for chunk in stream:
+            now = time.perf_counter()
+            if first_token_time is None:
+                first_token_time = now
+            if chunk.usage:
+                prompt_tokens = chunk.usage.prompt_tokens or 0
+                completion_tokens = chunk.usage.completion_tokens or 0
+            else:
+                for choice in chunk.choices:
+                    if choice.delta and choice.delta.content:
+                        # Fallback token count when the server does not return
+                        # a usage block (counts streamed token-deltas).
+                        completion_tokens += 1
         end_time = time.perf_counter()
         latency = end_time - start_time
-        tokens = response.usage.completion_tokens if response.usage else 0
-        return {"latency": latency, "tokens": tokens, "success": True, "error_msg": None}
+        if first_token_time is None:
+            first_token_time = end_time
+        prefill_time = first_token_time - start_time
+        if prompt_tokens == 0:
+            # Rough estimate when the server omits usage info.
+            prompt_tokens = max(len(prompt) // 4, 1)
+        decode_time = max(latency - prefill_time, 1e-9)
+        return {
+            "latency": latency,
+            "tokens": completion_tokens,
+            "prompt_tokens": prompt_tokens,
+            "prefill_time": prefill_time,
+            "decode_time": decode_time,
+            "success": True,
+            "error_msg": None,
+        }
     except Exception as e:
-        return {"latency": 0, "tokens": 0, "success": False, "error_msg": str(e)}
+        return {
+            "latency": 0,
+            "tokens": 0,
+            "prompt_tokens": 0,
+            "prefill_time": 0,
+            "decode_time": 0,
+            "success": False,
+            "error_msg": str(e),
+        }
 
 def list_models(url, api_key):
     try:
@@ -162,28 +204,44 @@ def list_models(url, api_key):
     except Exception as e:
         print(f"Failed to list models: {e}")
 
-async def run_benchmark_session(client, model, num_requests, concurrency, max_tokens, quiet=False):
+async def run_benchmark_session(client, model, num_requests, concurrency, max_tokens, prompt_tokens_count=0, quiet=False):
     if not quiet:
         print(f"Testing Concurrency: {concurrency:5d} ...", end=" ", flush=True)
+
+    def resolve_prompt(idx):
+        if prompt_tokens_count > 0:
+            # Dummy prompt of a controlled length to measure prefill behaviour.
+            return "token " * prompt_tokens_count
+        return PROMPTS[idx % len(PROMPTS)]
+
     semaphore = asyncio.Semaphore(concurrency)
     async def sem_request(idx):
         async with semaphore:
-            prompt = PROMPTS[idx % len(PROMPTS)]
+            prompt = resolve_prompt(idx)
             return await make_request(client, model, prompt, max_tokens)
     start_time = time.perf_counter()
     tasks = [sem_request(i) for i in range(num_requests)]
     results = await asyncio.gather(*tasks)
     end_time = time.perf_counter()
     total_wall_time = end_time - start_time
-    successful_requests = sum(1 for r in results if r["success"])
-    total_tokens = sum(r["tokens"] for r in results if r["success"])
+    successful = [r for r in results if r["success"]]
+    successful_requests = len(successful)
+    total_tokens = sum(r["tokens"] for r in successful)
+    total_prompt_tokens = sum(r["prompt_tokens"] for r in successful)
+    total_prefill_time = sum(r["prefill_time"] for r in successful)
+    total_decode_time = sum(r["decode_time"] for r in successful)
+    # The first generated token is produced during the prefill phase, so the
+    # remaining (completion_tokens - 1) tokens represent the decode phase.
+    total_decode_tokens = sum(max(r["tokens"] - 1, 0) for r in successful)
     tps = total_tokens / total_wall_time if total_wall_time > 0 else 0
+    prefill_tps = total_prompt_tokens / total_prefill_time if total_prefill_time > 0 else 0
+    decode_tps = total_decode_tokens / total_decode_time if total_decode_time > 0 else 0
     error_rate = (num_requests - successful_requests) / num_requests
     if not quiet:
-        print(f"TPS: {tps:8.2f} | Error Rate: {error_rate:7.2%}")
-    return {"concurrency": concurrency, "tps": tps, "error_rate": error_rate, "successful_requests": successful_requests, "total_tokens": total_tokens, "total_wall_time": total_wall_time}
+        print(f"TPS: {tps:8.2f} | Prefill: {prefill_tps:8.2f} | Decode: {decode_tps:8.2f} | Error Rate: {error_rate:7.2%}")
+    return {"concurrency": concurrency, "tps": tps, "prefill_tps": prefill_tps, "decode_tps": decode_tps, "error_rate": error_rate, "successful_requests": successful_requests, "total_tokens": total_tokens, "total_prompt_tokens": total_prompt_tokens, "total_prefill_time": total_prefill_time, "total_decode_time": total_decode_time, "total_decode_tokens": total_decode_tokens, "total_wall_time": total_wall_time}
 
-async def optimize_concurrency(url, api_key, model, max_tokens, start_concurrency=1):
+async def optimize_concurrency(url, api_key, model, max_tokens, start_concurrency=1, prompt_tokens_count=0):
     client = AsyncOpenAI(api_key=api_key, base_url=url)
     print(f"Optimizing concurrency for {model} at {url}...")
     all_results = {}
@@ -191,7 +249,7 @@ async def optimize_concurrency(url, api_key, model, max_tokens, start_concurrenc
     best_c = start_concurrency
     while curr_c <= 128:
         num_requests = max(curr_c * 2, 4)
-        res = await run_benchmark_session(client, model, num_requests, curr_c, max_tokens)
+        res = await run_benchmark_session(client, model, num_requests, curr_c, max_tokens, prompt_tokens_count)
         all_results[curr_c] = res
         if res["error_rate"] > 0.15:
             print("Stopping: Error rate too high.")
@@ -218,7 +276,7 @@ async def optimize_concurrency(url, api_key, model, max_tokens, start_concurrenc
         found_better = False
         for c in points_to_test:
             if c not in all_results:
-                res = await run_benchmark_session(client, model, max(c * 2, 4), c, max_tokens)
+                res = await run_benchmark_session(client, model, max(c * 2, 4), c, max_tokens, prompt_tokens_count)
                 all_results[c] = res
                 if res["tps"] > all_results[best_c]["tps"] and res["error_rate"] <= 0.1:
                     best_c = c
@@ -226,11 +284,13 @@ async def optimize_concurrency(url, api_key, model, max_tokens, start_concurrenc
         if not found_better:
             break
     final_best = all_results[best_c]
-    print("\n" + "="*40)
+    print("\n" + "="*60)
     print(f"Optimization Finished")
     print(f"Best Concurrency Found: {best_c}")
     print(f"Maximum TPS Achieved:   {final_best['tps']:.2f}")
-    print("="*40)
+    print(f"Prefill Throughput:     {final_best['prefill_tps']:.2f} tokens/s")
+    print(f"Decode Throughput:      {final_best['decode_tps']:.2f} tokens/s")
+    print("="*60)
 
 async def find_max_context(url, api_key, model):
     client = AsyncOpenAI(api_key=api_key, base_url=url)
@@ -269,17 +329,25 @@ async def find_max_context(url, api_key, model):
     print(f"Approximate Max Context: ~{last_success} tokens")
     print("="*40)
 
-async def main_benchmark(url, api_key, model, num_requests, concurrency, max_tokens):
+async def main_benchmark(url, api_key, model, num_requests, concurrency, max_tokens, prompt_tokens=0):
     client = AsyncOpenAI(api_key=api_key, base_url=url)
-    res = await run_benchmark_session(client, model, num_requests, concurrency, max_tokens, quiet=True)
-    print("\n" + "="*40)
+    res = await run_benchmark_session(client, model, num_requests, concurrency, max_tokens, prompt_tokens, quiet=True)
+    print("\n" + "="*60)
     print(f"Results for {url}")
+    print(f"Model: {model}")
     print(f"Concurrency: {concurrency}")
+    print(f"Max Tokens: {max_tokens}")
+    if prompt_tokens:
+        print(f"Prompt Tokens: {prompt_tokens} (controlled prefill prompt)")
     print(f"Total Wall Time: {res['total_wall_time']:.2f}s")
     print(f"Successful Requests: {res['successful_requests']}/{num_requests}")
     print(f"Total Tokens Generated: {res['total_tokens']}")
+    print(f"Total Prompt Tokens: {res['total_prompt_tokens']}")
+    print()
     print(f"TPS (Total Tokens Per Second): {res['tps']:.2f}")
-    print("="*40)
+    print(f"Prefill Throughput:              {res['prefill_tps']:.2f} tokens/s")
+    print(f"Decode Throughput:               {res['decode_tps']:.2f} tokens/s")
+    print("="*60)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Simple OpenAI API TPS Benchmark")
@@ -289,6 +357,7 @@ if __name__ == "__main__":
     parser.add_argument("--requests", type=int, default=1, help="Total requests")
     parser.add_argument("--concurrency", type=int, default=1, help="Concurrency")
     parser.add_argument("--max-tokens", type=int, default=250, help="Max tokens to generate")
+    parser.add_argument("--prompt-tokens", type=int, default=0, help="Prompt length (tokens) to use as a controlled prefill input; 0 uses default prompts")
     parser.add_argument("--list", action="store_true", help="List available models and exit")
     parser.add_argument("--optimize", action="store_true", help="Find the best concurrency")
     parser.add_argument("--context", action="store_true", help="Find max context length")
@@ -297,11 +366,11 @@ if __name__ == "__main__":
         if args.list:
             list_models(args.url, args.api_key)
         elif args.optimize:
-            asyncio.run(optimize_concurrency(args.url, args.api_key, args.model, args.max_tokens, args.concurrency))
+            asyncio.run(optimize_concurrency(args.url, args.api_key, args.model, args.max_tokens, args.concurrency, args.prompt_tokens))
         elif args.context:
             asyncio.run(find_max_context(args.url, args.api_key, args.model))
         else:
-            asyncio.run(main_benchmark(args.url, args.api_key, args.model, args.requests, args.concurrency, args.max_tokens))
+            asyncio.run(main_benchmark(args.url, args.api_key, args.model, args.requests, args.concurrency, args.max_tokens, args.prompt_tokens))
     except KeyboardInterrupt:
         print("\nBenchmark interrupted by user.")
         sys.exit(130)

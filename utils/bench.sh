@@ -10,6 +10,7 @@ MODEL="gemma3-4b-cw"
 REQUESTS=1
 CONCURRENCY=1
 TOKENS=250
+PROMPT_TOKENS=0
 CMD="bench"
 
 # Activate virtual env if it exists
@@ -44,6 +45,10 @@ while [[ $# -gt 0 ]]; do
       TOKENS="$2"
       shift 2
       ;;
+    -pt|--prompt-tokens)
+      PROMPT_TOKENS="$2"
+      shift 2
+      ;;
     --list|list)
       CMD="list"
       shift
@@ -62,7 +67,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [command] [-u URL] [-k KEY] [-m MODEL] [-r REQUESTS] [-c CONCURRENCY] [-t TOKENS]"
+      echo "Usage: $0 [command] [-u URL] [-k KEY] [-m MODEL] [-r REQUESTS] [-c CONCURRENCY] [-t TOKENS] [-pt PROMPT_TOKENS]"
       echo "Commands: bench (default), list, optimize, context"
       exit 1
       ;;
@@ -95,15 +100,19 @@ case "$CMD" in
         OPTS+=(--list)
         ;;
     optimize)
-        OPTS+=(--optimize --concurrency "$CONCURRENCY" --max-tokens "$TOKENS")
+        OPTS+=(--optimize --concurrency "$CONCURRENCY" --max-tokens "$TOKENS" --prompt-tokens "$PROMPT_TOKENS")
         ;;
     context)
         OPTS+=(--context)
         echo "Starting Max Context Discovery for $MODEL at $URL..."
         ;;
     bench)
-        OPTS+=(--requests "$REQUESTS" --concurrency "$CONCURRENCY" --max-tokens "$TOKENS")
-        echo "Benchmarking $URL... (Model: $MODEL, Requests: $REQUESTS, Concurrency: $CONCURRENCY, Tokens: $TOKENS)"
+        OPTS+=(--requests "$REQUESTS" --concurrency "$CONCURRENCY" --max-tokens "$TOKENS" --prompt-tokens "$PROMPT_TOKENS")
+        if [ "$PROMPT_TOKENS" -gt 0 ]; then
+            echo "Benchmarking $URL... (Model: $MODEL, Requests: $REQUESTS, Concurrency: $CONCURRENCY, Max Tokens: $TOKENS, Prompt Tokens: $PROMPT_TOKENS)"
+        else
+            echo "Benchmarking $URL... (Model: $MODEL, Requests: $REQUESTS, Concurrency: $CONCURRENCY, Tokens: $TOKENS)"
+        fi
         ;;
 esac
 
