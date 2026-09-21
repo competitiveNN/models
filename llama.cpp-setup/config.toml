@@ -48,7 +48,7 @@ devices = [
 [spec]
 spec_draft_max = 48
 spec_draft_min = 12
-spec_type = "ngram-map-k"
+spec_type = "ngram-map-k4v"
 ngram_size_n = 24
 spec_ngram_size_n = 24
 spec_draft_model = ""

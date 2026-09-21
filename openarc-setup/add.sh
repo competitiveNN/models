@@ -16,32 +16,27 @@ fi
 ENGINE="ovgenai"
 MODEL_TYPE="vlm"
 DEVICE="HETERO:GPU.1,GPU.0"
-#RUNTIME_CONFIG='{"PERFORMANCE_HINT": "CUMULATIVE_THROUGHPUT", "KV_CACHE_PRECISION": "u8", "MODEL_DISTRIBUTION_POLICY": "PIPELINE_PARALLEL"}'
-RUNTIME_CONFIG='{"MODEL_DISTRIBUTION_POLICY": "PIPELINE_PARALLEL"}'
+RUNTIME_CONFIG='{"PERFORMANCE_HINT": "CUMULATIVE_THROUGHPUT", "KV_CACHE_PRECISION": "u8", "MODEL_DISTRIBUTION_POLICY": "PIPELINE_PARALLEL"}'
 DRAFT_DEVICE="HETERO:GPU.1,GPU.0"
 NUM_ASSISTANT_TOKENS=10
 ASSISTANT_CONFIDENCE_THRESHOLD=0.5
 
 #BASE_PATH="$HOME/data/models/ov"
 BASE_PATH="/models"
-qwq_05b="$BASE_PATH/QwQwen-0.5B-int8_asym-ov"
-qwen3_06b="$BASE_PATH/Qwen3-0.6B-int8_asym-ov/"
 qwen3_6l06b="$BASE_PATH/Qwen3-pruned-6L-from-0.6B-int8-ov/"
-qwen3_4b="$BASE_PATH/Qwen3-4B-Instruct-2507-int4_asym-awq-ov/"
-qwen3_8b="$BASE_PATH/Qwen3-8B-int4-cw-ov/"
-qwen3_14b="$BASE_PATH/Qwen3-14B-int4_sym-ov/"
+qwen36_35ba3b="$BASE_PATH/Qwen3.6-35b-a3b-int4-ov/"
 qwen36_27b="$BASE_PATH/Qwen3.6-27B-int4-ov/"
-qwen35_9b="$BASE_PATH/Qwen3.5-9B-int4_asym-ov/"
-qwen3c_30b="$BASE_PATH/Qwen3-30B-A3B-Instruct-2507-int4-ov"
+qwen38_27b="$BASE_PATH/Qwen3.8-27B-int4-ov/"
+ornith15_9b="$BASE_PATH/Ornith-1.5-9B-int4_asym-awq-ov/"
 lfm_12b="$BASE_PATH/LFM2.5-1.2B-Thinking-int4_asym-ov/"
+muse_glimmer_30b="$BASE_PATH/Muse-Glimmer-30B-int4-ov/"
 
 nemotron_14b="$BASE_PATH/Nemotron-Cascade-14B-Thinking-int4_asym-se-ov/"
 nousc_14b="$BASE_PATH/NousCoder-14B-int4_sym-ov/"
-gpt_oss_20b="$BASE_PATH/gpt-oss-20b-int4-ov/"
 
-MODEL_PATH=$qwen36_27b
+MODEL_PATH=$muse_glimmer_30b
 DRAFT_MODEL_PATH="" # $qwen3_6l06b
-MODEL_NAME="qwen36_27b"
+MODEL_NAME="model"
 
 ARGS=(
 	--mn "${MODEL_NAME}"
