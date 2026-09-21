@@ -724,6 +724,30 @@ class OVMSConfigManager:
                 print()
                 item_num += 1
     
+    def get_model_name_by_index(self, index: int) -> str | None:
+        """Return model/graph name for a 1-based index, matching list_models() order."""
+        models = self.config.get("model_config_list", [])
+        graphs = self.config.get("mediapipe_config_list", [])
+
+        item_num = 1
+
+        # Graphs (LLMs) first
+        for graph in graphs:
+            if item_num == index:
+                return graph.get("name")
+            item_num += 1
+
+        # Regular models (not graphs, not _model suffix)
+        graph_names = [g.get("name") for g in graphs]
+        for model in models:
+            name = model.get("config", {}).get("name", "")
+            if name not in graph_names and not name.endswith("_model"):
+                if item_num == index:
+                    return name
+                item_num += 1
+
+        return None
+
     def reload_config(self) -> None:
         """Reload the configuration via OVMS API."""
         try:
@@ -790,7 +814,7 @@ def main():
   %(prog)s add /models/ov/mistral/ministral --name ministral --llm
    %(prog)s add /models/ov/mistral/qwen2.5-7b --name qwen2.5 --llm --pipeline-type LM_CB
    %(prog)s add /models/ov/mistral/qwen2.5-7b --name qwen2.5 --llm --pipeline-type LM_CB --draft-model-path /models/ov/z-lab/Qwen3.5-27B-DFlash --draft-device GPU.1
-   %(prog)s remove llama-2-7b-chat
+   %(prog)s remove llama-2-7b-chat  # or: %(prog)s remove 1
   %(prog)s list
   %(prog)s reload
   %(prog)s status"""
@@ -858,7 +882,7 @@ def main():
     
     # Remove command
     remove_parser = subparsers.add_parser("remove", help="Remove a model or graph from the configuration")
-    remove_parser.add_argument("name", help="Name of the model/graph to remove")
+    remove_parser.add_argument("name", help="Name or list number of the model/graph to remove")
     
     # Clear command
     clear_parser = subparsers.add_parser("clear", help="Remove ALL models and graphs from configuration")
@@ -906,7 +930,14 @@ def main():
                          args.num_assistant_tokens,
                          args.draft_device)
     elif args.command == "remove":
-        manager.remove_model(args.name)
+        name = args.name
+        if name.isdigit():
+            resolved = manager.get_model_name_by_index(int(name))
+            if resolved is None:
+                print(f"Error: no item found at index {name}")
+                sys.exit(1)
+            name = resolved
+        manager.remove_model(name)
     elif args.command == "clear":
         manager.clear_all(args.force)
     elif args.command == "list":

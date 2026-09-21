@@ -82,7 +82,7 @@ python ovms_manager.py add /models/ov/llama-2-7b --llm \
 
 | Command | Description | Options |
 |---------|-------------|---------|
-| `add <path>` | Add model/graph to configuration | `--name`, `--device`, `--llm`, `--pipeline-type`, `--kv-cache-precision`, `--cache-size`, `--performance-hint`, `--inference-precision-hint`, `--model-distribution-policy`, `--execution-mode-hint`, `--scheduling-core-type`, `--enable-cpu-pinning`, `--draft-model-path`, `--draft-device`, `--num-assistant-tokens` |
+| `add <path>` | Add model/graph to configuration | `--name`, `--device`, `--llm`, `--pipeline-type`, `--kv-cache-precision`, `--cache-size`, `--performance-hint`, `--inference-precision-hint`, `--model-distribution-policy`, `--execution-mode-hint`, `--scheduling-core-type`, `--enable-cpu-pinning`, `--draft-model-path`, `--draft-device`, `--num-assistant-tokens` (supports DFlash, EAGLE3, MTP draft models) |
 | `remove <name>` | Remove model/graph by name | None |
 | `clear` | Remove all models and graphs | `--force` |
 | `list` | List all configured models and graphs | None |
@@ -101,15 +101,23 @@ When using the `--llm` flag, the script performs several automated steps:
 **Heuristic Cache Sizing**:
 If `--cache-size` is not provided and the target device is a GPU, the script uses `openvino` to detect the GPU's total memory. It then subtracts the estimated model size and a system overhead buffer (~1.5GB) to automatically set the optimal `cache_size`.
 
-## Speculative Decoding (DFlash Draft Models)
+## Speculative Decoding (Draft Models)
 
-The script supports adding **draft models** for speculative decoding (e.g. [DFlash](https://github.com/z-lab/dflash) block-diffusion drafters). When `--draft-model-path` is provided with `--llm`, the script:
+The script supports adding **draft models** for speculative decoding (DFlash, EAGLE3, or MTP). When `--draft-model-path` is provided with `--llm`, the script:
 
 1. Creates a managed symlink for the draft model under `./draft/1` inside the model's managed directory.
 2. Writes `draft_models_path: "./draft"` and `draft_device` into the generated `graph.pbtxt`'s `LLMCalculatorOptions`, which is where OVMS reads draft configuration.
 3. The main model config (`model_config_list`) remains clean — draft settings are **not** stored in the JSON config.
 
-**Requirements:** The draft model must be an OpenVINO-exported model with `--all-layers` (to output hidden states for KV injection). DFlash draft models from `z-lab` are available on HuggingFace (e.g. `z-lab/Qwen3.5-27B-DFlash`).
+**Auto-detection:** The C++ server auto-detects the draft strategy from model artifacts:
+- **DFlash**: `<dflash_mode value="1">` in `openvino_model.xml` `<rt_info>`
+- **EAGLE3**: `<eagle3_mode value="1">` in `openvino_model.xml` `<rt_info>`
+- **MTP**: presence of `openvino_mtp_model.xml` in the draft directory (takes priority)
+- **Fast Draft**: no markers detected (classic two-model speculative decoding)
+
+**Requirements:**
+- DFlash/EAGLE3: OpenVINO-exported model with `--all-layers` (to output hidden states for KV injection). DFlash draft models from `z-lab` are available on HuggingFace (e.g. `z-lab/Qwen3.5-27B-DFlash`).
+- MTP: Model must include the MTP prediction head exported as `openvino_mtp_model.xml` alongside the main model.
 
 **Note:** `num_assistant_tokens` is a **request-time generation parameter** — set it via `generation_config.json` in the model directory or pass it per-request in the API body, not via `ovms_manager.py`.
 
@@ -120,6 +128,11 @@ python ovms_manager.py add /models/ov/mistral/qwen3.5-27b --name qwen3.5-27b --l
     --device GPU.1 \
     --draft-model-path /models/ov/z-lab/Qwen3.5-27B-DFlash \
     --draft-device GPU.1
+
+# Add a model with an MTP draft head (auto-detected from openvino_mtp_model.xml)
+python ovms_manager.py add /models/ov/llama-3.1-8b-mtp --name llama-mtp --llm \
+    --draft-model-path /models/ov/llama-3.1-8b-mtp \
+    --draft-device CPU
 ```
 
 This generates a `graph.pbtxt` containing:
@@ -173,3 +186,38 @@ node_options: {
   ]
 }
 ```
+
+## MuseGlimmer-30B INT4 Model Directory Layout
+
+The OpenVINO IR export for MuseGlimmer-30B INT4 should follow this structure:
+
+```
+Muse-Glimmer-30B-assistant-ov-int4/
+├── model.xml
+├── model.bin
+└── (optional) generation_config.json
+```
+
+**Expected paths:**
+- Verified INT4 model: `/var/home/fra/data/models/openvino/Muse-Glimmer-30B-assistant-ov-int4`
+- FP32 model reference: `/var/home/fra/data/models/openvino/Muse-Glimmer-30B-assistant-ov`
+- FP16 optimum model: `/var/home/fra/data/models/openvino/Muse-Glimmer-30B-assistant-ov-fp16-final`
+
+**Configuration example:**
+```json
+{
+  "model_config_list": [
+    {
+      "config": {
+        "name": "muse-glimmer-30b-int4-ov_model",
+        "base_path": "/var/home/fra/data/models/openvino/Muse-Glimmer-30B-assistant-ov-int4",
+        "target_device": "CPU"
+      }
+    }
+  ]
+}
+```
+
+**Notes:**
+- MuseGlimmer is a Vision-Language Model (VLM) with multimodal inputs. Ensure your serving client handles image/video tokens according to the model's expected prompt format.
+- INT4 quantization reduces memory footprint but may require calibration data for optimal accuracy. The exported model at the path above is post-training quantized INT4.

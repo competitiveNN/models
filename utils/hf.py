@@ -1,28 +1,33 @@
 #!/usr/bin/env python3
 """
-Hugging Face model downloader script (without huggingface_hub dependency).
-Downloads models with specified quantization, similar to git clone behavior.
+Hugging Face model manager (without huggingface_hub dependency).
+Downloads or deletes GGUF models, keeping models.ini in sync.
 
 Usage:
-    python hf.py <model_name>
-    python hf.py <user>/<model_name>
-    python hf.py <user>/<model_name> --quantization <quant>
-    python hf.py <model_name> --quantization <quant>
+    python hf.py download <model_name>
+    python hf.py download <user>/<model_name>
+    python hf.py download <user>/<model_name> --quantization <quant>
+    python hf.py download <model_name> --quantization <quant>
+    python hf.py delete <model_dir> [--force]
 
 Examples:
-    python hf.py llama-2-7b-chat
-    python hf.py microsoft/DialoGPT-medium
-    python hf.py llama-2-7b-chat --quantization Q4_K_M
+    python hf.py download llama-2-7b-chat
+    python hf.py download microsoft/DialoGPT-medium
+    python hf.py download llama-2-7b-chat --quantization Q4_K_M
+    python hf.py delete llama-2-7b-chat
+    python hf.py delete llama-2-7b-chat --force
 """
 
 import argparse
 import os
 import sys
+import time
 import re
 import select
 import pty
 import subprocess
 import tempfile
+import shutil
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
@@ -181,7 +186,7 @@ def detect_model_format(files):
     Returns:
         str: Model format ('gguf', 'openvino', 'mixed', or 'other')
     """
-    has_gguf = any(f.endswith('.gguf') for f in files)
+    has_gguf = any(f.endswith('.gguf') or '.gguf.' in f for f in files)
     has_openvino = any(f.endswith(('.xml', '.bin')) and 'openvino' in f.lower() for f in files)
     has_openvino_ir = any(f.endswith('.xml') for f in files) and any(f.endswith('.bin') for f in files)
     
@@ -387,7 +392,7 @@ def download_specific_files(repo_id, files, local_dir, file_sizes=None):
                 sys.exit(1)
 
     # Post-processing: register any downloaded GGUF models in models.ini.
-    gguf_downloaded = [f for f in files if f.endswith(".gguf")]
+    gguf_downloaded = [f for f in files if f.endswith(".gguf") or ".gguf." in f]
     if gguf_downloaded:
         register_gguf_models(local_dir, gguf_downloaded)
 
@@ -435,9 +440,37 @@ def download_file(repo_id, filename, local_dir, show_progress=False):
 
     cmd += options + [url]
 
-    result = _run_aria2c(cmd, show_progress, conf_path)
+    # Large files (GGUF shards) transfer many GiB, so transient failures are
+    # common (e.g. "Error decoding the received TLS packet"). Relaunch aria2c on
+    # any error; --continue=true makes each retry resume the partial file instead
+    # of starting over. The conf file (auth token) is kept across attempts and
+    # cleaned up by us after the final attempt.
+    max_attempts = 8
+    attempt = 0
+    result = None
+    try:
+        while attempt < max_attempts:
+            attempt += 1
+            is_last = attempt >= max_attempts
+            result = _run_aria2c(cmd, show_progress, conf_path,
+                                 cleanup_conf=is_last)
+            if result == 0:
+                break
+            if is_last:
+                break
+            print(f"\n  ↺ aria2c attempt {attempt}/{max_attempts} failed (exit {result}); retrying...")
+            sys.stdout.flush()
+            # Small backoff so a flapping network/TLS has a moment to recover.
+            time.sleep(min(2 ** (attempt - 1), 15))
+    finally:
+        if conf_path and os.path.exists(conf_path):
+            try:
+                os.remove(conf_path)
+            except OSError:
+                pass
+
     if result != 0:
-        raise Exception(f"aria2c failed with exit code {result}")
+        raise Exception(f"aria2c failed with exit code {result} after {max_attempts} attempts")
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -465,7 +498,7 @@ def _render_match(m):
     sys.stdout.flush()
 
 
-def _run_aria2c(cmd, show_progress, conf_path=None):
+def _run_aria2c(cmd, show_progress, conf_path=None, cleanup_conf=True):
     """Run aria2c.
 
     For the progress bar we run aria2c inside a pty (so its output is live and
@@ -474,8 +507,11 @@ def _run_aria2c(cmd, show_progress, conf_path=None):
     Summary' blocks entirely. All other output (headers, separators, the final
     results table) is suppressed; on failure the relevant error lines are shown.
 
-    The temp config file (holding the auth token) is removed only after the
-    process has finished, so aria2c can still read it.
+    The temp config file (holding the auth token) is removed only when
+    ``cleanup_conf`` is True; callers that retry on failure should pass
+    ``cleanup_conf=False`` on intermediate attempts and clean the file up
+    themselves after the final attempt, so the auth token survives across
+    retries.
     """
     try:
         if not show_progress:
@@ -568,7 +604,7 @@ def _run_aria2c(cmd, show_progress, conf_path=None):
             except OSError:
                 pass
     finally:
-        if conf_path and os.path.exists(conf_path):
+        if cleanup_conf and conf_path and os.path.exists(conf_path):
             os.remove(conf_path)
 
 
@@ -576,6 +612,46 @@ def _sanitize_section(name):
     """Turn an arbitrary filename into a valid, lowercase INI section key."""
     s = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_").lower()
     return s or "model"
+
+
+# Matches sharded GGUF names like "name-00001-of-00028.gguf". Same shape as
+# the regex used in select_smallest_sharded_group().
+_SHARD_RE = re.compile(r"^(?P<base>.*?)-(?P<idx>\d{5})-of-\d{5}\.gguf$", re.IGNORECASE)
+
+
+def _first_shard_only(gguf_files):
+    """Collapse each sharded GGUF group to its first shard.
+
+    Files matching `<base>-NNNNN-of-MMMMM.gguf` are grouped by `<base>` and
+    only the shard with index 00001 is kept. Non-sharded files and groups that
+    do not include the 00001 shard are returned unchanged.
+    """
+    if not gguf_files:
+        return gguf_files
+
+    groups = {}
+    for f in gguf_files:
+        m = _SHARD_RE.match(f)
+        if not m:
+            groups.setdefault(("__single__", f), []).append(f)
+            continue
+        base = m.group("base")
+        groups.setdefault(("__shard__", base), []).append((int(m.group("idx")), f))
+
+    out = []
+    for key, members in groups.items():
+        if key[0] == "__single__":
+            out.extend(members)
+            continue
+        members.sort(key=lambda iv: iv[0])
+        first_idx, first_name = members[0]
+        if first_idx == 1:
+            out.append(first_name)
+        else:
+            # No 00001 shard present in this group; keep the lowest-indexed
+            # shard so the model is still registered.
+            out.append(first_name)
+    return out
 
 
 def register_gguf_models(local_dir, gguf_files):
@@ -593,6 +669,13 @@ def register_gguf_models(local_dir, gguf_files):
     model_ggufs, special_ggufs = categorize_gguf_files(gguf_files)
     mmproj_files = [f for f in special_ggufs if "mmproj" in f.lower()]
     model_entries = list(model_ggufs) + [f for f in special_ggufs if "mmproj" not in f.lower()]
+
+    # A sharded model (e.g. base-00001-of-00028.gguf ... -00028-of-00028.gguf) is
+    # a single model split across many files. llama.cpp picks the rest of the
+    # shards from the same directory when given the first one, so registering
+    # every shard as its own [section] in models.ini creates duplicates that
+    # point at the same model. Keep only the first shard of each sharded group.
+    model_entries = _first_shard_only(model_entries)
     if not model_entries:
         return
 
@@ -741,6 +824,60 @@ def _prune_missing_models(ini_path):
 
 
 
+def _remove_model_sections_by_dir(ini_path, folder):
+    """Remove models.ini sections whose model path points to the given folder.
+
+    Removes every [section] whose `model = /models/<folder>/...` entry matches.
+    Returns the number of removed sections.
+    """
+    if not os.path.exists(ini_path):
+        return 0
+    with open(ini_path, "r") as fh:
+        lines = fh.readlines()
+
+    preamble = []
+    sections = []
+    cur_header = None
+    cur_body = None
+    for line in lines:
+        if re.match(r"^\s*\[[^\]]+\]\s*$", line):
+            if cur_header is not None:
+                sections.append((cur_header, cur_body))
+            cur_header = line
+            cur_body = []
+        elif cur_header is None:
+            preamble.append(line)
+        else:
+            cur_body.append(line)
+    if cur_header is not None:
+        sections.append((cur_header, cur_body))
+
+    prefix = f"/models/{folder}/"
+    kept = []
+    removed = 0
+    for header, body in sections:
+        model_path = None
+        for bl in body:
+            mp = re.match(r"^\s*model\s*=\s*(.+?)\s*$", bl)
+            if mp:
+                model_path = mp.group(1).strip()
+                break
+        if model_path and model_path.startswith(prefix):
+            removed += 1
+            continue
+        kept.append((header, body))
+
+    rebuilt = "".join(preamble)
+    for header, body in kept:
+        rebuilt += header.rstrip("\n") + "\n"
+        rebuilt += "".join(body)
+
+    if rebuilt != "".join(lines):
+        with open(ini_path, "w") as fh:
+            fh.write(rebuilt)
+    return removed
+
+
 def check_repo_exists(repo_id):
     """
     Check if a repository exists on Hugging Face.
@@ -829,8 +966,10 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
     
     # Handle GGUF format (original logic)
     # Get all non-gguf files (config, tokenizer, README, etc.)
-    non_gguf_files = [f for f in files if not f.endswith('.gguf')]
-    gguf_files = [f for f in files if f.endswith('.gguf')]
+    # Also include .gguf.* (e.g., .gguf.part1of3) as GGUF files
+    is_gguf = lambda f: f.endswith('.gguf') or '.gguf.' in f
+    non_gguf_files = [f for f in files if not is_gguf(f)]
+    gguf_files = [f for f in files if is_gguf(f)]
     
     # Categorize GGUF files into model files and special files (mmproj, etc.)
     model_gguf_files, special_gguf_files = categorize_gguf_files(gguf_files)
@@ -929,139 +1068,137 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Download models from Hugging Face Hub with quantization support (no huggingface_hub dependency)",
+        description="Hugging Face model manager (download/delete GGUF models with models.ini sync)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-  hf.py llama-2-7b-chat
-  hf.py microsoft/DialoGPT-medium  
-  hf.py llama-2-7b-chat --quantization Q4_K_M
-  hf.py unsloth/llama-2-7b-bnb-4bit --quantization UD-Q8_0
-  hf.py llama-2-7b-chat --exclude-quantization Q2_K --exclude-quantization Q3_K_S
-  hf.py intel/llama-2-7b-chat-int4-ov --format openvino"""
+  hf.py download llama-2-7b-chat
+  hf.py download microsoft/DialoGPT-medium
+  hf.py download llama-2-7b-chat --quantization Q4_K_M
+  hf.py download unsloth/llama-2-7b-bnb-4bit --quantization UD-Q8_0
+  hf.py download llama-2-7b-chat --exclude-quantization Q2_K --exclude-quantization Q3_K_S
+  hf.py download intel/llama-2-7b-chat-int4-ov --format openvino
+  hf.py delete llama-2-7b-chat
+  hf.py delete llama-2-7b-chat --force"""
     )
-    
-    parser.add_argument(
-        "model",
-        help="Model name or user/model_name to download"
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Download subcommand
+    download_parser = subparsers.add_parser(
+        "download",
+        description="Download models from Hugging Face Hub",
+        help="Download a model"
     )
-    
-    parser.add_argument(
-        "--quantization", "-q",
-        default="UD-Q4_K_XL",
-        help="Quantization type (default: UD-Q4_K_XL)"
+    download_parser.add_argument("model", help="Model name or user/model_name to download")
+    download_parser.add_argument("--quantization", "-q", default="UD-Q4_K_XL", help="Quantization type (default: UD-Q4_K_XL)")
+    download_parser.add_argument("--user", "-u", default="unsloth", help="Default user if not specified in model name (default: unsloth)")
+    download_parser.add_argument("--no-quantization", action="store_true", help="Download original model without quantization suffix")
+    download_parser.add_argument("--list-files", "-l", action="store_true", help="List all .gguf files in the repository without downloading")
+    download_parser.add_argument("--exclude-quantization", "-e", action="append", help="Exclude specific quantization types (can be used multiple times)")
+    download_parser.add_argument("--format", "-f", choices=["auto", "gguf", "openvino"], default="auto", help="Model format to download (default: auto-detect)")
+
+    # Delete subcommand
+    delete_parser = subparsers.add_parser(
+        "delete",
+        description="Delete a model directory and clean models.ini",
+        help="Delete a model directory and remove its models.ini entries"
     )
-    
-    parser.add_argument(
-        "--user", "-u",
-        default="unsloth",
-        help="Default user if not specified in model name (default: unsloth)"
-    )
-    
-    parser.add_argument(
-        "--no-quantization",
-        action="store_true",
-        help="Download original model without quantization suffix"
-    )
-    
-    parser.add_argument(
-        "--list-files", "-l",
-        action="store_true",
-        help="List all .gguf files in the repository without downloading"
-    )
-    
-    parser.add_argument(
-        "--exclude-quantization", "-e",
-        action="append",
-        help="Exclude specific quantization types (can be used multiple times)"
-    )
-    
-    parser.add_argument(
-        "--format", "-f",
-        choices=["auto", "gguf", "openvino"],
-        default="auto",
-        help="Model format to download (default: auto-detect)"
-    )
-    
+    delete_parser.add_argument("model_dir", help="Directory name under ~/data/models/gguf to delete (e.g., llama-2-7b-chat)")
+    delete_parser.add_argument("--force", "-f", action="store_true", help="Skip confirmation prompts")
+
     args = parser.parse_args()
-    
-    # Parse the model input
-    user, model_name, base_repo_id = parse_model_path(args.model, args.user)
-    
-    # Use the base repository ID (don't append quantization to repo name)
-    repo_id = base_repo_id
-    
-    # Check if repository exists
-    if not check_repo_exists(repo_id):
-        print(f"✗ Repository {repo_id} not found on Hugging Face Hub")
-        sys.exit(1)
-    
-    # If user wants to list files, do that and exit
-    if args.list_files:
+
+    if args.command == "download":
+        # Backward-compat shim: allow old usage "hf.py <model>" without subcommand
+        # (Handled by required subparsers, so this is the only path)
+
+        # Parse the model input
+        user, model_name, base_repo_id = parse_model_path(args.model, args.user)
+        repo_id = base_repo_id
+
+        # Check if repository exists
+        if not check_repo_exists(repo_id):
+            print(f"✗ Repository {repo_id} not found on Hugging Face Hub")
+            sys.exit(1)
+
+        # If user wants to list files, do that and exit
+        if args.list_files:
+            files = list_repo_files(repo_id)
+            detected_format = detect_model_format(files)
+            print(f"Repository format: {detected_format}")
+            print(f"Total files: {len(files)}")
+            gguf_files = [f for f in files if f.endswith('.gguf')]
+            openvino_files = [f for f in files if f.endswith(('.xml', '.bin')) and ('openvino' in f.lower() or f.endswith('.xml'))]
+            if gguf_files:
+                print(f"\nGGUF files ({len(gguf_files)}):")
+                for file in sorted(gguf_files):
+                    print(f"  - {file}")
+            if openvino_files:
+                print(f"\nOpenVINO files ({len(openvino_files)}):")
+                for file in sorted(openvino_files):
+                    print(f"  - {file}")
+            if not gguf_files and not openvino_files:
+                print("\nNo GGUF or OpenVINO model files found")
+                print("Other files:")
+                for file in sorted(files[:10]):
+                    print(f"  - {file}")
+                if len(files) > 10:
+                    print(f"  ... and {len(files) - 10} more files")
+            sys.exit(0)
+
+        # Detect format early to determine directory naming
         files = list_repo_files(repo_id)
-        detected_format = detect_model_format(files)
-        
-        print(f"Repository format: {detected_format}")
-        print(f"Total files: {len(files)}")
-        
-        gguf_files = [f for f in files if f.endswith('.gguf')]
-        openvino_files = [f for f in files if f.endswith(('.xml', '.bin')) and ('openvino' in f.lower() or f.endswith('.xml'))]
-        
-        if gguf_files:
-            print(f"\nGGUF files ({len(gguf_files)}):")
-            for file in sorted(gguf_files):
-                print(f"  - {file}")
-        
-        if openvino_files:
-            print(f"\nOpenVINO files ({len(openvino_files)}):")
-            for file in sorted(openvino_files):
-                print(f"  - {file}")
-        
-        if not gguf_files and not openvino_files:
-            print("\nNo GGUF or OpenVINO model files found")
-            print("Other files:")
-            for file in sorted(files[:10]):  # Show first 10 files
-                print(f"  - {file}")
-            if len(files) > 10:
-                print(f"  ... and {len(files) - 10} more files")
-        
-        sys.exit(0)
-    
-    # Detect format early to determine directory naming
-    files = list_repo_files(repo_id)
-    if args.format == "auto":
-        detected_format = detect_model_format(files)
-    else:
-        detected_format = args.format
-    
-    # Determine quantization to search for
-    if args.no_quantization:
-        quantization = None
-        exclude_quantizations = None
-        local_dir = model_name
-    else:
-        quantization = args.quantization if not args.exclude_quantization else None
-        exclude_quantizations = args.exclude_quantization
-        if quantization:
+        if args.format == "auto":
+            detected_format = detect_model_format(files)
+        else:
+            detected_format = args.format
+
+        if args.no_quantization:
+            quantization = None
+            exclude_quantizations = None
             local_dir = model_name
         else:
+            quantization = args.quantization if not args.exclude_quantization else None
+            exclude_quantizations = args.exclude_quantization
             local_dir = model_name
-    
-    # For OpenVINO format (explicit or auto-detected), always use the model name as directory
-    if args.format == "openvino" or detected_format == "openvino":
-        local_dir = model_name
-    
-    # Check if directory already exists
-    if os.path.exists(local_dir):
-        response = input(f"Directory '{local_dir}' already exists. Continue? [y/N]: ")
-        if response.lower() not in ['y', 'yes']:
-            print("Aborted.")
-            sys.exit(0)
-    
-    # Create directory
-    Path(local_dir).mkdir(exist_ok=True)
-    
-    # Download the model
-    download_model(repo_id, local_dir, quantization, exclude_quantizations, detected_format, files)
+
+        if args.format == "openvino" or detected_format == "openvino":
+            local_dir = model_name
+
+        if os.path.exists(local_dir):
+            response = input(f"Directory '{local_dir}' already exists. Continue? [y/N]: ")
+            if response.lower() not in ['y', 'yes']:
+                print("Aborted.")
+                sys.exit(0)
+
+        Path(local_dir).mkdir(exist_ok=True)
+        download_model(repo_id, local_dir, quantization, exclude_quantizations, detected_format, files)
+
+    elif args.command == "delete":
+        model_dir_name = args.model_dir.rstrip("/")
+        models_host_root = Path(MODELS_HOST_ROOT).expanduser()
+        target_path = models_host_root / model_dir_name
+
+        if not target_path.exists():
+            print(f"✗ Directory not found: {target_path}")
+            sys.exit(1)
+
+        if not args.force:
+            response = input(f"Delete directory '{target_path}' and remove models.ini entries? [y/N]: ")
+            if response.lower() not in ['y', 'yes']:
+                print("Aborted.")
+                sys.exit(0)
+
+        # Remove models.ini sections first
+        removed_sections = _remove_model_sections_by_dir(MODELS_INI_PATH, model_dir_name)
+        if removed_sections:
+            print(f"✓ Removed {removed_sections} entr{'y' if removed_sections == 1 else 'ies'} from {MODELS_INI_PATH}")
+        else:
+            print("No entries found in models.ini for this directory")
+
+        # Delete the directory
+        shutil.rmtree(target_path)
+        print(f"✓ Deleted directory {target_path}")
 
 
 if __name__ == "__main__":
