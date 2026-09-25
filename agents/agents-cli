@@ -91,10 +91,16 @@ is_inside_container() {
 }
 
 if is_inside_container; then
-    echo "Error: agents-cli should not be run from inside a container." >&2
-    echo "       This script is designed to launch containers from the host." >&2
-    echo "       Use agents-cli-bwrap for bubblewrap-based execution from inside a container." >&2
-    exit 1
+    # Allow execution if Docker/podman is functional from inside the container
+    # (e.g., running from a toolbox container with host Docker socket access).
+    if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+        :
+    else
+        echo "Error: agents-cli should not be run from inside a container without Docker access." >&2
+        echo "       This script is designed to launch containers from the host." >&2
+        echo "       Use agents-cli-bwrap for bubblewrap-based execution from inside a container." >&2
+        exit 1
+    fi
 fi
 
 # ── Preflight ────────────────────────────────────────────────────────────────
@@ -123,7 +129,7 @@ MOUNTS=()
 
 mount_if_exists() {
     local src="$1" dst="$2" mode="${3:-rw}"
-    [[ -e "$src" ]] && MOUNTS+=(-v "${src}:${dst}:${mode}")
+    [[ -e "$src" ]] && MOUNTS+=(-v "${src}:${dst}:${mode}") || true
 }
 
 CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
