@@ -11,6 +11,8 @@ llama.cpp-setup/llama.cpp/*
 vllm-setup/vllm/*
 honcho-setup/honcho/*
 ovms/model_server/*
+# ovms download/build cache (large binary blob, never commit).
+ovms/cache/
 !.gitkeep
 .soulforge
 **/.envrc

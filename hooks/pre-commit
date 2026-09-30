@@ -27,10 +27,13 @@ TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Materialise staged blobs into a temp dir so scanners see the *new* content.
+# Use -z (NUL-separated) so paths with spaces or multiple entries are split
+# correctly — `printf '%s\0' "$STAGED"` would treat the whole multi-line
+# string as a single (broken) path.
 while IFS= read -r -d '' f; do
   mkdir -p "$TMPDIR/$(dirname "$f")"
   git show ":$f" > "$TMPDIR/$f" 2>/dev/null || true
-done < <(printf '%s\0' "$STAGED")
+done < <(git diff --cached -z --name-only --diff-filter=ACM 2>/dev/null)
 
 # ── Primary: gitleaks ────────────────────────────────────────────────────────
 if command -v gitleaks >/dev/null 2>&1; then
@@ -61,4 +64,38 @@ if [ "$FOUND" = "1" ]; then
 fi
 
 echo "✓ pre-commit: no secrets detected"
+
+# ── Shellcheck (lint staged shell scripts) ─────────────────────────────────────
+# Blocks unquoted variables / word-splitting / regex bugs in shell scripts.
+# Skips silently when shellcheck is not installed (don't block contributors
+# who haven't installed it — the secrets scan above is the hard gate).
+if command -v shellcheck >/dev/null 2>&1; then
+  SHLINT=0
+  # Scan every staged script: *.sh files OR scripts whose first line is a
+  # bash/sh shebang (agents-cli has no .sh extension, so the shebang check
+  # is what catches it).
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    staged_file="$TMPDIR/$f"
+    [ -f "$staged_file" ] || continue
+    first="$(head -1 "$staged_file" 2>/dev/null || true)"
+    case "$f" in
+      *.sh) run_sc=1 ;;
+      *) [[ "$first" =~ ^#!.*bash || "$first" =~ ^#!.*sh ]] && run_sc=1 || run_sc=0 ;;
+    esac
+    if [ "$run_sc" = "1" ]; then
+      if ! shellcheck --severity=warning "$staged_file" >/dev/null 2>&1; then
+        shellcheck --severity=warning "$staged_file"
+        SHLINT=1
+      fi
+    fi
+  done <<< "$STAGED"
+  if [ "$SHLINT" = "1" ]; then
+    echo "⚠️  Pre-commit hook: shellcheck found issues in staged shell scripts."
+    echo "   Fix them or set SKIP_SECRETS_SCAN=1 to bypass."
+    exit 1
+  fi
+  echo "✓ pre-commit: shellcheck clean"
+fi
+
 exit 0

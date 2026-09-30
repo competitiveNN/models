@@ -3,6 +3,7 @@ set -euo pipefail
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 CYAN='\033[0;36m'
+# shellcheck disable=SC2034 # kept for parity with CYAN/NC color scheme
 GREEN='\033[0;32m'
 NC='\033[0m'
 
@@ -125,7 +126,7 @@ is_inside_container() {
     [[ -f "/run/.containerenv" ]] && return 0
     local cgroup
     cgroup="$(cat /proc/1/cgroup 2>/dev/null | head -1 2>/dev/null || true)"
-    [[ "$cgroup" =~ "docker|containerd|podman|libpod" ]] && return 0
+    [[ "$cgroup" =~ docker|containerd|podman|libpod ]] && return 0
     return 1
 }
 

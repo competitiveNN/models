@@ -85,5 +85,30 @@ run_log_stderr_test() {
 }
 run_log_stderr_test
 
+# ── HTTPS-with-token: stdout clean, no log() emitted for this branch ─────────
+# The original bug (log() on stdout) would have contaminated the data line
+# here too; assert stdout is exactly the data line and stderr is empty, so
+# the contract is pinned per-branch rather than only for the SSH branch.
+run_https_token_stdout_test() {
+    local url="https://oauth2:abc123def456@github.com/owner/repo.git"
+    local out err
+    out="$(bash agents/agents-cli __parse_only__ "$url" 2>/tmp/logerr_$$)" || true
+    err="$(cat /tmp/logerr_$$)"
+    rm -f /tmp/logerr_$$
+    if [[ "$out" != "abc123def456|github.com" ]]; then
+        printf 'FAIL: https-token stdout\n  expected "abc123def456|github.com", got: %s\n' "$out" >&2
+        FAIL=$((FAIL+1))
+        return
+    fi
+    # HTTPS-with-token branch does not call log(), so stderr must be empty.
+    if [[ -n "$err" ]]; then
+        printf 'FAIL: https-token stderr\n  expected empty stderr, got: %s\n' "$err" >&2
+        FAIL=$((FAIL+1))
+        return
+    fi
+    PASS=$((PASS+1))
+}
+run_https_token_stdout_test
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 exit "$([ "$FAIL" -eq 0 ] && echo 0 || echo 1)"
