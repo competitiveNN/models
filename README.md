@@ -195,3 +195,32 @@ Exports create OpenVINO Intermediate Representation (IR) files in the specified 
 ## License
 
 This project is part of the broader AI model optimization toolkit.
+
+## Submodule Notes
+
+### openarc-setup/OpenArc (external: SearchSavior/OpenArc)
+
+The submodule pointer may drift ahead of the checked-out commit when work
+is done directly inside `openarc-setup/OpenArc/`. As of the latest state the
+pointer is at `fb39ea7` (v1.0.4-551) and the submodule has a **local,
+uncommitted** change in `.devops/openvino.Dockerfile`:
+
+```
++RUN uv pip install --pre -U openvino-genai --extra-index-url \
++    https://storage.openvinotoolkit.org/simple/wheels/nightly
+```
+
+(installs the OpenVINO nightly build of `openvino-genai` for Battlemage GPUs).
+
+**Do not** commit the superproject pointer while the submodule is dirty —
+that would bake the uncommitted Dockerfile change into the external repo's
+history. Instead, from `openarc-setup/OpenArc/`:
+
+```bash
+git add .devops/openvino.Dockerfile
+git commit -m "Install openvino-genai nightly for Battlemage GPUs"
+git push
+```
+
+then update the superproject pointer with a clean `git submodule update` /
+`git add openarc-setup/OpenArc` and commit that separately.
