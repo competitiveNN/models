@@ -217,19 +217,38 @@ pass_env LINES                   || true
 # then expose it as GH_TOKEN for this container only. The host's gh auth
 # (~/.config/gh) is intentionally NOT mounted, so the container relies on this
 # token for gh CLI / git operations.
+#
+# Remote URL shapes handled:
+#   - HTTPS with embedded credential:  https://<user>:<token>@github.com/owner/repo
+#   (SSH remotes like git@github.com:owner/repo carry no token, so we only set
+#    GH_HOST from the host and leave GH_TOKEN unset; the container then needs a
+#    token provided via the host environment or `gh auth login` inside.)
 GH_TOKEN=""
+GH_HOST=""
 REMOTE_URL="$(git remote get-url origin 2>/dev/null || git remote get-url "$(git remote 2>/dev/null | head -n1)" 2>/dev/null || true)"
 if [[ -n "$REMOTE_URL" ]]; then
-    # Match https://<user>:<token>@host/... (token is between ':' and '@')
-    if [[ "$REMOTE_URL" =~ ^[^/]+://[^/]+:([^@/]+)@ ]]; then
+    if [[ "$REMOTE_URL" =~ ^[^/]+://[^/]+:([^@/]+)@([^/]+) ]]; then
+        # https://<user>:<token>@<host>/...  → token between ':' and '@'
         GH_TOKEN="${BASH_REMATCH[1]}"
+        GH_HOST="${BASH_REMATCH[2]}"
+    elif [[ "$REMOTE_URL" =~ ^([^@]+)@([^:]+): ]]; then
+        # git@<host>:owner/repo[:...]  → SSH; no token available
+        GH_HOST="${BASH_REMATCH[2]}"
+        log "SSH remote '$REMOTE_URL' — no token in SSH URL; GH_TOKEN not set (provide via host env or `gh auth login` in container)"
+    else
+        # Plain URL with no embedded credential (https://github.com/owner/repo)
+        if [[ "$REMOTE_URL" =~ ^[^/]+://([^/]+)/ ]]; then
+            GH_HOST="${BASH_REMATCH[1]}"
+        fi
+        log "Remote '$REMOTE_URL' has no embedded token (GH_TOKEN not set)"
     fi
 fi
 if [[ -n "$GH_TOKEN" ]]; then
     DOCKER_ENV+=(-e "GH_TOKEN=${GH_TOKEN}")
-    log "GH_TOKEN set from git remote URL"
+    DOCKER_ENV+=(-e "GH_HOST=${GH_HOST}")
+    log "GH_TOKEN set from git remote URL (host: ${GH_HOST:-unknown})"
 else
-    log "No GH_TOKEN found in git remote URL (gh auth not mounted)"
+    log "GH_TOKEN not set for this container (host: ${GH_HOST:-unknown})"
 fi
 
 # ── Watch mode ───────────────────────────────────────

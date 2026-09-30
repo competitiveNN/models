@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Pre-commit hook: block secrets before they reach the working tree.
+#
+# Primary: gitleaks (if installed) scans staged content.
+# Fallback: a regex scan of staged files so the hook still blocks locally
+# when gitleaks is not on PATH.
+#
+# Usage:  .git/hooks/pre-commit   (symlinked or copied from hooks/pre-commit)
+#
+# To skip (e.g. when intentionally adding a placeholder): set
+#   SKIP_SECRETS_SCAN=1  in the environment, or run `git commit --no-verify`.
+
+set -u
+
+SKIP="${SKIP_SECRETS_SCAN:-0}"
+if [ "$SKIP" = "1" ]; then
+  exit 0
+fi
+
+# Collect the list of staged files (added/modified, not deleted).
+STAGED="$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)"
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+
+# Materialise staged blobs into a temp dir so scanners see the *new* content.
+while IFS= read -r -d '' f; do
+  mkdir -p "$TMPDIR/$(dirname "$f")"
+  git show ":$f" > "$TMPDIR/$f" 2>/dev/null || true
+done < <(printf '%s\0' "$STAGED")
+
+# ── Primary: gitleaks ────────────────────────────────────────────────────────
+if command -v gitleaks >/dev/null 2>&1; then
+  if gitleaks --no-banner --redact --exit-code 1 detect --source "$TMPDIR" >/dev/null 2>&1; then
+    exit 0
+  fi
+  gitleaks --no-banner --redact detect --source "$TMPDIR"
+  echo "⚠️  gitleaks found secrets in staged files. Remove them or set SKIP_SECRETS_SCAN=1 to bypass."
+  exit 1
+fi
+
+# ── Fallback: regex scan ─────────────────────────────────────────────────────
+# Covers common live-secret shapes. Adjust for your project's key types.
+PAT='(nvapi-[A-Za-z0-9_-]{10,}|hf_[A-Za-z0-9]{10,}|sk-[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|ghu_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|cfat_[A-Za-z0-9_]{10,}|pypi-[A-Za-z0-9_.-]{20,}|sk-ant-[A-Za-z0-9_-]{20,})'
+
+FOUND=0
+while IFS= read -r -d '' f; do
+  if grep -aInE "$PAT" "$f" >/dev/null 2>&1; then
+    grep -aInE "$PAT" "$f"
+    FOUND=1
+  fi
+done < <(find "$TMPDIR" -type f -print0)
+
+if [ "$FOUND" = "1" ]; then
+  echo "⚠️  Pre-commit hook: potential secrets detected in staged files."
+  echo "   Install gitleaks for a stricter scan, or set SKIP_SECRETS_SCAN=1 to bypass."
+  exit 1
+fi
+
+echo "✓ pre-commit: no secrets detected"
+exit 0
