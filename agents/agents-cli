@@ -1,6 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── Colors ───────────────────────────────────────────────────────────────────
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
+
+log()  { echo -e "${CYAN}▸${NC} $*" >&2; }
+
+# parse_github_remote_url <url> <out_token_var> <out_host_var>
+# Extracts an embedded credential and host from a remote URL. Populates the
+# named output variables (leaves them empty when nothing is found). Handles:
+#   https://<user>:<token>@<host>/...   → token + host
+#   git@<host>:owner/repo[:...]         → host only (SSH, no token)
+#   https://<host>/owner/repo           → host only (no token)
+parse_github_remote_url() {
+    local url="$1" tvar="$2" hvar="$3"
+    local -n _t="$tvar" _h="$hvar"
+    _t=""
+    _h=""
+    if [[ "$url" =~ ^[^/]+://[^/]+:([^@/]+)@([^/]+) ]]; then
+        # https://<user>:<token>@<host>/...  → token between ':' and '@'
+        _t="${BASH_REMATCH[1]}"
+        _h="${BASH_REMATCH[2]}"
+    elif [[ "$url" =~ ^([^@]+)@([^:]+): ]]; then
+        # git@<host>:owner/repo[:...]  → SSH; no token available
+        _h="${BASH_REMATCH[2]}"
+        log "SSH remote '$url' — no token in SSH URL; GH_TOKEN not set (provide via host env or 'gh auth login' inside)"
+    else
+        # Plain URL with no embedded credential (https://github.com/owner/repo)
+        if [[ "$url" =~ ^[^/]+://([^/]+)/ ]]; then
+            _h="${BASH_REMATCH[1]}"
+        fi
+        log "Remote '$url' has no embedded token (GH_TOKEN not set)"
+    fi
+}
+
+# ── Test hook ───────────────────────────────────────────────────────────────────
+# `agents-cli __parse_only__ <url>` runs ONLY parse_github_remote_url and prints
+# "token|host" so the test suite can assert on the parsed values without
+# spinning up Docker.
+if [[ "${1:-}" == "__parse_only__" ]]; then
+    shift
+    parse_github_remote_url "$1" "GH_TOKEN" "GH_HOST"
+    printf '%s|%s\n' "${GH_TOKEN}" "${GH_HOST}"
+    exit 0
+fi
+
 # ── agents-cli: launch the multi-agent Docker container ──────────────────────
 # Runs as user 1000 inside the container. Agent settings are mounted
 # to mirror the host paths.
@@ -9,15 +57,6 @@ IMAGE_NAME="${IMAGE_NAME:-agents-cli}"
 DIRNAME="$(basename "$PWD")"
 CONTAINER_NAME="${IMAGE_NAME}-${DIRNAME}"
 AGENTS_VOLUME="${AGENTS_VOLUME:-agents-cli-config}"
-
-# ── Colors ───────────────────────────────────────────────────────────────────
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-CONTAINER_HOME="${CONTAINER_HOME:-/home/agent}"
-
-log()  { echo -e "${CYAN}▸${NC} $*"; }
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
@@ -226,22 +265,9 @@ pass_env LINES                   || true
 GH_TOKEN=""
 GH_HOST=""
 REMOTE_URL="$(git remote get-url origin 2>/dev/null || git remote get-url "$(git remote 2>/dev/null | head -n1)" 2>/dev/null || true)"
+
 if [[ -n "$REMOTE_URL" ]]; then
-    if [[ "$REMOTE_URL" =~ ^[^/]+://[^/]+:([^@/]+)@([^/]+) ]]; then
-        # https://<user>:<token>@<host>/...  → token between ':' and '@'
-        GH_TOKEN="${BASH_REMATCH[1]}"
-        GH_HOST="${BASH_REMATCH[2]}"
-    elif [[ "$REMOTE_URL" =~ ^([^@]+)@([^:]+): ]]; then
-        # git@<host>:owner/repo[:...]  → SSH; no token available
-        GH_HOST="${BASH_REMATCH[2]}"
-        log "SSH remote '$REMOTE_URL' — no token in SSH URL; GH_TOKEN not set (provide via host env or `gh auth login` in container)"
-    else
-        # Plain URL with no embedded credential (https://github.com/owner/repo)
-        if [[ "$REMOTE_URL" =~ ^[^/]+://([^/]+)/ ]]; then
-            GH_HOST="${BASH_REMATCH[1]}"
-        fi
-        log "Remote '$REMOTE_URL' has no embedded token (GH_TOKEN not set)"
-    fi
+    parse_github_remote_url "$REMOTE_URL" "GH_TOKEN" "GH_HOST"
 fi
 if [[ -n "$GH_TOKEN" ]]; then
     DOCKER_ENV+=(-e "GH_TOKEN=${GH_TOKEN}")
@@ -283,7 +309,6 @@ fi
 if [[ -n "${KITTY_WINDOW_ID:-}" ]] || [[ "${TERM:-}" == "xterm-kitty" ]]; then
     # Get the project directory basename
     PROJECT_NAME="$(basename "$PWD")"
-    # Set Kitty window title using escape sequence
     printf '\e]2;%s\a' "${PROJECT_NAME}"
 fi
 

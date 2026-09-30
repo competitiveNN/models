@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Tests for agents/agents-cli GitHub remote-URL credential parsing.
+#
+# The host's gh auth (~/.config/gh) is intentionally NOT mounted into the
+# container, so agents-cli extracts an embedded token from the git remote URL.
+# These tests cover the three handled URL shapes.
+#
+# Run:  bash agents/tests/test_gh_token.sh
+#
+# Exits non-zero on any failure.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLI="$SCRIPT_DIR/../agents-cli"
+
+PASS=0
+FAIL=0
+
+run_case() {
+    local name="$1" expected="$2" url="$3"
+    # agents-cli __parse_only__ <url>  ->  "token|host"
+    local out
+    out="$("$CLI" __parse_only__ "$url" 2>/dev/null)"
+    if [[ "$out" == "$expected" ]]; then
+        PASS=$((PASS+1))
+        # printf '.' >&2  # quiet on success
+    else
+        FAIL=$((FAIL+1))
+        printf 'FAIL: %s\n  url:      %s\n  expected: %s\n  got:      %s\n' \
+            "$name" "$url" "$expected" "$out" >&2
+    fi
+}
+
+# 1) HTTPS with embedded credential: token between ':' and '@'
+run_case "https-with-token" \
+    "shh_token_abc|github.com" \
+    "https://oauth2:shh_token_abc@github.com/owner/repo.git"
+
+# 2) SSH remote: no token, host only
+run_case "ssh-remote" \
+    "|github.com" \
+    "git@github.com:owner/repo.git"
+
+# 3) Plain HTTPS URL (no credential): no token, host only
+run_case "plain-https" \
+    "|github.com" \
+    "https://github.com/owner/repo.git"
+
+# 4) SSH to a non-github host (host extracted, no token)
+run_case "ssh-other-host" \
+    "|gitlab.com" \
+    "git@gitlab.com:owner/repo.git"
+
+# 5) HTTPS with token on a different host
+run_case "https-token-other-host" \
+    "tok123|gitlab.example.com" \
+    "https://user:tok123@gitlab.example.com/owner/repo"
+
+printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
+exit "$([ "$FAIL" -eq 0 ] && echo 0 || echo 1)"
