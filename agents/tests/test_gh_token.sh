@@ -57,5 +57,33 @@ run_case "https-token-other-host" \
     "tok123|gitlab.example.com" \
     "https://user:tok123@gitlab.example.com/owner/repo"
 
+# ── log() must write only to stderr (so stdout stays clean for data) ───────────
+# Guards the stdout-pollution bug from 1301f5d (log() wrote to stdout,
+# breaking the __parse_only__ data contract).
+run_log_stderr_test() {
+    # Use an SSH remote: parse_github_remote_url() calls log() for this branch
+    # (the HTTPS-with-token branch does not), so this proves log() goes to
+    # stderr and that the log line never leaks onto stdout.
+    local url="git@github.com:owner/repo.git"
+    local out err
+    out="$(bash agents/agents-cli __parse_only__ "$url" 2>/tmp/logerr_$$)" || true
+    err="$(cat /tmp/logerr_$$)"
+    rm -f /tmp/logerr_$$
+    # stdout must be EXACTLY the data line — no log() output leaked onto stdout.
+    if [[ "$out" != "|github.com" ]]; then
+        printf 'FAIL: log-stderr stdout\n  expected "|github.com", got: %s\n' "$out" >&2
+        FAIL=$((FAIL+1))
+        return
+    fi
+    # stderr should carry the log line (proves log() goes to stderr, not stdout).
+    if [[ -z "$err" ]]; then
+        printf 'FAIL: log-stderr stderr\n  expected a log line on stderr, got empty\n' >&2
+        FAIL=$((FAIL+1))
+        return
+    fi
+    PASS=$((PASS+1))
+}
+run_log_stderr_test
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 exit "$([ "$FAIL" -eq 0 ] && echo 0 || echo 1)"
