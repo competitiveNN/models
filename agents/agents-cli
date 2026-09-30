@@ -155,8 +155,9 @@ mount_if_exists "$HOME/.gitconfig"              "${CONTAINER_HOME}/.gitconfig"  
 
 # Julia full directory
 mount_if_exists "$HOME/.julia"                  "${CONTAINER_HOME}/.julia"          "rw"
-# GitHub CLI config
-mount_if_exists "$HOME/.config/gh"              "${CONTAINER_HOME}/.config/gh"      "rw"
+# NOTE: ~/.config/gh is intentionally NOT mounted — we don't want to share
+# host gh auth credentials inside the container. Instead, GH_TOKEN is set
+# container-wise (see below) by parsing the git remote origin URL.
 
 # ── Host notification support (KDE session / X11) ─────────────────────────────
 # When the host is running a graphical session (KDE, GNOME, etc.) these mounts
@@ -209,6 +210,27 @@ pass_env TERM                    || true
 pass_env COLUMNS                 || true
 pass_env LINES                   || true
 
+
+# ── GitHub token (container-wise) ─────────────────────────────────────────────
+# Each container is tied to a project (a git repo). Parse the remote origin URL
+# (falling back to the first available remote) and extract the embedded token,
+# then expose it as GH_TOKEN for this container only. The host's gh auth
+# (~/.config/gh) is intentionally NOT mounted, so the container relies on this
+# token for gh CLI / git operations.
+GH_TOKEN=""
+REMOTE_URL="$(git remote get-url origin 2>/dev/null || git remote get-url "$(git remote 2>/dev/null | head -n1)" 2>/dev/null || true)"
+if [[ -n "$REMOTE_URL" ]]; then
+    # Match https://<user>:<token>@host/... (token is between ':' and '@')
+    if [[ "$REMOTE_URL" =~ ^[^/]+://[^/]+:([^@/]+)@ ]]; then
+        GH_TOKEN="${BASH_REMATCH[1]}"
+    fi
+fi
+if [[ -n "$GH_TOKEN" ]]; then
+    DOCKER_ENV+=(-e "GH_TOKEN=${GH_TOKEN}")
+    log "GH_TOKEN set from git remote URL"
+else
+    log "No GH_TOKEN found in git remote URL (gh auth not mounted)"
+fi
 
 # ── Watch mode ───────────────────────────────────────
 # If the first argument is "watch", prepend "watchdog" to the agent command
