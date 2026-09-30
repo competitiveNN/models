@@ -26,6 +26,11 @@ parse_github_remote_url() {
         # https://<user>:<token>@<host>/...  → token between ':' and '@'
         _t="${BASH_REMATCH[1]}"
         _h="${BASH_REMATCH[2]}"
+    elif [[ "$url" =~ ^[^/]+://[^/]+:([^/]*@)([^/]+) ]]; then
+        # https://<user>:@<host>/...  → credential present but token is empty;
+        # still extract the host so GH_HOST is correct (GH_TOKEN stays empty).
+        _t=""
+        _h="${BASH_REMATCH[2]}"
     elif [[ "$url" =~ ^([^@]+)@([^:]+): ]]; then
         # git@<host>:owner/repo[:...]  → SSH; no token available
         _h="${BASH_REMATCH[2]}"

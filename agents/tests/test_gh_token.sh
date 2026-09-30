@@ -57,6 +57,19 @@ run_case "https-token-other-host" \
     "tok123|gitlab.example.com" \
     "https://user:tok123@gitlab.example.com/owner/repo"
 
+# 6) HTTPS remote with a port: host should include the port
+run_case "https-with-port" \
+    "secret|host.example.com:8443" \
+    "https://tok:secret@host.example.com:8443/owner/repo.git"
+
+# 7) Malformed credential (empty token, user:): the parser must NOT
+#    treat the bare user as the token and must not crash. The empty token
+#    is captured as GH_TOKEN="" and GH_HOST stays unset for this shape,
+#    so the container falls back to host env / gh auth login.
+run_case "https-empty-token" \
+    "|github.com" \
+    "https://user:@github.com/owner/repo.git"
+
 # ── log() must write only to stderr (so stdout stays clean for data) ───────────
 # Guards the stdout-pollution bug from 1301f5d (log() wrote to stdout,
 # breaking the __parse_only__ data contract).
