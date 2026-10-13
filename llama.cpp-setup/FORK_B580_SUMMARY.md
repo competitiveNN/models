@@ -38,6 +38,7 @@ Authoritative doc: `docs/bonsai-arc-b580.md` in the `arc-b580` branch.
 15. [Build and Run](#15-build-and-run)
 16. [Caveats and Gotchas](#16-caveats-and-gotchas)
 17. [Credits](#17-credits)
+18. [2×B580 / Tensor-Parallel Analysis](#2xb580--tensor-parallel-analysis)
 
 ---
 
@@ -517,3 +518,31 @@ v0.10.1 includes three commits from [PrismML's llama.cpp fork](https://github.co
 ---
 
 *Summary compiled from `docs/bonsai-arc-b580.md` and the commit history of the `arc-b580` and `sycl-fa-q4-xmx` branches (through commit `7adb2dd2`, Oct 10, 2026).*
+
+---
+
+## 18. 2×B580 / Tensor-Parallel Analysis
+
+**Short answer:** the **per-device kernel work transfers to each card**, but the fork's optimizations are orthogonal to what actually limits 2×B580, and strict **tensor parallel is blocked for this model**.
+
+### What transfers per-device
+Everything in the fork is single-device SYCL work, so in a 2-card layout each card's shard benefits:
+- XMX ternary repack + int8×int2 DPAS, XMX decode attention from q4_0 KV (`GGML_SYCL_FA_DEC_DPAS=1`), chunked-attention softmax, delta-net blocked/fused kernels, v0.8 fusions, B580-tuned verify tiles, 256-GRF decode mode, MTP one-graph draft chain, delta-net replay, K/V-only prompt pass.
+- These apply per-device to each card's shard, so the kernel speedups carry over.
+
+### Why strict tensor parallel is blocked
+- `src/llama-model.cpp:366` rejects `LLAMA_SPLIT_MODE_TENSOR` for hybrid/state-space architectures. Bonsai 2 27B is 16 attention + **48 gated-delta-net layers** = exactly that category.
+- `docs/multi-gpu.md` documents the tensor/layer/pipeline split modes.
+- The SYCL backend *does* enumerate multiple devices (`dpct::dev_mgr`, `default_tensor_split` in `ggml-sycl.cpp:190-274`), so `-sm layer` (pipeline) works, but there is no NCCL-equivalent cross-device reduction for SYCL/Level Zero (no all-reduce).
+
+### Why it does not pay off here
+- **Single-card fit:** PTQ1_0 weights = 5.54 GiB; 128K + MTP + q4_0 KV ≈ 11 GiB — already fits one 12 GB card. The fork's memory work (q4_0 draft KV, delta-net replay −432 MiB, `-ub 1024`) exists precisely to make one card sufficient.
+- **Pipeline split is harmful:** activations cross PCIe (~32 GB/s, latency-bound on B580) at all 64 layer boundaries/token, and the delta-net recurrent state must ship whenever its layer lives on the other card. Delta-net replay would make this *worse* (update terms would then have to travel).
+
+### Measured 2×B580 (separate Strata TP2 work, same host, different engine, layer split)
+- Coherent TP2 decode **6–13 t/s** vs a 1-GPU control's **36–47 t/s** (4–8× slower), dominated by expert-cache coverage + per-layer doorbell latency — not kernel quality.
+
+### Bottom line
+- Use **one B580** for the 27B.
+- Use 2×B580 only for `-np 2` concurrency (two independent streams) or for models >12 GB.
+- The fork has **never been measured on 2×B580** and its docs never mention multi-device; there is no multi-device SYCL tuning in the project.

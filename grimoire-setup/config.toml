@@ -1,0 +1,53 @@
+# GRIMOIRE launcher config for Intel Arc B580 (2x BMG-G21)
+
+[grimoire]
+# Docker image (built from Dockerfile)
+image = "localhost/grimoire-b580:latest"
+# Where model checkpoints live on the host (mounted read-only at /models)
+models_path = "/var/home/fra/data/models/safetensors"
+# Container name
+container_name = "grimoire-server"
+# Default context size
+default_ctx = 4096
+# Port the grimoire-server binds inside the container.  With --net=host the
+# container shares the host network namespace, so this is also the port
+# reachable on the host (no -p mapping needed).
+port = 8000
+
+# GPU device mappings
+[devices]
+render_0 = "/dev/dri/renderD128"
+render_1 = "/dev/dri/renderD129"
+by_path = "/dev/dri/by-path"
+
+# Default environment variables
+[env]
+ONEAPI_DEVICE_SELECTOR = "level_zero:gpu"
+ZE_AFFINITY_MASK = "0,1"
+GRIMOIRE_MULTI_GPUS = "2"
+GRIMOIRE_SEQ_SLOTS = "8"
+SYCL_CACHE_PERSISTENT = "1"
+SYCL_CACHE_DIR = "/cache/sycl"
+
+# Per-model overrides
+[models."Qwen3.8-27B-GPTQ-Int4-sym-G128-MTP-BF16"]
+mode = "multi"
+model = "/models/Qwen3.8-27B-GPTQ-Int4-sym-G128-MTP-BF16"
+proj = "int4"
+ctx = 4096
+pp_split = 30
+mtp = false
+mtp_k = 4
+mtp_draft_vocab = 131072
+shm_size = "2gb"
+
+[models."Ornith-1.5-35B-A3B-NVFP4"]
+mode = "multi"
+model = "/models/Ornith-1.5-35B-A3B-NVFP4"
+proj = "mxfp4"
+ctx = 4096
+pp_split = 20
+defer_moe_gather = true
+bf16_qkv = true
+bf16_dn_qkv = true
+shm_size = "2gb"

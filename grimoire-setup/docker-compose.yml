@@ -1,0 +1,184 @@
+# =====================================================================
+#  docker-compose.yml -- GRIMOIRE on 2x Intel Arc B580.
+#
+#  Models live on the host and are mounted READ-ONLY; nothing writes
+#  back into the model directory.
+#
+#    cd grimoire-setup
+#    docker compose build
+#    # one-shot generate on one card:
+#    docker compose run --rm qwen-generate
+#    # the server:
+#    docker compose up -d qwen27b
+#    # switch model:
+#    docker compose up -d ornith35b
+# =====================================================================
+
+services:
+  # -------------------------------------------------------------------
+  #  Qwen3.8-27B GPTQ-Int4 + MTP (SergiioB release).
+  #  GPTQ Int4 weights load with --proj int4; the MTP head ships in the
+  #  checkpoint, so GRIMOIRE_MTP=1 is all speculation needs.  Two cards
+  #  through pipeline parallel -- a 27B GPTQ model does not fit one
+  #  12 GB B580.
+  # -------------------------------------------------------------------
+  qwen27b:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: grimoire-b580:latest
+    container_name: grimoire-qwen27b
+    init: true
+    stop_grace_period: 5m
+
+    # Exactly the two B580 render nodes, in order, plus by-path so the
+    # engine's node lookup finds them after a reboot renumbering.
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+      - /dev/dri/renderD129:/dev/dri/renderD129
+      - /dev/dri/by-path:/dev/dri/by-path:ro
+    security_opt:
+      - label=disable
+    group_add:
+      - "${RENDER_GID:-989}"
+
+    volumes:
+      # Model checkpoints, read-only.
+      - ${MODELS_DIR:-/var/home/fra/data/models/safetensors}:/models:ro
+      - grimoire-cache:/cache
+
+    environment:
+      ONEAPI_DEVICE_SELECTOR: level_zero:gpu
+      ZE_AFFINITY_MASK: "0,1"
+      GRIMOIRE_MULTI_GPUS: "2"
+      # Rank 0 keeps 30 of Qwen's 64 layers; rank 1 gets the rest + the
+      # head, which is the heavier half (MTP head + embeddings).
+      GRIMOIRE_PP_SPLIT: "30"
+      GRIMOIRE_SEQ_SLOTS: "8"
+      GRIMOIRE_MTP: "1"
+      GRIMOIRE_MTP_K: "4"
+      GRIMOIRE_MTP_DRAFT_VOCAB: "131072"
+      SYCL_CACHE_PERSISTENT: "1"
+      SYCL_CACHE_DIR: /cache/sycl
+
+    ports:
+      - "8027:8000"
+    shm_size: 2gb
+    restart: "no"
+    command:
+      multi --model /models/Qwen3.8-27B-GPTQ-Int4-sym-G128-MTP-BF16
+            --proj int4 --ctx 16384 --port 8000
+
+  # -------------------------------------------------------------------
+  #  Ornith-1.5-35B-A3B NVFP4.  The checkpoint is NVFP4; GRIMOIRE
+  #  decodes it at load and repacks to the requested format, so the
+  #  measured path is --proj mxfp4.  MoE, A3B active -- speculation is
+  #  NOT faster here, so it stays off.
+  # -------------------------------------------------------------------
+  ornith35b:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: grimoire-b580:latest
+    container_name: grimoire-ornith35b
+    init: true
+    stop_grace_period: 5m
+
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+      - /dev/dri/renderD129:/dev/dri/renderD129
+      - /dev/dri/by-path:/dev/dri/by-path:ro
+    group_add:
+      - "${RENDER_GID:-989}"
+
+    volumes:
+      - ${MODELS_DIR:-/var/home/fra/data/models/safetensors}:/models:ro
+      - grimoire-cache:/cache
+
+    environment:
+      ONEAPI_DEVICE_SELECTOR: level_zero:gpu
+      ZE_AFFINITY_MASK: "0,1"
+      GRIMOIRE_MULTI_GPUS: "2"
+      # Ornith has 40 layers; the DeltaNet state + experts make the
+      # back half heavier, so rank 0 keeps fewer.
+      GRIMOIRE_PP_SPLIT: "20"
+      GRIMOIRE_SEQ_SLOTS: "8"
+      GRIMOIRE_DEFER_MOE_GATHER: "1"
+      GRIMOIRE_BF16_QKV: "1"
+      GRIMOIRE_BF16_DN_QKV: "1"
+      SYCL_CACHE_PERSISTENT: "1"
+      SYCL_CACHE_DIR: /cache/sycl
+
+    ports:
+      - "8035:8000"
+    shm_size: 2gb
+    restart: "no"
+    command:
+      multi --model /models/Ornith-1.5-35B-A3B-NVFP4
+            --proj mxfp4 --ctx 32000 --port 8000
+
+  # -------------------------------------------------------------------
+  #  One-shot CLI generate on BOTH cards -- quick sanity check.
+  #  These models do not fit one 12 GB B580 (Qwen GPTQ-Int4 weights
+  #  alone are ~13.5 GB), so even a one-shot run needs the pipeline.
+  # -------------------------------------------------------------------
+  qwen-generate:
+    image: grimoire-b580:latest
+    container_name: grimoire-qwen-gen
+    init: true
+    stop_grace_period: 5m
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+      - /dev/dri/renderD129:/dev/dri/renderD129
+      - /dev/dri/by-path:/dev/dri/by-path:ro
+    security_opt:
+      - label=disable
+    group_add:
+      - "${RENDER_GID:-989}"
+    volumes:
+      - ${MODELS_DIR:-/var/home/fra/data/models/safetensors}:/models:ro
+      - grimoire-cache:/cache
+    environment:
+      ONEAPI_DEVICE_SELECTOR: level_zero:gpu
+      ZE_AFFINITY_MASK: "0,1"
+      GRIMOIRE_MULTI_GPUS: "2"
+      GRIMOIRE_PP_SPLIT: "30"
+      SYCL_CACHE_PERSISTENT: "1"
+      SYCL_CACHE_DIR: /cache/sycl
+    restart: "no"
+    entrypoint: ["/usr/local/bin/docker-entrypoint.sh", "multi"]
+    command:
+      -m /models/Qwen3.8-27B-GPTQ-Int4-sym-G128-MTP-BF16
+      --proj int4 --ctx 8192 -p "Hello" -n 64
+
+  ornith-generate:
+    image: grimoire-b580:latest
+    container_name: grimoire-ornith-gen
+    init: true
+    stop_grace_period: 5m
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+      - /dev/dri/renderD129:/dev/dri/renderD129
+      - /dev/dri/by-path:/dev/dri/by-path:ro
+    security_opt:
+      - label=disable
+    group_add:
+      - "${RENDER_GID:-989}"
+    volumes:
+      - ${MODELS_DIR:-/var/home/fra/data/models/safetensors}:/models:ro
+      - grimoire-cache:/cache
+    environment:
+      ONEAPI_DEVICE_SELECTOR: level_zero:gpu
+      ZE_AFFINITY_MASK: "0,1"
+      GRIMOIRE_MULTI_GPUS: "2"
+      GRIMOIRE_PP_SPLIT: "20"
+      SYCL_CACHE_PERSISTENT: "1"
+      SYCL_CACHE_DIR: /cache/sycl
+    restart: "no"
+    entrypoint: ["/usr/local/bin/docker-entrypoint.sh", "multi"]
+    command:
+      -m /models/Ornith-1.5-35B-A3B-NVFP4
+      --proj mxfp4 --ctx 8192 -p "Hello" -n 64
+
+volumes:
+  grimoire-cache:
