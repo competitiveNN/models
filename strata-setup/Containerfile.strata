@@ -1,0 +1,6 @@
+# Strata SYCL engine for 2x Intel Arc B580, baked into the strata-sycl-dev image.
+# The engine binary is built on the host (strata-build container) from origin/main
+# and layered over the llama.cpp SYCL base image.  The model pack, MTP layer and
+# GGUF stay on mounted volumes; everything else (server, source, build tree) is here.
+FROM localhost/strata-sycl-dev:latest
+COPY strata-src /work/strata-src

@@ -1,0 +1,5 @@
+Strata-data/
+models/
+tmpcore/
+*.out
+.git/

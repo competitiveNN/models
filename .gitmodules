@@ -13,3 +13,6 @@
 [submodule "agents-docker/mnn_src"]
 	path = agents-docker/mnn_src
 	url = https://github.com/alibaba/MNN.git
+[submodule "strata-setup/strata-src"]
+	path = strata-setup/strata-src
+	url = https://github.com/Niko1221/Strata.git
