@@ -1,3 +1,5 @@
 Strata-data/
 models/
 tmpcore/
+*.out
+*.log
