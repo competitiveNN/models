@@ -1,16 +1,18 @@
 #!/bin/sh
-# 2-GPU/1-GPU trial: start the server with env overrides, fire several sequential requests, record.
-#   ./trials2.sh TAG CFG "ENVVARS" NREQ
+# 2-GPU trial: start the server with env overrides, fire several sequential requests, record.
+#   ./trials.sh TAG "VAR=val VAR2=val2" REQ_COUNT
+# The env overrides are merged into strata-swift-iq3_xxs.json (they win over the config's own).
 set -u
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TAG="${1:-trial}"
-CFG="$2"
-ENVV="${3:-}"
-NREQ="${4:-4}"
-SRC="$ROOT"
-LOG="$ROOT/trials2-$TAG.out"
+ENVV="${2:-}"
+NREQ="${3:-4}"
+SRC="$ROOT/strata-src"
+CFG="$SRC/strata-swift-iq3_xxs.json"
+LOG="$ROOT/trials-$TAG.out"
 TMPCFG="$SRC/strata-swift-trial.json"
 
+# write the JSON with the overrides merged in
 python3 - "$CFG" "$TMPCFG" "$ENVV" <<'PY'
 import json, sys
 src, dst, envv = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -26,14 +28,14 @@ PY
 
 : > "$LOG"
 nohup docker run --rm --privileged --device /dev/dri \
-    --name strata-trial2 --replace --network host \
+    --name strata-trial --replace --network host \
     -v "$ROOT:/work" \
     -v "/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF:/gguf:ro" \
     strata-sycl-dev \
     "cd /work/strata-src && source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1; exec .venv/bin/python sycl/serve/server_intel.py --engine strata --config /work/strata-src/strata-swift-trial.json --port 8081" \
     >> "$LOG" 2>&1 &
 SRV=$!
-echo "=== trial2 $TAG cfg=$CFG env: $ENVV (pid $SRV) ===" | tee -a "$LOG"
+echo "=== trial $TAG env: $ENVV (pid $SRV) ===" | tee -a "$LOG"
 
 ready=0
 for i in $(seq 1 60); do
@@ -53,7 +55,7 @@ sleep 5
 req() {
     n="$1"; shift; msg="$1"
     echo "----- req max_tokens=$n -----" | tee -a "$LOG"
-    out=$(curl -s --max-time 900 -X POST http://127.0.0.1:8081/v1/chat/completions \
+    out=$(curl -s --max-time 600 -X POST http://127.0.0.1:8081/v1/chat/completions \
         -H "Content-Type: application/json" \
         -d "{\"model\":\"swift-1.5-iq3_xxs\",\"messages\":[{\"role\":\"user\",\"content\":\"$msg\"}],\"max_tokens\":$n,\"temperature\":0.6}" 2>>"$LOG")
     echo "$out" | python3 -c "
@@ -84,5 +86,5 @@ tail -3 "$SRC/strata-swift-iq3_xxs.log" | tee -a "$LOG"
 
 kill "$SRV" 2>/dev/null || true
 wait "$SRV" 2>/dev/null || true
-docker rm -f strata-trial2 >/dev/null 2>&1
+docker rm -f strata-trial >/dev/null 2>&1
 echo "----- done ($TAG) -----" | tee -a "$LOG"

@@ -1,8 +1,8 @@
 #!/bin/sh
-# 2-GPU stability test with STRATA_VERIFY_STEPPED=1 (stepped verify window).
+# 2-GPU stability test for IQ3_XXS on 2x B580 with STRATA_SPIN_MAX=2000000.
 set -u
-ROOT="$(cd "$(dirname "$0")" && pwd)"
-LOG="$ROOT/stab-2gpu-stepped.out"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LOG="$ROOT/stab-2gpu-spin2m.out"
 : > "$LOG"
 
 nohup "$ROOT/run-swift-iq3_xxs.sh" > "$LOG" 2>&1 &

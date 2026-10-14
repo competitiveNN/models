@@ -2,7 +2,7 @@
 # Sequential-request trial using an existing run script (no JSON rewrite).
 #   ./trials3.sh RUNSCRIPT TAG NREQ
 set -u
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNSCRIPT="$1"
 TAG="$2"
 NREQ="${3:-4}"

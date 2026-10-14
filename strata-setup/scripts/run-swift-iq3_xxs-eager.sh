@@ -1,7 +1,7 @@
 #!/bin/sh
 # 2-GPU run with STRATA_VERIFY_EAGER=1 (no window-graph capture; run() replays the body).
 set -eu
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 exec docker run --rm --privileged --device /dev/dri \
     --name strata-server --replace \
     --network host \

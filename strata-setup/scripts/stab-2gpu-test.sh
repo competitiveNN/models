@@ -2,7 +2,7 @@
 # 2-GPU stability test for IQ3_XXS on 2x B580: run the server, then fire several
 # sequential requests of different sizes and record the results.
 set -eu
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOG="$ROOT/stab-2gpu-test.out"
 : > "$LOG"
 

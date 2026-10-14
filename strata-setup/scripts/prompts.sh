@@ -1,7 +1,7 @@
 #!/bin/sh
 # Test each trial prompt in ISOLATION on a fresh engine with DEVICE_PLAN=0.
 set -u
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 P1="Say hello in one short sentence."
 P2="Write a haiku about the sea."
 P3="Explain what a transformer is, in two paragraphs."

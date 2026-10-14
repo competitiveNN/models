@@ -1,12 +1,11 @@
 #!/bin/sh
-# Single-request trial with a CUSTOM prompt.
-#   ./one-req-prompt.sh TAG ENVV MAX_TOKENS PROMPT
+# Single-request trial: start the server, fire ONE request, record engine log.
+#   ./one-req.sh TAG "ENVVARS" MAX_TOKENS
 set -u
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TAG="${1:-one}"
 ENVV="${2:-}"
 MT="${3:-200}"
-PROMPT="${4:-Tell me a story about a robot learning to paint, with dialogue.}"
 SRC="$ROOT/strata-src"
 CFG="$SRC/strata-swift-iq3_xxs.json"
 LOG="$ROOT/one-$TAG.out"
@@ -37,7 +36,7 @@ SRV=$!
 echo "=== one-req $TAG env: $ENVV (pid $SRV) ===" | tee -a "$LOG"
 
 ready=0
-for i in $(seq 1 70); do
+for i in $(seq 1 60); do
     if grep -q "ready: http" "$LOG" 2>/dev/null; then ready=1; break; fi
     if ! kill -0 "$SRV" 2>/dev/null; then echo "SERVER DIED DURING START" | tee -a "$LOG"; break; fi
     sleep 5
@@ -54,7 +53,7 @@ sleep 5
 echo "----- req max_tokens=$MT -----" | tee -a "$LOG"
 curl -s --max-time 900 -X POST http://127.0.0.1:8081/v1/chat/completions \
     -H "Content-Type: application/json" \
-    -d "{\"model\":\"swift-1.5-iq3_xxs\",\"messages\":[{\"role\":\"user\",\"content\":\"$PROMPT\"}],\"max_tokens\":$MT,\"temperature\":0.6}" 2>>"$LOG" | tee -a "$LOG"
+    -d "{\"model\":\"swift-1.5-iq3_xxs\",\"messages\":[{\"role\":\"user\",\"content\":\"Tell me a story about a robot learning to paint, with dialogue.\"}],\"max_tokens\":$MT,\"temperature\":0.6}" 2>>"$LOG" | tee -a "$LOG"
 
 echo "=== engine signals ===" | tee -a "$LOG"
 grep -c 'no progress for' "$SRC/strata-swift-iq3_xxs.log" | sed 's/^/stalls: /' | tee -a "$LOG"

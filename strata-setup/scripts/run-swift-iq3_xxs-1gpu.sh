@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run the Strata server for Swift 1.5 IQ3_XXS on ONE Intel Arc B580 (SYCL port).
 set -eu
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 exec docker run --rm --privileged --device /dev/dri \
     --name strata-server-1gpu --replace \
     --network host \

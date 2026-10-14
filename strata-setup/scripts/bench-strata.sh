@@ -4,7 +4,7 @@
 #   bin-name: "jit" (build-sycl/strata) or "aot" (build-sycl-aot/strata)
 # Writes bench-<tag>.out and leaves the server stopped.
 set -u
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CFG="${1:?config json name (without .json)}"
 BIN="${2:?jit|aot}"
 TAG="${3:?tag}"

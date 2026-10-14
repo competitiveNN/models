@@ -1,7 +1,7 @@
 #!/bin/sh
 # 2-GPU run with STRATA_VERIFY_DEVICE_PLAN=0 + STRATA_VERIFY_EAGER=1.
 set -eu
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 exec docker run --rm --privileged --device /dev/dri \
     --name strata-server --replace \
     --network host \
