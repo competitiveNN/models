@@ -61,3 +61,18 @@ mtp_enabled = true
 preserve_thinking = false
 spec_enabled = true
 fit_mode = false
+
+# Fork / build-variant profiles (--fork torchit1 | torchit1_vulkan).
+# Built-in defaults (image, runtime env switches, cache/draft/batch) live in
+# FORK_PROFILES in llamacpp.py. Anything uncommented here overrides the matching
+# entry; keys left alone keep the built-in value.
+# [forks.torchit1]
+# image = "localhost/torchit1-llama-cpp-intel"
+# [forks.torchit1.env]
+# GGML_SYCL_PTQ1_T2 = "all"
+# GGML_SYCL_FA_DEC_DPAS = "1"
+# GGML_SYCL_T2_W8A8_MIN = "1024"
+# GGML_SYCL_FA_ONEDNN_MAX_KV = "98304"
+# LLAMA_ARG_SPEC_DRAFT_UBATCH = "512"
+# [forks.torchit1_vulkan]
+# image = "localhost/torchit1-llama-cpp-vulkan"

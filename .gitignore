@@ -19,6 +19,7 @@ ovms/cache/
 .maki
 llama.cpp-setup/beellama.cpp/
 llama.cpp-setup/ik_llama.cpp/
+llama.cpp-setup/torchit1.cpp/
 llama.cpp-setup/llama.cpp/
 vllm-setup/vllm/
 vllm-setup/vllm.sh

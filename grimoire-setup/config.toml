@@ -14,10 +14,15 @@ default_ctx = 4096
 # reachable on the host (no -p mapping needed).
 port = 8000
 
-# GPU device mappings
+# GPU device mappings — card (control) + render (compute) nodes per GPU,
+# mirroring the llamacpp.py launcher. Grimoire's SYCL/Level Zero backend uses
+# the render nodes directly, but the card node is also granted for sysfs and
+# IOCTL paths (mode-set, VA-API interop, sysman) that some oneAPI paths touch.
 [devices]
-render_0 = "/dev/dri/renderD128"
-render_1 = "/dev/dri/renderD129"
+gpu0 = "/dev/dri/card0"
+gpu0_render = "/dev/dri/renderD128"
+gpu1 = "/dev/dri/card1"
+gpu1_render = "/dev/dri/renderD129"
 by_path = "/dev/dri/by-path"
 
 # Default environment variables
@@ -28,13 +33,14 @@ GRIMOIRE_MULTI_GPUS = "2"
 GRIMOIRE_SEQ_SLOTS = "8"
 SYCL_CACHE_PERSISTENT = "1"
 SYCL_CACHE_DIR = "/cache/sycl"
+ZES_ENABLE_SYSMAN = "1"
 
 # Per-model overrides
 [models."Qwen3.8-27B-GPTQ-Int4-sym-G128-MTP-BF16"]
 mode = "multi"
 model = "/models/Qwen3.8-27B-GPTQ-Int4-sym-G128-MTP-BF16"
 proj = "int4"
-ctx = 4096
+ctx = 16384
 pp_split = 30
 mtp = false
 mtp_k = 4
@@ -45,7 +51,7 @@ shm_size = "2gb"
 mode = "multi"
 model = "/models/Ornith-1.5-35B-A3B-NVFP4"
 proj = "mxfp4"
-ctx = 4096
+ctx = 16384
 pp_split = 20
 defer_moe_gather = true
 bf16_qkv = true

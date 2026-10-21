@@ -10,6 +10,77 @@ import tomllib
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.toml")
 
+# Build-variant profiles. Each entry describes a Docker image produced by
+# build.sh in this repo, the runtime env switches that build needs, and the
+# KV cache / draft / batch defaults it understands.
+#
+# The env switches are runtime knobs, not build-time ones: the Torchit1 fork
+# ships the XMX kernels but only takes the fast path when they are enabled.
+#
+# "cache_type_*" matter because the kvarn* cache types exist only in the
+# beellama build - a different image must not receive them.
+FORK_PROFILES = {
+    "torchit1": {
+        "image": "localhost/torchit1-llama-cpp-intel",
+        "env": {
+            # PTQ1_0 weights repacked to 2-bit and run on the XMX units.
+            "GGML_SYCL_PTQ1_T2": "all",
+            # Decode/verify attention on XMX straight from the q4_0 cache (Xe2).
+            "GGML_SYCL_FA_DEC_DPAS": "1",
+            # Full 1024-token prompt batches go through the oneDNN int8 GEMM.
+            "GGML_SYCL_T2_W8A8_MIN": "1024",
+            # Above this KV size the oneDNN path runs out of VRAM.
+            "GGML_SYCL_FA_ONEDNN_MAX_KV": "98304",
+            # Smaller compute buffer for the MTP draft context.
+            "LLAMA_ARG_SPEC_DRAFT_UBATCH": "512",
+        },
+        "cache_type_k": "q4_0",
+        "cache_type_v": "q4_0",
+        "spec_type": "ngram-mod",
+        "spec_ngram_n_max": "256",
+        "draft_max": "4",
+        "batch_size": "2048",
+        "ubatch_size": "1024",
+    },
+    "torchit1_vulkan": {
+        "image": "localhost/torchit1-llama-cpp-vulkan",
+        "env": {
+            # Smaller compute buffer for the MTP draft context.
+            "LLAMA_ARG_SPEC_DRAFT_UBATCH": "512",
+        },
+        "cache_type_k": "q4_0",
+        "cache_type_v": "q4_0",
+        "spec_type": "ngram-mod",
+        "spec_ngram_n_max": "256",
+        # The Vulkan path tops out at 3 drafts (the SYCL path takes 4).
+        "draft_max": "3",
+        "batch_size": "2048",
+        "ubatch_size": "2048",
+    },
+}
+
+
+def fork_profile(config, name):
+    """Return the profile for a --fork name, or None when no fork is selected.
+
+    config.toml may override the "image" and "env" entries of a built-in
+    profile via a [forks.<name>] section.
+    """
+    if not name:
+        return None
+    profile = FORK_PROFILES.get(name)
+    if profile is None:
+        known = ", ".join(sorted(FORK_PROFILES))
+        print(f"error: unknown fork '{name}' (known: {known})", file=sys.stderr)
+        sys.exit(2)
+    profile = dict(profile)
+    override = config.get("forks", {}).get(name, {})
+    if override.get("image"):
+        profile["image"] = override["image"]
+    if override.get("env"):
+        profile["env"] = {**profile.get("env", {}), **override["env"]}
+    return profile
+
 
 def load_config(path=CONFIG_PATH):
     with open(path, "rb") as f:
@@ -137,7 +208,7 @@ def parse_size_value(value):
     return num
 
 
-def build_docker_args(config, selected_gpus=None, cpu_mode=False):
+def build_docker_args(config, selected_gpus=None, cpu_mode=False, env=None):
     cfg_llama = config.get("llama", {})
     devices = cfg_llama.get("gpu", {}).get("devices", [
         "--device /dev/dri/card0 --device /dev/dri/renderD128",
@@ -162,6 +233,8 @@ def build_docker_args(config, selected_gpus=None, cpu_mode=False):
     ]
     for d in devices:
         common.extend(d.split())
+    for k, v in (env or {}).items():
+        common.extend(["-e", f"{k}={v}"])
     if cpu_mode:
         common.append("-e")
         common.append("GGML_BACKEND=cpu")
@@ -176,7 +249,8 @@ def is_kvarn(value):
 def build_model_args(config, extra_args=None, manual_ctx_size=None, fit_ctx_size=None,
                       use_fit_mode=False, n_gpu_layers="all", n_cpu_moe=0,
                       cpu_mode=False, preserve_thinking=False, reasoning_budget=False,
-                      use_presets=False, cache_type_k="", cache_type_v="", kv_tail_tokens="", load_mode="auto"):
+                      use_presets=False, cache_type_k="", cache_type_v="", kv_tail_tokens="", load_mode="auto",
+                      batch_size=None, ubatch_size=None):
     args = []
     if not use_presets:
         model_key = config["defaults"].get("model", "")
@@ -199,8 +273,8 @@ def build_model_args(config, extra_args=None, manual_ctx_size=None, fit_ctx_size
             args.append("--chat-template-file")
             args.append(jinja_path)  # jinja_path already has correct /models/ prefix
     args.extend([
-        "-b", str(config["defaults"]["batch_size"]),
-        "-ub", str(config["defaults"]["ubatch_size"]),
+        "-b", str(batch_size or config["defaults"]["batch_size"]),
+        "-ub", str(ubatch_size or config["defaults"]["ubatch_size"]),
         "-fa", "on",
         "--reasoning-budget", str(config["defaults"]["reasoning_budget"] if reasoning_budget else 0),
         "--reasoning-budget-message", "\nBased on the analysis above, here is the complete solution:",
@@ -242,7 +316,7 @@ def build_spec_args(config, spec_draft_model="", spec_draft_max="", spec_draft_m
                     spec_draft_kv_k="", spec_draft_kv_v="", spec_draft_p_min="",
                     cache_type_k_draft="", cache_type_v_draft="", no_spec=False,
                     ngram_type=None, spec_draft_ngl="", spec_dm_controller="",
-                    spec_dflash_cross_ctx=""):
+                    spec_dflash_cross_ctx="", spec_ngram_n_max=""):
     args = []
     if no_spec:
         return args
@@ -287,7 +361,12 @@ def build_spec_args(config, spec_draft_model="", spec_draft_max="", spec_draft_m
             elif spec_type_i == "ngram-map-k4v":
                 args.extend(["--spec-ngram-map-k4v-size-n", str(spec_ngram_size_n)])
             elif spec_type_i == "ngram-mod":
-                args.extend(["--spec-ngram-mod-n-match", str(spec_ngram_size_n)])
+                # --spec-ngram-mod-n-max caps the drafted ngram length; the
+                # fork tunes it high (256) instead of the lookup length.
+                if spec_ngram_n_max:
+                    args.extend(["--spec-ngram-mod-n-max", str(spec_ngram_n_max)])
+                else:
+                    args.extend(["--spec-ngram-mod-n-match", str(spec_ngram_size_n)])
     return args
 
 
@@ -300,7 +379,8 @@ def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
               spec_draft_p_min="", cache_type_k_draft="", cache_type_v_draft="",
               no_spec=False, timeout=3600, reasoning_budget=False,
               spec_draft_ngl="", spec_dm_controller="", spec_dflash_cross_ctx="",
-              use_presets=False, presets_path="", presets_local_path="", cache_type_k="", cache_type_v="", kv_tail_tokens="", load_mode="auto"):
+              use_presets=False, presets_path="", presets_local_path="", cache_type_k="", cache_type_v="", kv_tail_tokens="", load_mode="auto",
+              spec_ngram_n_max="", batch_size=None, ubatch_size=None):
     model_args = build_model_args(
         config, extra_args=extra_args, manual_ctx_size=manual_ctx_size,
         fit_ctx_size=fit_ctx_size, use_fit_mode=use_fit_mode,
@@ -312,6 +392,8 @@ def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
         cache_type_v=cache_type_v,
         kv_tail_tokens=kv_tail_tokens,
         load_mode=load_mode,
+        batch_size=batch_size,
+        ubatch_size=ubatch_size,
     )
     cmd_args = model_args[:]
     spec_cfg = config.get("spec", {})
@@ -330,7 +412,8 @@ def build_cmd(config, mode="bench", extra_args=None, manual_ctx_size=None,
         no_spec=no_spec,
         spec_draft_ngl=spec_draft_ngl or spec_cfg.get("spec_draft_ngl", ""),
         spec_dm_controller=spec_dm_controller or spec_cfg.get("spec_dm_controller", ""),
-        spec_dflash_cross_ctx=spec_dflash_cross_ctx or spec_cfg.get("spec_dflash_cross_ctx", "")
+        spec_dflash_cross_ctx=spec_dflash_cross_ctx or spec_cfg.get("spec_dflash_cross_ctx", ""),
+        spec_ngram_n_max=spec_ngram_n_max,
     )
     if mode == "server":
         cmd_args.extend(spec_args)
@@ -376,6 +459,7 @@ def main():
     parser = argparse.ArgumentParser(description="Llamacpp launcher")
     parser.add_argument("--cpu", action="store_true", help="CPU mode")
     parser.add_argument("--image", type=str, default="", help="Target image (e.g. localhost/bee-llama-cpp-intel)")
+    parser.add_argument("--fork", type=str, default="", help="Build variant profile: torchit1, torchit1_vulkan (sets the image, runtime env switches and cache/draft defaults)")
     parser.add_argument("--ngl", type=str, default="all", help="GPU layers")
     parser.add_argument("--moe", type=str, default="0", help="CPU MOE layers")
     parser.add_argument("--detect", action="store_true", help="Auto-detect memory")
@@ -409,17 +493,18 @@ def main():
     parser.add_argument("--show-full-help", action="store_true", help="Show full llama-server help")
     parser.add_argument("--full-help", dest="show_full_help", action="store_true", help="Show full llama-server help")
     args, extra_remaining = parser.parse_known_args()
+    config = load_config()
+    profile = fork_profile(config, args.fork)
     if args.show_full_help:
-        config = load_config()
-        image = config["llama"].get("image", "llama-cpp-intel")
+        image = profile["image"] if profile else config["llama"].get("image", "llama-cpp-intel")
         if args.image:
             image = args.image
         selected_gpus = args.gpus.split(",") if args.gpus else None
-        docker_args = build_docker_args(config, selected_gpus=selected_gpus, cpu_mode=args.cpu)
+        docker_args = build_docker_args(config, selected_gpus=selected_gpus, cpu_mode=args.cpu,
+                                        env=(profile or {}).get("env"))
         full_cmd = ["docker", "run"] + docker_args + [image, "--help"]
         subprocess.run(full_cmd)
         sys.exit(0)
-    config = load_config()
 
     # Presets (--models-preset) support
     presets_cfg = config.get("presets", {})
@@ -467,8 +552,8 @@ def main():
     elif args.bench:
         mode = "bench"
 
-    # Resolve image
-    image = config["llama"].get("image", "llama-cpp-intel")
+    # Resolve image: fork profile (--fork) first, then the --image override.
+    image = profile["image"] if profile else config["llama"].get("image", "llama-cpp-intel")
     # Image override based on args
     if args.image:
         image = args.image
@@ -487,7 +572,11 @@ def main():
     # Resolve the spec type default (CLI > config > built-in) before MTP
     # pairing below, so the default ngram drafter combines with MTP while
     # explicit values pass through untouched.
-    args.spec_type = args.spec_type or config.get("spec", {}).get("spec_type", "") or "ngram-map-k4v"
+    # Base ngram draft type: CLI > fork profile > config > built-in. Lifted out
+    # of the MTP branch below so a fork's ngram type (ngram-mod) is honored
+    # when a drafter is also in play.
+    base_ngram_type = str((profile or {}).get("spec_type") or "ngram-map-k4v")
+    args.spec_type = args.spec_type or base_ngram_type or config.get("spec", {}).get("spec_type", "") or "ngram-map-k4v"
 
     # Pick a single draft-model spec type. llama.cpp allows at most one draft
     # type combined with one ngram type, so the drafter flags are mutually
@@ -504,11 +593,12 @@ def main():
 
     if chosen_draft == "draft-mtp":
         spec_draft_model = "1"
-        args.draft_max = "3"
+        args.draft_max = str((profile or {}).get("draft_max", "3"))
         args.draft_min = "0"
-        args.spec_draft_type_k = "q4_0"
-        args.spec_draft_type_v = "q4_0"
-        args.spec_draft_p_min = "0.75"
+        # Draft cache type: profile > upstream default q4_0. torchit1 uses q4_0.
+        args.spec_draft_type_k = str((profile or {}).get("spec_draft_kv_k", "q4_0"))
+        args.spec_draft_type_v = str((profile or {}).get("spec_draft_kv_v", "q4_0"))
+        args.spec_draft_p_min = str((profile or {}).get("spec_draft_p_min", "0.75"))
     elif chosen_draft == "draft-dflash":
         if not spec_draft_model or spec_draft_model == "1":
             print("error: --dflash requires a draft model (use --draft-model)", file=sys.stderr)
@@ -538,7 +628,10 @@ def main():
                       if not t.startswith("ngram-")
                       and t not in ("draft-dspark", "draft-dflash", "draft-mtp")]
         spec_types.insert(0, chosen_draft)
-        spec_types.append("ngram-map-k4v")
+        # Append the base ngram type only when it is an actual ngram type; a
+        # fork whose spec_type is itself a drafter takes no separate ngram base.
+        if base_ngram_type and not base_ngram_type.startswith("draft-"):
+            spec_types.append(base_ngram_type)
     args.spec_type = ",".join(spec_types)
 
     if not args.mtp:
@@ -609,8 +702,11 @@ def main():
     # the beellama ("bee intel") build. Leave empty for a plain llama.cpp image.
     bee_cfg = config.get("beellama", {})
     kv_tail = str(bee_cfg.get("kv_tail_tokens", "")).strip()
-    cache_type_k = (args.ctk or str(bee_cfg.get("cache_type_k", ""))).strip()
-    cache_type_v = (args.ctv or str(bee_cfg.get("cache_type_v", ""))).strip()
+    # Cache type defaults: CLI > fork profile > [beellama] config. The kvarn*
+    # types exist only in the beellama build, so another image (plain
+    # llama.cpp, the Torchit1 fork) must not inherit them.
+    cache_type_k = (args.ctk or str((profile or {}).get("cache_type_k", "")) or str(bee_cfg.get("cache_type_k", ""))).strip()
+    cache_type_v = (args.ctv or str((profile or {}).get("cache_type_v", "")) or str(bee_cfg.get("cache_type_v", ""))).strip()
 
     # Detect user-supplied --load-mode in extra args to override the default
     load_mode = "auto"
@@ -623,7 +719,8 @@ def main():
             break
 
     # Build args
-    docker_args = build_docker_args(config, selected_gpus=selected_gpus, cpu_mode=cpu_mode)
+    docker_args = build_docker_args(config, selected_gpus=selected_gpus, cpu_mode=cpu_mode,
+                                    env=(profile or {}).get("env"))
     if use_presets:
         docker_args.extend(["-v", f"{presets_dir}:/presets"])
     # Override image in docker run
@@ -659,6 +756,9 @@ def main():
         cache_type_v=cache_type_v,
         kv_tail_tokens=kv_tail,
         load_mode=load_mode,
+        spec_ngram_n_max=str((profile or {}).get("spec_ngram_n_max", "")),
+        batch_size=(profile or {}).get("batch_size"),
+        ubatch_size=(profile or {}).get("ubatch_size"),
     )
 
     # If bench mode, replace cmd_args with bench-specific values
@@ -667,9 +767,13 @@ def main():
             bench_model = first_preset_model(presets_path)
         else:
             bench_model = config["defaults"].get("model", "")
+        # Fork profiles set the bench batch/ubatch explicitly; without a
+        # profile the upstream llama-bench defaults are kept.
+        bench_b = str((profile or {}).get("batch_size", 2048))
+        bench_ub = str((profile or {}).get("ubatch_size", 512))
         cmd_args = [
             "-m", bench_model,
-            "-b", "2048", "-ub", "512",
+            "-b", bench_b, "-ub", bench_ub,
             "--reasoning-budget-message", "\nBased on the analysis above, here is the complete solution:",
         ]
         if cache_type_k:
@@ -698,6 +802,7 @@ def main():
             spec_draft_ngl=args.spec_draft_ngl,
             spec_dm_controller=args.spec_dm_controller,
             spec_dflash_cross_ctx=args.spec_dflash_cross_ctx,
+            spec_ngram_n_max=str((profile or {}).get("spec_ngram_n_max", "")),
         )
         cmd_args.extend(spec_args)
         if extra_args_for_fit:

@@ -15,7 +15,7 @@ fi
 
 if [ -z "$BACKEND" ]; then
 	echo "Usage: $0 <backend>"
-	echo "Supported backends: openvino, intel, vulkan, ik_llama_cpu, bee_intel, bee_vulkan"
+	echo "Supported backends: openvino, intel, vulkan, ik_llama_cpu, bee_intel, bee_vulkan, torchit1_intel, torchit1_vulkan"
 	exit 1
 fi
 
@@ -56,9 +56,25 @@ ik_llama_cpu)
 	CONTEXT="ik_llama.cpp"
 	EXTRA_ARGS=""
 	;;
+torchit1_intel)
+	# Torchit1/llama.cpp (arc-b580) — SYCL/oneAPI backend tuned for Intel Arc
+	# B580 (Xe2 "Battlemage", BMG-G21) XMX kernels. Same .devops/intel.Dockerfile
+	# as upstream; it only consumes the GGML_SYCL_F16 build-arg (mirrors bee_intel).
+	IMAGE_TAG="torchit1-llama-cpp-intel"
+	DOCKERFILE="torchit1.cpp/.devops/intel.Dockerfile"
+	CONTEXT="torchit1.cpp"
+	EXTRA_ARGS="--build-arg=GGML_SYCL_F16=ON $SYCL_DEVICE_ARCH_ARG"
+	;;
+torchit1_vulkan)
+	# Same fork, Vulkan backend (any Vulkan driver; tested on Mesa ANV).
+	IMAGE_TAG="torchit1-llama-cpp-vulkan"
+	DOCKERFILE="torchit1.cpp/.devops/vulkan.Dockerfile"
+	CONTEXT="torchit1.cpp"
+	EXTRA_ARGS=""
+	;;
 *)
 	echo "Unknown backend: $BACKEND"
-	echo "Supported backends: openvino, intel, vulkan, ik_llama_cpu, bee_intel, bee_vulkan"
+	echo "Supported backends: openvino, intel, vulkan, ik_llama_cpu, bee_intel, bee_vulkan, torchit1_intel, torchit1_vulkan"
 	exit 1
 	;;
 esac
@@ -127,7 +143,8 @@ build_image() {
 		fi
 	fi
 
-	local OLD_IMAGE_ID=$(docker images -q "$IMAGE_TAG")
+	local OLD_IMAGE_ID
+	OLD_IMAGE_ID=$(docker images -q "$IMAGE_TAG")
 
 	if [ -n "$EXTRA_ARGS" ]; then
 		docker build -t "$IMAGE_TAG" $EXTRA_ARGS --target server -f "$DOCKERFILE" "$CONTEXT"
@@ -135,7 +152,8 @@ build_image() {
 		docker build -t "$IMAGE_TAG" --target server -f "$DOCKERFILE" "$CONTEXT"
 	fi
 
-	local NEW_IMAGE_ID=$(docker images -q "$IMAGE_TAG")
+	local NEW_IMAGE_ID
+	NEW_IMAGE_ID=$(docker images -q "$IMAGE_TAG")
 
 	if [ -n "$OLD_IMAGE_ID" ] && [ "$OLD_IMAGE_ID" != "$NEW_IMAGE_ID" ]; then
 		echo "Removing previous image $OLD_IMAGE_ID..."

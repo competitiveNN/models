@@ -36,11 +36,13 @@ def build_docker_args(config):
         "--security-opt", "label=disable",
     ]
 
-    # GPU devices
-    if devices.get("render_0"):
-        args += ["--device", devices["render_0"]]
-    if devices.get("render_1"):
-        args += ["--device", devices["render_1"]]
+    # GPU devices — card (control) + render (compute) nodes per GPU,
+    # mounted with the same read/write caps Llama-CPP expects.
+    device_keys = ("gpu0", "gpu0_render", "gpu1", "gpu1_render")
+    for k in device_keys:
+        dev = devices.get(k)
+        if dev:
+            args += ["--device", dev]
     if devices.get("by_path"):
         args += ["-v", f"{devices['by_path']}:{devices['by_path']}:ro"]
 
