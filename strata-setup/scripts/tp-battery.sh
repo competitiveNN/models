@@ -10,8 +10,9 @@ N="${2:-10}"
 OUT="tpbat-$TAG.out"
 : > "$OUT"
 echo "== battery $TAG: $N requests, $(date -Is)" | tee -a "$OUT"
-# Desktop state: the shared card's noise term (chromium / zen hold VRAM and GPU cycles).
+# Desktop state: scan /proc for browsers (chromium / zen hold VRAM and GPU cycles).
 # A battery read with browsers alive is not comparable to one without them.
+# Automatically kill any browsers found so batteries run on a quiet host.
 browsers=""
 for d in /proc/[0-9]*; do
   comm=""
@@ -19,7 +20,19 @@ for d in /proc/[0-9]*; do
   c=${comm#Name:}; c=${c#"${c%%[![:space:]]*}"}
   case $c in chromium*|zen-bin|firefox*) browsers="$browsers ${d#/proc/}";; esac
 done
-if [ -n "$browsers" ]; then echo "== desktop: browsers alive (PIDS:$browsers ) - batteries are noisy" | tee -a "$OUT"
+if [ -n "$browsers" ]; then
+  echo "== desktop: killing browsers (PIDS:$browsers ) before battery" | tee -a "$OUT"
+  for pid in $browsers; do kill -9 "$pid" 2>/dev/null; done
+  sleep 3
+  browsers=""
+  for d in /proc/[0-9]*; do
+    comm=""
+    while IFS= read -r line; do case $line in Name:*) comm=$line;; esac; done < "$d/status" 2>/dev/null
+    c=${comm#Name:}; c=${c#"${c%%[![:space:]]*}"}
+    case $c in chromium*|zen-bin|firefox*) browsers="$browsers ${d#/proc/}";; esac
+  done
+fi
+if [ -n "$browsers" ]; then echo "== desktop: browsers alive after kill (PIDS:$browsers ) - batteries are noisy" | tee -a "$OUT"
 else echo "== desktop: quiet (no browsers)" | tee -a "$OUT"; fi
 garbled=0
 for i in $(seq 1 "$N"); do
