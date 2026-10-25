@@ -3,7 +3,8 @@
 # sequential requests of different sizes and record the results.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LOG="$ROOT/stab-2gpu-test.out"
+mkdir -p "$ROOT/runs"
+LOG="$ROOT/runs/stab-2gpu-test.out"
 : > "$LOG"
 
 # 1) start the server in the background

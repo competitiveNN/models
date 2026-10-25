@@ -4,6 +4,7 @@
 CFG="${1:?config name, e.g. strata-swift-iq3_xxs}"
 PORT="${PORT:-8081}"
 ROOT="/var/home/fra/dev/models/strata-setup"
+mkdir -p "$ROOT/runs"
 /var/home/fra/bin/docker rm -f strata-server >/dev/null 2>&1
 sleep 2
 /var/home/fra/bin/docker run -d --privileged --device /dev/dri \
@@ -14,7 +15,7 @@ sleep 2
   --entrypoint /bin/bash \
   strata-sycl-dev \
   -c "cd /work/strata-src && source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1; exec .venv/bin/python sycl/serve/server_intel.py --engine strata --config /work/strata-src/$CFG.json --port $PORT" \
-  > tp-restart.out 2>&1
+  > "$ROOT/runs/tp-restart.out" 2>&1
 for i in $(seq 1 120); do
   if curl -s -m 2 "http://127.0.0.1:$PORT/health" 2>/dev/null | /usr/bin/grep -q '"loaded": true'; then
     echo "ready after ${i}x2s: $CFG on port $PORT"

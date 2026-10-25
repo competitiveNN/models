@@ -70,9 +70,16 @@ TREE_VER="$(sed -n 's/^project(strata VERSION \([0-9.][0-9.]*\).*/\1/p' "$SRC/CM
 # search to the tree's major.minor: that picks the engine version and nothing else
 MAJMIN="$(printf '%s\n' "$TREE_VER" | cut -d. -f1,2)"
 VERSION=""
-if [ -n "$MAJMIN" ] && [ -x "$SRC/build-sycl/strata" ]; then
-    VERSION="$(strings -a "$SRC/build-sycl/strata" 2>/dev/null | sed -n "s/^\(${MAJMIN}\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)\$/\1/p" | head -1 || true)"
-fi
+# The binary that RUNS is the AOT one on a Battlemage card (sycl/serve/strata-sycl-direct.sh
+# prefers it: the AOT build carries the bmg-g21 XMX kernel set, the JIT one the sub-group 8
+# Alchemist kernels that Battlemage skips).  So read the AOT binary first: reading only the
+# JIT tree reported the tree's version, because that tree is never built.
+for BINPATH in build-sycl-aot/strata build-sycl/strata; do
+    [ -n "$MAJMIN" ] || break
+    [ -x "$SRC/$BINPATH" ] || continue
+    VERSION="$(strings -a "$SRC/$BINPATH" 2>/dev/null | sed -n "s/^\(${MAJMIN}\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)\$/\1/p" | head -1 || true)"
+    [ -n "$VERSION" ] && break
+done
 [ -n "$VERSION" ] || VERSION="$TREE_VER"
 # say so when the running engine is not the tree's release, else the number misleads
 TREE_NOTE=""
@@ -93,11 +100,23 @@ echo "strata ${VERSION:-unknown} (SYCL engine, GPU $GPUS)$TREE_NOTE$STATE"
 
 # Build a run-scoped config copy when --pin was given so the repo's canonical
 # config stays untouched; the mount makes /work/<cfg> visible inside the container.
-CFG="strata-swift-iq3_xxs.json"
+# The config follows the GPU count: the 2-GPU arm is the SHIPPED one (the layer split,
+# --expert-cache-per-layer, the measured 2x B580 configuration); the 1-GPU arm is the
+# single-card config.  Before this, both arms ran the 1-GPU config with --gpu on the
+# command line, which is not the configuration the 2-GPU numbers were measured on.
+case "$GPUS" in
+    *,*) CFG="strata-swift-iq3_xxs-2gpu-clean.json" ;;
+    *)  CFG="strata-swift-iq3_xxs.json" ;;
+esac
+if [ ! -f "$ROOT/strata-src/$CFG" ]; then
+    echo "run-swift-iq3_xxs.sh: the config $CFG is missing" >&2
+    exit 2
+fi
 if [ -n "$PIN" ]; then
     rm -f "$ROOT/strata-src/strata-swift-iq3_xxs-pin"*.json >/dev/null 2>&1 || true
+    sed "/--pool-workers/{n;s/\"[0-9]\+\"/\"$PIN\"/}" "$ROOT/strata-src/$CFG" \
+        > "$ROOT/strata-src/strata-swift-iq3_xxs-pin${PIN}.json"
     CFG="strata-swift-iq3_xxs-pin${PIN}.json"
-    sed "/--pool-workers/{n;s/\"[0-9]\+\"/\"$PIN\"/}" "$ROOT/strata-src/strata-swift-iq3_xxs.json" > "$ROOT/strata-src/$CFG"
 fi
 
 exec docker run --rm --privileged --device /dev/dri \

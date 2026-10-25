@@ -4,20 +4,16 @@
 #   bin-name: "jit" (build-sycl/strata) or "aot" (build-sycl-aot/strata)
 # Writes bench-<tag>.out and leaves the server stopped.
 set -u
+# shellcheck disable=SC2034
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+mkdir -p "$ROOT/runs"
 CFG="${1:?config json name (without .json)}"
 BIN="${2:?jit|aot}"
 TAG="${3:?tag}"
 NREQ="${4:-6}"
-SRC="$ROOT/strata-src"
-LOG="$ROOT/bench-$TAG.out"
+LOG="$ROOT/runs/bench-$TAG.out"
 PORT=8081
 
-case "$BIN" in
-  jit) BINPATH="build-sycl/strata" ;;
-  aot) BINPATH="build-sycl-aot/strata" ;;
-  *) echo "bad bin $BIN"; exit 2 ;;
-esac
 
 : > "$LOG"
 echo "== bench $TAG: cfg=$CFG bin=$BIN reqs=$NREQ $(date -Is)" | tee -a "$LOG"
@@ -81,7 +77,7 @@ print(f'OK prompt={pt} completion={ct} eng_tps={eng:.1f}')
 done
 
 echo "=== engine tail ===" | tee -a "$LOG"
-tail -4 "$SRC/strata-swift-iq3_xxs.log" | sed 's/^/  /' | tee -a "$LOG"
+tail -4 "$ROOT/runs/strata-swift-iq3_xxs.log" | sed 's/^/  /' | tee -a "$LOG"
 echo "== $TAG done: ok=$n fail=$fails total_tokens=$tot $(date -Is)" | tee -a "$LOG"
 
 kill "$SRV" 2>/dev/null || true

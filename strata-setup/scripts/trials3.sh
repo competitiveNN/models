@@ -3,11 +3,13 @@
 #   ./trials3.sh RUNSCRIPT TAG NREQ
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+mkdir -p "$ROOT/runs"
 RUNSCRIPT="$1"
 TAG="$2"
 NREQ="${3:-4}"
 PORT="${PORT:-8082}"
-LOG="$ROOT/trials3-$TAG.out"
+LOG="$ROOT/runs/trials3-$TAG.out"
+# shellcheck disable=SC2034
 SRC="$ROOT/strata-src"
 
 : > "$LOG"
@@ -69,8 +71,8 @@ echo "=== engine signals ===" | tee -a "$LOG"
 # config is strata-swift-iq3_xxs.json. Reading the wrong log reports another run's stall count.
 CFG_LOG=$(sed -n 's/.*--config \/work\/strata-src\/\([^"]*\)\.json.*/\1/p' "$ROOT/$RUNSCRIPT" 2>/dev/null | head -1)
 [ -n "$CFG_LOG" ] || CFG_LOG=strata-swift-iq3_xxs
-grep -c 'no progress for' "$SRC/$CFG_LOG.log" 2>/dev/null | sed 's/^/stalls: /' | tee -a "$LOG"
-tail -3 "$SRC/$CFG_LOG.log" 2>/dev/null | tee -a "$LOG"
+grep -c 'no progress for' "$ROOT/runs/$CFG_LOG.log" 2>/dev/null | sed 's/^/stalls: /' | tee -a "$LOG"
+tail -3 "$ROOT/runs/$CFG_LOG.log" 2>/dev/null | tee -a "$LOG"
 
 kill "$SRV" 2>/dev/null || true
 wait "$SRV" 2>/dev/null || true

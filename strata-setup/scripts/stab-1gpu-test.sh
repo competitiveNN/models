@@ -2,7 +2,8 @@
 # Single-GPU control test: IQ3_XXS on one B580 (gpu [0], no layer split).
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LOG="$ROOT/stab-1gpu-test.out"
+mkdir -p "$ROOT/runs"
+LOG="$ROOT/runs/stab-1gpu-test.out"
 : > "$LOG"
 
 nohup "$ROOT/run-swift-iq3_xxs-1gpu.sh" > "$LOG" 2>&1 &

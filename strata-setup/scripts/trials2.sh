@@ -3,12 +3,13 @@
 #   ./trials2.sh TAG CFG "ENVVARS" NREQ
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+mkdir -p "$ROOT/runs"
 TAG="${1:-trial}"
 CFG="$2"
 ENVV="${3:-}"
 NREQ="${4:-4}"
 SRC="$ROOT"
-LOG="$ROOT/trials2-$TAG.out"
+LOG="$ROOT/runs/trials2-$TAG.out"
 TMPCFG="$SRC/strata-swift-trial.json"
 
 python3 - "$CFG" "$TMPCFG" "$ENVV" <<'PY'
@@ -79,8 +80,8 @@ req 20 "Say hello in one short sentence."
 
 # engine log signals
 echo "=== engine signals ===" | tee -a "$LOG"
-grep -c 'no progress for' "$SRC/strata-swift-iq3_xxs.log" | sed 's/^/stalls: /' | tee -a "$LOG"
-tail -3 "$SRC/strata-swift-iq3_xxs.log" | tee -a "$LOG"
+grep -c 'no progress for' "$ROOT/runs/strata-swift-iq3_xxs.log" | sed 's/^/stalls: /' | tee -a "$LOG"
+tail -3 "$ROOT/runs/strata-swift-iq3_xxs.log" | tee -a "$LOG"
 
 kill "$SRV" 2>/dev/null || true
 wait "$SRV" 2>/dev/null || true

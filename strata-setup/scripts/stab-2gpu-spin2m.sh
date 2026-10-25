@@ -2,7 +2,8 @@
 # 2-GPU stability test for IQ3_XXS on 2x B580 with STRATA_SPIN_MAX=2000000.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LOG="$ROOT/stab-2gpu-spin2m.out"
+mkdir -p "$ROOT/runs"
+LOG="$ROOT/runs/stab-2gpu-spin2m.out"
 : > "$LOG"
 
 nohup "$ROOT/run-swift-iq3_xxs.sh" > "$LOG" 2>&1 &

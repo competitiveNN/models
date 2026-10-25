@@ -1,11 +1,17 @@
 #!/bin/sh
-# 2-GPU run with STRATA_VERIFY_DEVICE_PLAN=0 (device-plan path off, doorbell graph + deadlock fix).
+# 2x Intel Arc B580 as a layer split: Swift 1.5 IQ3_XXS (SYCL port), on port 8081.
+#
+# THE SHIPPED CONFIGURATION.  Both cards hold their own layers' expert cache, the KV is
+# split with the layers, and the engine is the AOT build (the bmg-g21 XMX kernel set).
+# It is the baseline every A/B on this rig is measured against: paired, alternating arms,
+# n>=10 requests per arm, 0 garbled.
+#
+# STRATA_VERIFY_DEVICE_PLAN=0 is already in the shipped config (the device-plan path is
+# off on this tree); this script keeps it explicit so the arm is self-describing.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-exec docker run --rm --privileged --device /dev/dri \
-    --name strata-server --replace \
-    --network host \
-    -v "$ROOT:/work" \
-    -v "/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF:/gguf:ro" \
-    strata-sycl-dev \
-    "cd /work/strata-src && source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1; exec .venv/bin/python sycl/serve/server_intel.py --engine strata --config /work/strata-src/strata-swift-iq3_xxs-dp0.json --port 8081"
+BASE=strata-swift-iq3_xxs-2gpu-clean
+PORT=8081
+export BASE PORT
+exec "$ROOT/scripts/run-strata.sh" strata-swift-iq3_xxs-2gpu \
+    STRATA_VERIFY_DEVICE_PLAN=0

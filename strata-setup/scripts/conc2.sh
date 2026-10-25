@@ -2,7 +2,8 @@
 # Concurrency sweep against a running server.  Usage: ./conc2.sh TAG
 set -u
 TAG="${1:-conc}"
-LOG="/var/home/fra/dev/models/strata-setup/conc2-$TAG.out"
+mkdir -p /var/home/fra/dev/models/strata-setup/runs
+LOG="/var/home/fra/dev/models/strata-setup/runs/conc2-$TAG.out"
 PORT="${PORT:-8081}"
 : > "$LOG"
 say() { printf '%s\n' "$1" | tee -a "$LOG"; }
@@ -43,6 +44,6 @@ print('OK tok=' + str(u.get('completion_tokens')) + ' finish=' + str(c.get('fini
     for i in $(seq 1 "$n"); do
         [ -f /tmp/conc-t$i ] && printf '  wall r%s: %ss\n' "$i" "$(cat /tmp/conc-t$i)" | tee -a "$LOG"
     done
-    say "  engine tail:"; tail -2 /var/home/fra/dev/models/strata-setup/strata-src/strata-swift-iq3_xxs.log | sed 's/^/    /' | tee -a "$LOG"
+    say "  engine tail:"; tail -2 /var/home/fra/dev/models/strata-setup/runs/strata-swift-iq3_xxs.log | sed 's/^/    /' | tee -a "$LOG"
 done
 say "=== $TAG sweep done ==="

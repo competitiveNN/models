@@ -2,7 +2,8 @@
 # 2-GPU stability test with STRATA_VERIFY_STEPPED=1 (stepped verify window).
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LOG="$ROOT/stab-2gpu-stepped.out"
+mkdir -p "$ROOT/runs"
+LOG="$ROOT/runs/stab-2gpu-stepped.out"
 : > "$LOG"
 
 nohup "$ROOT/run-swift-iq3_xxs.sh" > "$LOG" 2>&1 &

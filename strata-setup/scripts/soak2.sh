@@ -3,7 +3,8 @@
 set -u
 NREQ="${1:-20}"
 TAG="${2:-soak}"
-LOG="/var/home/fra/dev/models/strata-setup/soak2-$TAG.out"
+mkdir -p /var/home/fra/dev/models/strata-setup/runs
+LOG="/var/home/fra/dev/models/strata-setup/runs/soak2-$TAG.out"
 PORT="${PORT:-8081}"
 : > "$LOG"
 pass=0; fail=0; slow=0

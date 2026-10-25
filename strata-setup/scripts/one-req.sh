@@ -3,12 +3,13 @@
 #   ./one-req.sh TAG "ENVVARS" MAX_TOKENS
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+mkdir -p "$ROOT/runs"
 TAG="${1:-one}"
 ENVV="${2:-}"
 MT="${3:-200}"
 SRC="$ROOT/strata-src"
 CFG="$SRC/strata-swift-iq3_xxs.json"
-LOG="$ROOT/one-$TAG.out"
+LOG="$ROOT/runs/one-$TAG.out"
 TMPCFG="$SRC/strata-swift-trial.json"
 
 python3 - "$CFG" "$TMPCFG" "$ENVV" <<'PY'
@@ -56,8 +57,8 @@ curl -s --max-time 900 -X POST http://127.0.0.1:8081/v1/chat/completions \
     -d "{\"model\":\"swift-1.5-iq3_xxs\",\"messages\":[{\"role\":\"user\",\"content\":\"Tell me a story about a robot learning to paint, with dialogue.\"}],\"max_tokens\":$MT,\"temperature\":0.6}" 2>>"$LOG" | tee -a "$LOG"
 
 echo "=== engine signals ===" | tee -a "$LOG"
-grep -c 'no progress for' "$SRC/strata-swift-iq3_xxs.log" | sed 's/^/stalls: /' | tee -a "$LOG"
-tail -3 "$SRC/strata-swift-iq3_xxs.log" | tee -a "$LOG"
+grep -c 'no progress for' "$ROOT/runs/strata-swift-iq3_xxs.log" | sed 's/^/stalls: /' | tee -a "$LOG"
+tail -3 "$ROOT/runs/strata-swift-iq3_xxs.log" | tee -a "$LOG"
 
 kill "$SRV" 2>/dev/null || true
 wait "$SRV" 2>/dev/null || true
