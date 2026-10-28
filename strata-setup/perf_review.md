@@ -63,11 +63,22 @@ Reads `STRATA_SPLIT_GROUPS=N` env var; 0/unset means default (2 for split window
 **Root cause:** SYCL `ext_oneapi_submit_barrier({event})` cannot consume events from a different SYCL context; CUDA's `cudaStreamWaitEvent` has no such restriction. This caused the verify.cpp:1706 cross-context event crash at TP=2.
 
 Fixed all 3 sites by replacing `ext_oneapi_submit_barrier({event})` with `event->wait()`:
-- `pl_mtp_ev[l1&1]->wait()` (~line 10314)
-- `pl_snap_pre[q]->wait()` (~line 10880)
-- `pl_snap_ev[A.seq&1]->wait()` (~line 11331)
+- `pl_mtp_ev[l1&1]->wait()` (~line 10462)
+- `pl_snap_pre[q]->wait()` (~line 11028)
+- `pl_snap_ev[A.seq&1]->wait()` (~line 11475)
 
 Zero `ext_oneapi_submit_barrier` calls remain in `generate.cpp`.
+
+**Follow-up (this session): the same bug was still live in `sycl/src/core/verify.cpp`.** A code-review sweep of the
+shared-expert fork path found 3 more cross-context barrier calls with the identical shape (`ev_fork_`/`ev_join_` are
+recorded on one queue, the barrier submitted on another) — the same root cause as the verify.cpp:1706 crash:
+- `sycl/src/core/verify.cpp:1351` — `ev_fork_` recorded on `cs`, barrier submitted on `sh_cs_` → `ev_fork_->wait()`
+- `sycl/src/core/verify.cpp:1414` — same (`sh_fork_late` branch) → `ev_fork_->wait()`
+- `sycl/src/core/verify.cpp:1561` — `ev_join_` recorded on `sh_cs_`, barrier submitted on `cs` → `ev_join_->wait()`
+
+`event->wait()` blocks the host thread and is therefore context-agnostic, unlike `ext_oneapi_submit_barrier`.
+The remaining `ext_oneapi_submit_barrier` calls in the SYCL tree (`concurrent_main.cpp`, `graph.cpp`, `overlap_main.cpp`,
+`mtp.cpp`) all submit events recorded on the **same** queue, so they are not affected.
 
 ### 7. #879 non-finite logit guard ported to SYCL
 
@@ -90,9 +101,10 @@ Zero `ext_oneapi_submit_barrier` calls remain in `generate.cpp`.
 - `hcount_d_`/`hdrop_h_/d_`/`herr_h_/d_` allocated in `init()`; `hcount_d_` freed in destructor
 
 **What is STILL MISSING (runtime no-op until fixed):**
-- `handoff_failed()` and `chain_overlap()` were defined-only-in-header; now defined in `verify.cpp` ✅
-- **`chain_overlap()` path in `run()` is NOT ported**: CUDA uses a `NextLaunch` helper thread + `prelaunch()` (`verify.cpp:2962-2981`, `2839-2863`). SYCL has no `prelaunch()`, `prelaunched_`, or `pre_launch_` members. Without this, `chain_overlap()` returns true but no code consumes it — the overlapped split does not actually run.
-- TP=2 runtime verification cannot proceed without this path + B580 hardware.
+- `handoff_failed()` and `chain_overlap()` defined in `verify.cpp` ✅
+- **`chain_overlap()` path in `run()` IS ported**: CUDA uses a `NextLaunch` helper thread + `prelaunch()` (`verify.cpp:2962-2981`, `2839-2863`). SYCL has `prelaunch()`, `prelaunched_`, `pre_launch_`, `NextLaunch` (helper thread) ✅.
+- **Bug fixed (this session)**: `run()` called `next_->run()` without joining the `NextLaunch` helper thread first — a race where the next stage's prelaunch graph might not have been submitted yet. Added `nl.join(err); nl.handed = true;` before `next_->run()` (`sycl/src/core/verify.cpp:2522-2527`), matching CUDA `verify.cpp:3101-3105`.
+- TP=2 runtime verification still needs B580 hardware (the path now compiles and is race-free).
 
 ### 9. Build verified
 
@@ -140,9 +152,9 @@ Basalt (github.com/jesdga95/basalt) is a CUDA-only inference engine for Qwen3.8-
 | Area | CUDA | SYCL | Impact |
 |---|---|---|---|
 | AOT target | n/a | `bmg-g21` configured, `STRATA_XMX_SG16=1` defined | Already correct for B580 |
-| adapt-async infra | `a_pl_idle`, `a_gap(st)`, `ahomes` (aux CPU offload) | Missing | Adapt work runs on main thread |
-| pipe stages | `n_stages >= 2` | `n_stages == 2` only | Limited to 2-stage splits |
-| chain_overlap path | `NextLaunch` thread + `prelaunch()` | Not ported | Overlapped split not active |
+| adapt-async infra | `a_pl_idle`, `a_gap(st)`, `ahomes` (aux CPU offload) | Ported ✅ (`a_pl_idle`, `a_gap_seq`, `ahomes`, `a_back`/`a_in` at gaps) | Adapt work can run off the main thread via gaps; `--adapt-async 1` now works on SYCL |
+| pipe stages | `n_stages >= 2` | `n_stages >= 2` ✅ | Generic N-stage pipelined splits ported |
+| chain_overlap path | `NextLaunch` thread + `prelaunch()` | Ported ✅ (nl.join race fix applied) | Overlapped split active; needs B580 hardware to verify |
 
 ---
 
@@ -157,13 +169,12 @@ Basalt (github.com/jesdga95/basalt) is a CUDA-only inference engine for Qwen3.8-
 
 ---
 
-## Next steps (all hardware-blocked)
+## Next steps (all hardware-blocked unless noted)
 
 1. Attach B580 GPU
 2. Run `scripts/measure-baseline.sh` (validate/build/parity/protocol modes)
 3. Establish single-GPU baseline (~45+ tok/s target)
 4. Profile single-GPU bottlenecks
-5. Complete `chain_overlap()`/`prelaunch()` port in SYCL `verify.cpp`/`generate.cpp`
-6. TP=2 runtime verification (~30+ tok/s, verify.cpp:1706 crash fix)
-7. AOT rebuild already done (`bmg-g21`); run on hardware
-8. TP/PP parallel performance work
+5. TP=2 runtime verification (~30+ tok/s, verify.cpp:1706 crash fix) — chain_overlap/prelaunch path now ported and race-free; needs B580 hardware
+6. AOT rebuild already done (`bmg-g21`); run on hardware
+7. TP/PP parallel performance work
