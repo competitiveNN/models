@@ -1,9 +1,19 @@
 #!/bin/bash
 # Coherence + throughput battery for TP2 experiments.
-# Usage: PORT=8081 ./tp-battery.sh <tag> <nreq>
+# Usage: PORT=8081 ./tp-battery.sh <tag> <nreq> [warm]
+#   warm=1  one discarded request first, so the measured arm starts with the VRAM expert cache and
+#           the GGUF's expert pages resident (req 1 otherwise pays the cold-start premium for the rest)
+# Environment:
+#   STRATA_REGIME_MIN_MBPS  refuse the arm if the GGUF expert pages start below this rate
+#                           (0 = no gate).  A cold page cache measures a different engine.
+#   WARM_REQ1_CPU_MAX       with warm=1, refuse the arm if req 1's CPU share exceeds this
+#                           percent (0 = no gate).  CI has no GPU, so the warm req-1 CPU-share
+#                           regression gate lives here: a warm arm that still pays the
+#                           cold-start premium did not warm up and must not be recorded as warm.
 # Sends <nreq> identical story prompts (greedy) with distinct max_tokens so each
 # request is identifiable in the engine log. Reports garbage count, engine tok/s,
-# client wall time per request. Writes runs/tpbat-<tag>.out and /tmp/tpbat-<tag>-*.json.
+# CPU-expert time and its share, client wall time per request.
+# Writes runs/tpbat-<tag>.out and /tmp/tpbat-<tag>-*.json.
 PORT="${PORT:-8081}"
 TAG="${1:?tag}"
 N="${2:-10}"
@@ -21,6 +31,8 @@ echo "== battery $TAG: $N requests, $(date -Is)" | tee -a "$OUT"
 browsers=""
 for d in /proc/[0-9]*; do
   comm=""
+  # a process can exit between the glob and the read: the missing file is not an error worth printing
+  [ -r "$d/status" ] || continue
   while IFS= read -r line; do case $line in Name:*) comm=$line;; esac; done < "$d/status" 2>/dev/null
   c=${comm#Name:}; c=${c#"${c%%[![:space:]]*}"}
   case $c in chromium*|zen-bin|firefox*) browsers="$browsers ${d#/proc/}";; esac
@@ -75,6 +87,26 @@ if [ "$_min" != "0" ]; then
 fi
 
 garbled=0
+# --warm-up (opt-in, default off): one discarded request, so the measured arm starts with the VRAM
+# expert cache and the GGUF's expert pages resident.  Cold-start reads cost ~5x warm ones
+# (b580-tp2-pool-phases.md) and the cache fills through a run, so req 1 otherwise pays the
+# cold-start premium the other nine already covered.  Off by default: a warm arm is a DIFFERENT
+# engine from the cold-start one the recorded runs measured, so it stays opt-in and is never mixed
+# into a cold-start arm's numbers.
+WARM="${3:-0}"
+if [ "$WARM" != "0" ]; then
+  # Pre-cache the exact max_tokens profile the battery will use (mt=201..200+N), so each arm's
+  # req-1 starts with the same GGUF expert pages resident regardless of starting page-cache warmth.
+  # This isolates page-cache effects: req-1 variance then reflects only engine state, not disk reads.
+  # Off by default: a warm arm is a DIFFERENT engine state from the cold-start one, so it stays opt-in.
+  WT=$((200 + N))
+  echo "== warm-up: one discarded request, max_tokens=$WT (matches battery profile 201..$WT)" | tee -a "$OUT"
+  curl -s -m 400 "http://127.0.0.1:$PORT/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d "{\"model\":\"x\",\"messages\":[{\"role\":\"user\",\"content\":\"Write a short story about a robot discovering flowers. Be specific.\"}],\"max_tokens\":$WT,\"temperature\":0}" \
+    > /dev/null
+  echo "== warm-up done, GGUF pages now: $(gguf_cache_rate)" | tee -a "$OUT"
+fi
 for i in $(seq 1 "$N"); do
   mt=$((200 + i))
   t0=$(date +%s.%N)
@@ -94,7 +126,11 @@ try:
     u = d.get("usage", {})
     bad = txt.startswith("!!") or "!!!!" in txt[:64]
     story = ("robot" in txt.lower()) or ("flower" in txt.lower())
-    print(f"req {i}: mt={mt} ct={u.get('completion_tokens')} eng_tps={t.get('predicted_per_second')} "
+    # CPU expert time: the engine's own clock, the host time inside the pool dispatch this request. None with an
+    # older engine that writes no cpu_ms= on its DONE line - said plainly, never a 0 that reads as "no CPU work".
+    cpu, dec = t.get("cpu_ms"), t.get("predicted_ms")
+    ctxt = f" cpu={cpu:.0f}ms({cpu / dec:.0%})" if isinstance(cpu, (int, float)) and dec else ""
+    print(f"req {i}: mt={mt} ct={u.get('completion_tokens')} eng_tps={t.get('predicted_per_second')}{ctxt} "
           f"wall={float(t1)-float(t0):.1f}s garbled={bad} story={story} head={txt[:60]!r}")
 except Exception as e:
     print(f"req {i}: ERROR {e} raw={open(path).read()[:200]!r}")
@@ -103,3 +139,35 @@ PY
 done
 echo "== page cache at end:   $(page_cache_state)  |  GGUF expert pages: $(gguf_cache_rate)" | tee -a "$OUT"
 echo "== battery $TAG done: $garbled/$N garbled, $(date -Is)" | tee -a "$OUT"
+# Aggregate CPU-share summary across the battery arm: visible at a glance, so a regression in
+# CPU-expert time (a share of decode time) does not hide behind an unchanged eng_tps average.
+SUMMARY="$(awk -v tag="$TAG" -v N="$N" '
+  match($0, /cpu=([0-9.]+)ms\(([0-9.]+)%\)/, m) { cpu[++n]=m[1]+0; share[n]=m[2]+0 }
+  match($0, /eng_tps=([0-9.]+)/, t) { tps[++nt]=t[1]+0 }
+  END {
+    if (n == 0) { printf "== battery %s: no cpu_ms readings (older engine or all errors)\n", tag; exit }
+    mcs=0; ms=0
+    for (k=1;k<=n;k++){mcs+=cpu[k]; ms+=share[k]}
+    mtps=0; for(k=1;k<=nt;k++) mtps+=tps[k]
+    printf "== battery %s: cpu_ms read %d/%d | mean cpu_ms=%.0f ms | mean share %.0f%% | mean eng_tps=%.2f\n", tag, n, N, mcs/n, ms/n, mtps/nt
+  }' "$OUT")"; echo "$SUMMARY" | tee -a "$OUT"
+
+# **LOCAL REGRESSION GUARD for warm req-1 CPU share.**  CI cannot run the engine (no GPU), so the
+# enforceable gate lives here: a warm arm's req-1 CPU share is the cold-start-premium canary.  A warm
+# arm whose req-1 still pays the cold-start premium means the warm-up did not land (or the cache
+# evicted mid-arm) - the numbers are not a warm arm and must not be recorded as one.  Opt-in via
+# WARM_REQ1_CPU_MAX (default 0 = no gate, so old recorded arms stay comparable); on violation the
+# arm exits 3 and the caller re-runs it.
+if [ "$WARM" != "0" ]; then
+  _max="${WARM_REQ1_CPU_MAX:-0}"
+  if [ "$_max" != "0" ]; then
+    _req1_share="$(awk 'match($0, /req 1:.*cpu=[0-9.]+ms\(([0-9.]+)%\)/, m) { print m[1]+0; exit }' "$OUT")"
+    case "$_req1_share" in ''|*[!0-9]*) _req1_share=0 ;; esac
+    if [ "$_req1_share" -gt "$_max" ]; then
+      echo "ABORT: warm req-1 CPU share ${_req1_share}% exceeds ${_max}% - the warm-up did not land; re-run this arm" | tee -a "$OUT"
+      exit 3
+    fi
+    echo "== warm req-1 CPU share ${_req1_share}% <= ${_max}% (guard ok)" | tee -a "$OUT"
+  fi
+fi
+

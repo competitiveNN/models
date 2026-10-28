@@ -27,19 +27,23 @@ podman run -d --privileged --device /dev/dri \
   -v "/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF:/gguf:ro" \
   localhost/strata-sycl-dev \
   -lc "source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1; exec .venv/bin/python sycl/serve/server_intel.py --engine strata --config /work/strata-src/$CFG.json --port $PORT" \
-  >> "$LOG" 2>&1 &
-SRV=$!
-
+  >> "$LOG" 2>&1
+# `podman run -d` DETACHES: the client returns the container id and exits, so the
+# client's PID is gone while the container keeps running.  The liveness probe must
+# therefore ask podman for the container's state, not `kill -0` the client pid (the
+# old check aborted every run with "SERVER DIED DURING START" while the server was
+# in fact loading the model).
 ready=0
-for i in $(seq 1 90); do
+for i in $(seq 1 150); do
   if curl -s -m 2 "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -q '"loaded": true'; then
     ready=1; break; fi
-  if ! kill -0 "$SRV" 2>/dev/null; then echo "SERVER DIED DURING START" | tee -a "$LOG"; break; fi
+  if ! podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^strata-bench$'; then
+    echo "SERVER DIED DURING START" | tee -a "$LOG"; break; fi
   sleep 2
 done
 if [ "$ready" != "1" ]; then
-  echo "ABORT: not ready after 180s" | tee -a "$LOG"
-  tail -30 "$LOG"; kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+  echo "ABORT: not ready after 300s" | tee -a "$LOG"
+  tail -30 "$LOG"
   podman rm -f strata-bench >/dev/null 2>&1; exit 1
 fi
 echo "ready after $((i*2))s" | tee -a "$LOG"
@@ -80,6 +84,4 @@ echo "=== engine tail ===" | tee -a "$LOG"
 tail -4 "$ROOT/runs/strata-swift-iq3_xxs.log" | sed 's/^/  /' | tee -a "$LOG"
 echo "== $TAG done: ok=$n fail=$fails total_tokens=$tot $(date -Is)" | tee -a "$LOG"
 
-kill "$SRV" 2>/dev/null || true
-wait "$SRV" 2>/dev/null || true
 podman rm -f strata-bench >/dev/null 2>&1
