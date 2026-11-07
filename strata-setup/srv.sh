@@ -41,8 +41,8 @@ if command -v git >/dev/null 2>&1 && [ -d "$SRC/.git" ]; then
     fi
 fi
 echo "strata ${VERSION:-unknown} (SYCL engine, $BIN, port $PORT)$TREE_NOTE$STATE"
-podman rm -f strata-srv >/dev/null 2>&1
-podman run -d --privileged --device /dev/dri --name strata-srv --replace --network host \
+docker rm -f strata-srv >/dev/null 2>&1
+docker run -d --privileged --device /dev/dri --name strata-srv --replace --network host \
   -w /work/strata-src \
   -v "$ROOT:/work" \
   -v "/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF:/gguf:ro" \

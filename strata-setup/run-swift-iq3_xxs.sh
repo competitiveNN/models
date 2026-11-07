@@ -24,7 +24,7 @@
 # leaves the one card less room for experts. The two cards split the layers
 # (and with them the KV), so from 128000 up the split wins.
 #
-# Uses podman directly: the host's `docker` is a shim that runs podman via
+# Uses docker directly: the host's `docker` is a shim that runs docker via
 # flatpak-spawn, which only resolves on the host, not inside a toolbox.
 set -eu
 ROOT="$(cd "$(dirname "$0")" && pwd)"
