@@ -12,6 +12,17 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 SRC="$ROOT/strata-src"
 
 # --pin N: rewrite the config's --pool-workers for a per-run CPU core pin.
+SPEC="gpu.0"
+if [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; then
+    SPEC="$1"
+    shift
+fi
+GPUS="$(printf '%s\n' "$SPEC" | sed 's/gpu\.//g')"
+if ! printf '%s\n' "$GPUS" | grep -Eq '^[0-9]+(,[0-9]+)*$'; then
+    echo "run-swift-iq2_xs.sh: bad GPU spec '$SPEC' (want gpu.0 or gpu.0,gpu.1)" >&2
+    exit 2
+fi
+
 PIN=""
 while [ $# -gt 0 ]; do
     if [ "$1" = "--pin" ] && [ -z "${2:-}" ]; then
@@ -66,10 +77,24 @@ if [ -n "$PIN" ]; then
     sed "/--pool-workers/{n;s/\"[0-9]\+\"/\"$PIN\"/}" "$ROOT/strata-src/strata-swift-iq2_xs.json" > "$ROOT/strata-src/$CFG"
 fi
 
-docker run --rm --privileged --device /dev/dri \
-    --name strata-server \
+case "$GPUS" in
+    *,*) CFG="strata-swift-iq2_xs-2gpu.json" ;;
+    *)  CFG="strata-swift-iq2_xs.json" ;;
+esac
+if [ ! -f "$ROOT/strata-src/$CFG" ]; then
+    CFG="strata-swift-iq2_xs.json"
+fi
+if [ -n "$PIN" ]; then
+    rm -f "$ROOT/strata-src/strata-swift-iq2_xs-pin"*.json >/dev/null 2>&1 || true
+    sed "/--pool-workers/{n;s/\"[0-9]\+\"/\"$PIN\"/}" "$ROOT/strata-src/$CFG" \
+        > "$ROOT/strata-src/strata-swift-iq2_xs-pin${PIN}.json"
+    CFG="strata-swift-iq2_xs-pin${PIN}.json"
+fi
+
+exec docker run --rm --privileged --device /dev/dri \
+    --name strata-server --replace \
     --network host \
     -v "$ROOT:/work" \
     -v "/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF:/gguf:ro" \
     strata-sycl-dev \
-    "cd /work/strata-src && source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1; exec .venv/bin/python sycl/serve/server_intel.py --engine strata --config /work/strata-src/$CFG --port 8081"
+    "cd /work/strata-src && source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1; exec .venv/bin/python sycl/serve/server_intel.py --engine strata --config /work/strata-src/$CFG --gpu '$GPUS' --port 8081"
