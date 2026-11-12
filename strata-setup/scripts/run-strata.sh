@@ -56,10 +56,51 @@ i = 5
 n_envs = int(sys.argv[i]); i += 1
 for _ in range(n_envs):
     k, _, v = sys.argv[i].partition("="); i += 1
-    c.setdefault("env", {})[k] = v
+    c.setdefault("env", {})[k] = v   # command-line env overrides base config
 n_args = int(sys.argv[i]); i += 1
 args = sys.argv[i:i+n_args]
-c["args"] = c["args"] + args
+# Merge args: command-line args replace base config args for the same flag.
+# Args come as flag value pairs (e.g. --expert-cache 1). Build a dict from base
+# args, then overwrite with command-line args.
+def arg_pairs(arglist):
+    pairs = {}
+    i = 0
+    while i < len(arglist):
+        flag = arglist[i]
+        if flag.startswith("--") and i + 1 < len(arglist) and not arglist[i + 1].startswith("--"):
+            pairs[flag] = arglist[i + 1]
+            i += 2
+        else:
+            pairs[flag] = None
+            i += 1
+    return pairs
+
+base_pairs = arg_pairs(c.get("args", []))
+cli_pairs = arg_pairs(args)
+merged = {}
+for k, v in base_pairs.items():
+    merged[k] = v
+for k, v in cli_pairs.items():
+    merged[k] = v   # CLI overrides base
+# Rebuild args list, preserving base order but with CLI values
+new_args = []
+seen = set()
+for k, v in base_pairs.items():
+    if k in cli_pairs:
+        new_args.append(k)
+        if cli_pairs[k] is not None:
+            new_args.append(cli_pairs[k])
+        seen.add(k)
+    else:
+        new_args.append(k)
+        if v is not None:
+            new_args.append(v)
+for k, v in cli_pairs.items():
+    if k not in seen:
+        new_args.append(k)
+        if v is not None:
+            new_args.append(v)
+c["args"] = new_args
 c["model_name"] = name
 c["log"] = "/work/runs/%s.log" % name
 json.dump(c, open(out, "w"), indent=2)
@@ -72,15 +113,25 @@ echo "run-strata: $NAME on port $PORT"
 
 "$DOCKER" rm -f strata-server >/dev/null 2>&1
 sleep 2
-"$DOCKER" run -d --privileged --device /dev/dri \
-  --name strata-server --replace \
-  --network host \
-  -v "$ROOT:/work" \
-  -v "$GGUF_DIR:/gguf:ro" \
-  --entrypoint /bin/bash \
-  "$IMAGE" \
-  -c "cd /work/strata-src && source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1; exec .venv/bin/python sycl/serve/server_intel.py --engine strata --config /work/strata-src/$NAME.json --port $PORT" \
-  > "$RUNS/$NAME-launch.log" 2>&1
+"$DOCKER" run -d --privileged --device /dev/dri --device /dev/dri/card0 --device /dev/dri/card1 --device /dev/dri/renderD128 --device /dev/dri/renderD129 --security-opt label=disable \
+--name strata-server --replace \
+--network host \
+-v "$ROOT:/work:Z" \
+-v "$GGUF_DIR:/gguf:ro" \
+-e LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.2/lib:/opt/intel/oneapi/mkl/2026.2/lib:/opt/intel/oneapi/redist/lib \
+-e ZE_FLAT_DEVICE_MEMORY=1 \
+-e STRATA_VERIFY_DEVICE_PLAN=0 \
+-e STRATA_VERIFY_NO_HOST=0 \
+-e STRATA_WINDOW_SYNC=1 \
+-e STRATA_STAGE_TRIM=1 \
+-e STRATA_PREFILL_MMQ=0 \
+-e STRATA_DECODE_TIMING=1 \
+-e STRATA_SPLIT_HEADROOM=0 \
+-e STRATA_VERIFY_PIPE=0 \
+--entrypoint /bin/sh \
+"$IMAGE" \
+-c "echo '[CONTAINER] Starting server...'; echo '[CONTAINER] ENV:'; env; cd /work/strata-src && python3 sycl/serve/server_intel.py --engine strata --config /work/strata-src/$NAME.json --port $PORT 2>&1 | tee /work/runs/$NAME-container.log" \
+> "$RUNS/$NAME-launch.log" 2>&1
 
 for i in $(seq 1 150); do
   if curl -s -m 2 "http://127.0.0.1:$PORT/health" 2>/dev/null | /usr/bin/grep -q '"loaded": true'; then

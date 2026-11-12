@@ -1,6 +1,13 @@
-# Strata SYCL engine for 2x Intel Arc B580, baked into the strata-sycl-dev image.
-# The engine binary is built on the host (strata-build container) from origin/main
-# and layered over the llama.cpp SYCL base image.  The model pack, MTP layer and
-# GGUF stay on mounted volumes; everything else (server, source, build tree) is here.
+# Strata SYCL engine for 2x Intel Arc B580
 FROM localhost/strata-sycl-dev:latest
+
+# Copy Intel oneAPI 2026.2 libraries from build context
+COPY oneapi-libs/compiler/2026.2/lib/ /opt/intel/oneapi/compiler/2026.2/lib/
+COPY oneapi-libs/mkl/2026.2/lib/ /opt/intel/oneapi/mkl/2026.2/lib/
+COPY oneapi-libs/redist/lib/ /opt/intel/oneapi/redist/lib/
+
+# Copy source
 COPY strata-src /work/strata-src
+
+# Install Python packages system-wide
+RUN pip install --break-system-packages --no-cache-dir --quiet jinja2 regex
