@@ -6,8 +6,17 @@ COPY oneapi-libs/compiler/2026.2/lib/ /opt/intel/oneapi/compiler/2026.2/lib/
 COPY oneapi-libs/mkl/2026.2/lib/ /opt/intel/oneapi/mkl/2026.2/lib/
 COPY oneapi-libs/redist/lib/ /opt/intel/oneapi/redist/lib/
 
+# Copy Level Zero libraries (required for B580 GPU support)
+COPY oneapi-libs/level-zero/lib64/ /opt/intel/oneapi/level-zero/lib64/
+
+# Copy Unified Memory Framework (required for Level Zero adapter)
+COPY oneapi-libs/umf/1.2/lib/ /opt/intel/oneapi/umf/1.2/lib/
+
 # Copy source
 COPY strata-src /work/strata-src
+
+# Set library path for Level Zero
+ENV LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.2/lib:/opt/intel/oneapi/mkl/2026.2/lib:/opt/intel/oneapi/redist/lib:/opt/intel/oneapi/level-zero/lib64:/opt/intel/oneapi/umf/1.2/lib
 
 # Install Python packages system-wide
 RUN pip install --break-system-packages --no-cache-dir --quiet jinja2 regex
