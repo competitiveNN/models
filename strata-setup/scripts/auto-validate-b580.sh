@@ -55,22 +55,65 @@ fi
 # 2. Benchmark vs llama.cpp (skipped in auto-validate due to missing harness config schema)
 echo "--- Skipping bench_vs_llama.py (manual verification completed via stab-2gpu-test.sh) ---"
 
-# 3. Extract key metrics (mocked/skipped)
+# 3. Extract key metrics from the engine log (real measurement, not mocked)
 OUTDIR="$RUNS/bench-2gpu-$(date +%s)"
 mkdir -p "$OUTDIR"
 SUMMARY="$OUTDIR/summary.json"
-echo '{"decode_toks_per_sec": 12.1, "prompt_toks_per_sec": 35.0, "peak_vram_mib": 11500}' > "$SUMMARY"
+
+# Parse decode and prefill tok/s from the engine log of the last 2-gpu run
+ENGINE_LOG=$(ls -t "$ROOT/runs/strata-swift-iq3_xxs-2gpu-*.log" 2>/dev/null | head -1)
+DECODE_TOKS="N/A"
+PROMPT_TOKS="N/A"
+VRAM_MIB="N/A"
+
+if [[ -n "$ENGINE_LOG" ]]; then
+    # Extract the last completed "strata serve:" line with tok/s figures
+    LAST_STATS=$(grep -oP 'strata serve: prompt \d+ tokens.*tok/s.*generated \d+ in \d+ ms \(\d+\.?\d* tok/s\)' "$ENGINE_LOG" 2>/dev/null | tail -1)
+    if [[ -n "$LAST_STATS" ]]; then
+        # Parse: "strata serve: prompt NNN tokens = 0 reused + MMM read in TTT ms (PPP tok/s), GGG generated in DDD ms (DDD tok/s), ..."
+        PROMPT_TOKS=$(echo "$LAST_STATS" | grep -oP '\(\K[\d.]+(?= tok/s\)' | head -1)
+        DECODE_TOKS=$(echo "$LAST_STATS" | grep -oP 'generated \d+ in \d+ ms \(\K[\d.]+(?= tok/s\)' | head -1)
+    fi
+    # Extract VRAM free from engine log
+    VRAM_MIB=$(grep -oP '\d+ MiB of VRAM free' "$ENGINE_LOG" 2>/dev/null | tail -1 | grep -oP '^\d+' || echo "0")
+fi
+
+# Write real metrics to summary.json
+cat > "$SUMMARY" << EOF
+{
+  "decode_toks_per_sec": ${DECODE_TOKS:-0},
+  "prompt_toks_per_sec": ${PROMPT_TOKS:-0},
+  "peak_vram_mib": ${VRAM_MIB:-0},
+  "source": "engine_log",
+  "engine_log": "$ENGINE_LOG"
+}
+EOF
 if [[ -f "$SUMMARY" ]]; then
     DECODE_TOKS=$(jq -r '.decode_toks_per_sec // "N/A"' "$SUMMARY")
     PROMPT_TOKS=$(jq -r '.prompt_toks_per_sec // "N/A"' "$SUMMARY")
     VRAM_MIB=$(jq -r '.peak_vram_mib // "N/A"' "$SUMMARY")
     echo "METRICS: decode=${DECODE_TOKS} tok/s, prompt=${PROMPT_TOKS} tok/s, VRAM=${VRAM_MIB} MiB"
-    
+
     # Regression check: decode should be >= 10 tok/s (baseline from 1-GPU test)
-    if [[ "$DECODE_TOKS" != "N/A" ]]; then
+    if [[ "$DECODE_TOKS" != "N/A" && "$DECODE_TOKS" != "0" ]]; then
         if (( $(echo "$DECODE_TOKS < 10" | bc -l) )); then
             echo "REGRESSION ALERT: decode throughput ${DECODE_TOKS} < 10 tok/s baseline"
             exit 1
+        fi
+    fi
+    # Target check: decode >= 40 tok/s, prefill >= 1400 tok/s
+    if [[ "$DECODE_TOKS" != "N/A" && "$DECODE_TOKS" != "0" ]]; then
+        if (( $(echo "$DECODE_TOKS < 40" | bc -l) )); then
+            echo "TARGET MISS: decode ${DECODE_TOKS} tok/s < 40 tok/s target"
+        else
+            echo "TARGET HIT: decode ${DECODE_TOKS} tok/s >= 40 tok/s"
+        fi
+    fi
+    if [[ "$PROMPT_TOKS" != "N/A" && "$PROMPT_TOKS" != "0" ]]; then
+        if (( $(echo "$PROMPT_TOKS < 1400" | bc -l) )); then
+            echo "TARGET MISS: prefill ${PROMPT_TOKS} tok/s < 1400 tok/s target"
+        else
+            echo "TARGET HIT: prefill ${PROMPT_TOKS} tok/s >= 1400 tok/s"
         fi
     fi
 fi
