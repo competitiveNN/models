@@ -8,7 +8,7 @@ LOG="$ROOT/runs/stab-2gpu-test.out"
 : > "$LOG"
 
 # 1) start the server in the background
-nohup "$ROOT/run-swift-iq3_xxs.sh" > "$LOG" 2>&1 &
+nohup "$ROOT/scripts/run-strata.sh" strata-swift-iq3_xxs-2gpu-pipe1 > "$LOG" 2>&1 &
 SRV=$!
 echo "server pid $SRV" | tee -a "$LOG"
 

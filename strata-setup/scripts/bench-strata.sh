@@ -25,8 +25,21 @@ docker run -d --privileged --device /dev/dri \
   -w /work/strata-src \
   -v "$ROOT:/work" \
   -v "/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF:/gguf:ro" \
-  localhost/strata-sycl-dev \
-  -lc "source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1; exec .venv/bin/python sycl/serve/server_intel.py --engine strata --config /work/strata-src/$CFG.json --port $PORT" \
+  -e LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.2/lib:/opt/intel/oneapi/mkl/2026.2/lib:/opt/intel/oneapi/redist/lib \
+  -e ZE_FLAT_DEVICE_MEMORY=1 \
+  -e STRATA_VERIFY_DEVICE_PLAN=0 \
+  -e STRATA_VERIFY_NO_HOST=0 \
+  -e STRATA_WINDOW_SYNC=1 \
+  -e STRATA_STAGE_TRIM=1 \
+  -e STRATA_PREFILL_MMQ=0 \
+  -e STRATA_DECODE_TIMING=1 \
+  -e STRATA_SPLIT_HEADROOM=0 \
+  -e STRATA_VERIFY_PIPE=0 \
+  -e STRATA_RING_TIMEOUT_S=600 \
+  -e STRATA_SPLIT_WAIT_MS=600000 \
+  -e STRATA_VERIFY_DRAIN_TIMEOUT_MS=60000 \
+  localhost/strata-server:latest \
+  -c "cd /work/strata-src && python3 sycl/serve/server_intel.py --engine strata --config /work/strata-src/$CFG.json --port $PORT" \
   >> "$LOG" 2>&1
 # `docker run -d` DETACHES: the client returns the container id and exits, so the
 # client's PID is gone while the container keeps running.  The liveness probe must
@@ -34,7 +47,7 @@ docker run -d --privileged --device /dev/dri \
 # old check aborted every run with "SERVER DIED DURING START" while the server was
 # in fact loading the model).
 ready=0
-for i in $(seq 1 150); do
+for i in $(seq 1 300); do
   if curl -s -m 2 "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -q '"loaded": true'; then
     ready=1; break; fi
   if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^strata-bench$'; then
@@ -42,7 +55,7 @@ for i in $(seq 1 150); do
   sleep 2
 done
 if [ "$ready" != "1" ]; then
-  echo "ABORT: not ready after 300s" | tee -a "$LOG"
+  echo "ABORT: not ready after 600s" | tee -a "$LOG"
   tail -30 "$LOG"
   docker rm -f strata-bench >/dev/null 2>&1; exit 1
 fi
