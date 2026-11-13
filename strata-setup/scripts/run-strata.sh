@@ -23,9 +23,9 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/strata-src"
 RUNS="$ROOT/runs"
-DOCKER="${DOCKER:-/var/home/fra/bin/docker}"
+DOCKER="${DOCKER:-podman}"
 GGUF_DIR="${GGUF_DIR:-/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
-IMAGE="${IMAGE:-strata-sycl-dev}"
+IMAGE="${IMAGE:-strata-sycl-b580}"
 mkdir -p "$RUNS"
 
 NAME="${1:?usage: run-strata.sh <name> [KEY=VALUE ...] [-- <engine args>]}"; shift
@@ -118,7 +118,7 @@ sleep 2
 --network host \
 -v "$ROOT:/work:Z" \
 -v "$GGUF_DIR:/gguf:ro" \
--e LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.2/lib:/opt/intel/oneapi/mkl/2026.2/lib:/opt/intel/oneapi/redist/lib \
+-e LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.1/lib:/opt/intel/oneapi/mkl/2026.1/lib:/opt/intel/oneapi/umf/1.1/lib \
 -e ZE_FLAT_DEVICE_MEMORY=1 \
 -e STRATA_VERIFY_DEVICE_PLAN=0 \
 -e STRATA_VERIFY_NO_HOST=0 \
@@ -129,9 +129,11 @@ sleep 2
 -e STRATA_DECODE_TIMING=1 \
 -e STRATA_SPLIT_HEADROOM=0 \
 -e STRATA_VERIFY_PIPE=0 \
+-e SYCL_DEVICE_FILTER=level_zero \
+-e ONEAPI_DEVICE_SELECTOR=level_zero:0,1 \
 --entrypoint /bin/sh \
 "$IMAGE" \
--c "echo '[CONTAINER] Starting server...'; echo '[CONTAINER] ENV:'; env; cd /work/strata-src && python3 sycl/serve/server_intel.py --engine strata --config /work/strata-src/$NAME.json --port $PORT 2>&1 | tee /work/runs/$NAME-container.log" \
+-c "echo '[CONTAINER] Starting server...'; cd /work/strata-src && source /opt/intel/oneapi/setvars.sh --force 2>&1 | tail -3 && echo '=== Python check ===' && python3 -c 'import jinja2; print(\"jinja2 OK:\", jinja2.__version__)' && echo '=== Starting server ===' && python3 sycl/serve/server_intel.py --engine strata --config /work/strata-src/$NAME.json --port $PORT 2>&1 | tee /work/runs/$NAME-container.log" \
 > "$RUNS/$NAME-launch.log" 2>&1
 
 for i in $(seq 1 150); do
