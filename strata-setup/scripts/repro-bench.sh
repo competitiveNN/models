@@ -38,7 +38,6 @@ echo "   binary      ${BIN_SHA:0:12} ($(du -h "$BIN" 2>/dev/null | cut -f1))"
 echo "   runs        $NRUNS"
 
 PORT="$(python3 -c "import json;print(json.load(open('$CFG')).get('port',8081))" 2>/dev/null || echo 8081)"
-MODEL="$(python3 -c "import json;print(json.load(open('$CFG'))['model_name'])" 2>/dev/null || echo missing)"
 
 status=0
 for i in $(seq 1 "$NRUNS"); do
@@ -59,7 +58,6 @@ for i in $(seq 1 "$NRUNS"); do
     # Validate the battery against the real engine (not a stub), and record it.
     python3 "$ROOT/scripts/bench-battery.py" \
         --base-url "http://127.0.0.1:$PORT" \
-        --model "$MODEL" \
         --out "$OUTDIR/${name}.json" \
         --tag "$TAG-run$i" \
         --ready-timeout 60

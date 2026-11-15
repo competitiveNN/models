@@ -49,8 +49,14 @@ def post_json(url, payload, timeout):
     req = urllib.request.Request(
         url, data=body, headers={"Content-Type": "application/json"})
     t0 = time.time()
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        data = json.load(r)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.load(r)
+    except urllib.error.HTTPError as e:
+        # The body carries why the server refused it; "HTTP Error 400" alone
+        # sends the reader hunting in the wrong place.
+        detail = e.read().decode("utf-8", "replace")[:400]
+        raise RuntimeError(f"HTTP {e.code} from {url}: {detail}") from None
     return time.time() - t0, data
 
 
@@ -68,7 +74,7 @@ def wait_ready(base, timeout_s):
         try:
             h = get_json(f"{base}/health")
             if h.get("loaded"):
-                return time.time() - t0
+                return time.time() - t0, h
         except Exception as e:  # server still coming up
             last_err = e
         time.sleep(2)
@@ -138,7 +144,8 @@ def compare(current, baseline, tolerance_pct):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://127.0.0.1:8081")
-    ap.add_argument("--model", required=True)
+    ap.add_argument("--model", default="",
+                    help="model name; default: take it from /health")
     ap.add_argument("--out", required=True, help="where to write the JSON record")
     ap.add_argument("--compare", help="baseline JSON to gate against")
     ap.add_argument("--tolerance", type=float, default=10.0,
@@ -150,10 +157,19 @@ def main():
 
     base = args.base_url.rstrip("/")
     try:
-        ready_s = wait_ready(base, args.ready_timeout)
+        ready_s, health = wait_ready(base, args.ready_timeout)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
+
+    # The launcher renames model_name per run (run-strata.sh sets it to the run
+    # name), so a model name read from the config can be stale and the server
+    # answers 400. Trust what the server says it is serving.
+    served_model = health.get("model") or args.model
+    if args.model and served_model != args.model:
+        print(f"  note: server reports model '{served_model}', "
+              f"not '{args.model}'; using the server's name")
+    args.model = served_model
 
     cases = []
     for case in DEFAULT_SUITE:
