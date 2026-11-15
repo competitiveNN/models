@@ -118,7 +118,7 @@ sleep 2
 --network host \
 -v "$ROOT:/work:Z" \
 -v "$GGUF_DIR:/gguf:ro" \
--e LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.1/lib:/opt/intel/oneapi/mkl/2026.1/lib:/opt/intel/oneapi/umf/1.1/lib \
+-e LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.2/lib:/opt/intel/oneapi/mkl/2026.2/lib:/opt/intel/oneapi/2026.2/lib:/opt/intel/oneapi/redist/lib \
 -e ZE_FLAT_DEVICE_MEMORY=1 \
 -e STRATA_VERIFY_DEVICE_PLAN=0 \
 -e STRATA_VERIFY_NO_HOST=0 \
