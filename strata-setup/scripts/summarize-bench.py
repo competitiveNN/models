@@ -39,7 +39,7 @@ import os
 import re
 import sys
 
-# Targets we are validating against (see FINAL_REAL_ENGINE_STATUS.md).
+# Targets we are validating against (see docs/status.md).
 TARGET_DECODE_TPS = 40.0
 TARGET_PREFILL_TPS = 1400.0
 
