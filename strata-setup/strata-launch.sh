@@ -87,31 +87,33 @@ RUN_ARGS=(run -d --privileged --name "$CONTAINER_NAME" --replace --network host
   --device /dev/dri --device /dev/dri/card0 --device /dev/dri/card1
   --device /dev/dri/renderD128 --device /dev/dri/renderD129)
 
+# Resolve --config to an ABSOLUTE path once (podman treats a relative bind
+# source as a named volume and fails with "names must match ...").
+if [ -n "$CONFIG_HOST" ]; then
+  if [ ! -f "$CONFIG_HOST" ] && [ -f "$REPO_ROOT/configs/$CONFIG_HOST" ]; then
+    CONFIG_HOST="$REPO_ROOT/configs/$CONFIG_HOST"
+  fi
+  if [ ! -f "$CONFIG_HOST" ] && [ -f "$REPO_ROOT/configs/${CONFIG_HOST}.json" ]; then
+    CONFIG_HOST="$REPO_ROOT/configs/${CONFIG_HOST}.json"
+  fi
+  [ -f "$CONFIG_HOST" ] || { log_error "config not found: $CONFIG_HOST"; exit 1; }
+  CONFIG_HOST="$(cd "$(dirname "$CONFIG_HOST")" && pwd)/$(basename "$CONFIG_HOST")"
+  CFG_BASE="$(basename "$CONFIG_HOST")"
+  CONFIG_NAME="$CFG_BASE"
+fi
+
 if [ "$SELF_CONTAINED" = "1" ]; then
   RUN_ARGS+=(-v "$REPO_ROOT/Strata-data:/work/Strata-data:Z"
              -v "$REPO_ROOT/runs:/work/runs:Z")
-  if [ -n "$CONFIG_HOST" ]; then
-    # resolve bare names against ./configs
-    if [ ! -f "$CONFIG_HOST" ] && [ -f "$REPO_ROOT/configs/$CONFIG_HOST" ]; then CONFIG_HOST="$REPO_ROOT/configs/$CONFIG_HOST"; fi
-    if [ ! -f "$CONFIG_HOST" ] && [ -f "$REPO_ROOT/configs/$CONFIG_HOST" ]; then CONFIG_HOST="$REPO_ROOT/configs/$CONFIG_HOST"; fi
-    [ -f "$CONFIG_HOST" ] || { log_error "config not found: $CONFIG_HOST"; exit 1; }
-    CFG_BASE="$(basename "$CONFIG_HOST")"
-    RUN_ARGS+=(-v "$CONFIG_HOST:/work/strata-src/$CFG_BASE:Z")
-    CONFIG_NAME="$CFG_BASE"
-  fi
   : "${GGUF_DIR:=/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
   if [ -d "$GGUF_DIR" ]; then RUN_ARGS+=(-v "$GGUF_DIR:/gguf:ro"); fi
 else
   RUN_ARGS+=(-v "$REPO_ROOT:/work:Z")
-  if [ -n "$CONFIG_HOST" ]; then
-    # resolve bare names against ./configs
-    if [ ! -f "$CONFIG_HOST" ] && [ -f "$REPO_ROOT/configs/$CONFIG_HOST" ]; then CONFIG_HOST="$REPO_ROOT/configs/$CONFIG_HOST"; fi
-    if [ ! -f "$CONFIG_HOST" ] && [ -f "$REPO_ROOT/configs/$CONFIG_HOST" ]; then CONFIG_HOST="$REPO_ROOT/configs/$CONFIG_HOST"; fi
-    [ -f "$CONFIG_HOST" ] || { log_error "config not found: $CONFIG_HOST"; exit 1; }
-    CFG_BASE="$(basename "$CONFIG_HOST")"
-    # host repo already provides it; just point at it
-    CONFIG_NAME="$CFG_BASE"
-  fi
+fi
+
+# Mount the config into the place the server reads it from, in both image modes.
+if [ -n "$CONFIG_HOST" ]; then
+  RUN_ARGS+=(-v "$CONFIG_HOST:/work/strata-src/$CFG_BASE:Z")
 fi
 
 RUN_ARGS+=(-e "LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.2/lib:/opt/intel/oneapi/mkl/2026.2/lib:/opt/intel/oneapi/redist/lib:/opt/intel/oneapi/umf/1.2/lib")
@@ -121,9 +123,11 @@ RUN_ARGS+=(-e "LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.2/lib:/opt/intel/
 podman rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
 log_info "Launching Strata ($IMAGE, ${GPU_MODE}GPU) on port $PORT..."
-podman "${RUN_ARGS[@]}" "$IMAGE" \
+if ! podman "${RUN_ARGS[@]}" "$IMAGE" \
   -c "cd /work/strata-src && exec python3 sycl/serve/server_intel.py --engine strata --config /work/strata-src/$CONFIG_NAME --port $PORT" \
-  >/dev/null 2>&1
+  >/dev/null; then
+  log_error "podman run failed (see the message above)"; exit 1
+fi
 
 # Wait for ready
 MAX_WAIT=300
