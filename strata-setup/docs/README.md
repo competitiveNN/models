@@ -10,6 +10,7 @@ This directory contains reorganized markdown files from the strata-setup project
 - [roadmap.md](roadmap.md) — Prioritized work items to close dual-B580 gaps
 - [prefill-ceiling.md](prefill-ceiling.md) — PCIe is not the prefill bottleneck
 - [b580-specs.md](b580-specs.md) — Intel Arc B580 GPU specifications
+- [qwen-q3-xxs-configs.md](qwen-q3-xxs-configs.md) — Qwen3.8 Flash-Next Q3_XXS best configs & setup
 
 ## Previously removed / merged
 
