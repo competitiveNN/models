@@ -22,12 +22,18 @@
 #     override with MODEL_DIR=... for a different folder).
 #
 # Differences from the single-card command that matter for 12 GB cards:
-#   * the 256K context and `expert-cache=20000` do not fit twice over two B580s, so the
-#     run dropped to --context 65536, expert-cache=0 (experts stream from RAM, which is
-#     where the model spends its VRAM) and vram-reserve-mib=512;
-#   * kv-resident=32768 keeps half the KV window on the cards and streams the rest;
-#   * LAN access, port 8080/1235 and the SPIN_MAX / PREFILL_RING tuning are unchanged.
+#   * the 256K context needs a full two-card layer split, so the run uses both
+#     render nodes (renderD128 + renderD129), `--gpu 0,1` and pipeline-windows=2;
+#   * `expert-cache=20000` is a slot count, not a budget - on 12 GB cards the engine
+#     auto-sizes from the leftover, so it runs at 0 (auto) instead;
+#   * vram-reserve-mib=512 keeps room for the prompt staging;
+#   * kv-resident=4096 keeps a small window on the cards and streams the rest of the
+#     256K KV from RAM.
 #
+# Measured on 2x Arc B580 (12 GB each) at 256K context:
+#   * prompt chunk 8192 is the sweet spot (+11% over 4096 on a 28.5k-token prompt);
+#   * 16384 regressed, 30000 would need ~20 GiB of prompt buffer on one card;
+#   * with PREFILL=8192 the run loads with ~450 MiB free and prefill ~1580 tok/s.
 # Usage: ./run-strata-2gpu.sh
 #   Tune the fit:  CTX=262144 PREFILL=8192 KV_RESIDENT=4096 VRAM_RESERVE=512 ./run-strata-2gpu.sh
 
@@ -37,11 +43,10 @@ NAME="${NAME:-strata}"
 HOST_PORT="${HOST_PORT:-1235}"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
 # Context and prompt-chunk tuning.
-#   * PREFILL is the prompt chunk (tokens).  Measured on 2x B580: 8192 is the sweet
-#     spot (1677 tok/s prefill at 28.5k tokens vs 1514 at 4096); 16384 regresses.
-#   * KV_RESIDENT keeps that many KV cells on the cards and streams the rest.  65536
-#     (full residency) loads fine (430 MiB free) and gives ~27 tok/s decode at 55k
-#     context vs ~22 tok/s at 32768.
+#   * CTX is the context window (256K).
+#   * PREFILL is the prompt chunk (tokens): 8192 measured as the sweet spot.
+#   * KV_RESIDENT keeps that many KV cells on the cards and streams the rest;
+#     4096 loaded at 256K with ~450 MiB free.
 CTX="${CTX:-262144}"
 PREFILL="${PREFILL:-8192}"
 KV_RESIDENT="${KV_RESIDENT:-4096}"
