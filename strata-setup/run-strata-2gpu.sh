@@ -80,7 +80,7 @@ exec podman run --interactive --tty \
         --family qwen \
         --model IQ3_XXS \
         --model-path /model/ \
-        --context 262144 \
+        --context 131072 \
         --vision off \
         --access lan \
         --port 8080 \
