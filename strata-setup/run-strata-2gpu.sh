@@ -73,7 +73,7 @@ exec podman run --interactive --tty \
         --set vram-reserve-mib=0 \
         --no-api-key \
         --no-tui \
-        --family qwen \
+        --family swift \
         --model IQ3_XXS \
         --model-path /model/ \
         --context 262144 \
