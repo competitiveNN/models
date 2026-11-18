@@ -133,6 +133,11 @@ LAUNCH_CMD="strata launch \
     --set trim-stage-weights"
 if [ -n "$_POOL_LIST" ]; then
     LAUNCH_CMD="${LAUNCH_CMD} --pool-cores ${_POOL_LIST}"
+    # Extract worker count from pool list (number of comma-separated items)
+    _POOL_WORKERS=$(printf '%s' "$_POOL_LIST" | tr ',' '\n' | grep -c .)
+    if [ -n "$_POOL_WORKERS" ] && [ "$_POOL_WORKERS" -gt 0 ]; then
+        LAUNCH_CMD="${LAUNCH_CMD} --set pool-workers=${_POOL_WORKERS}"
+    fi
 fi
 LAUNCH_CMD="${LAUNCH_CMD}; sleep infinity"
 
