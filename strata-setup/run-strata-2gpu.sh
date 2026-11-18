@@ -33,7 +33,7 @@
 #   * with PREFILL=8192 the run loads with ~430 MiB free and prefill ~970 tok/s,
 #     decode ~27 tok/s.
 # Usage: ./run-strata-2gpu.sh
-#   Tune the fit:  CTX=262144 PREFILL=8192 KV_RESIDENT=4096 VRAM_RESERVE=512 CORES=8 ./run-strata-2gpu.sh
+#   Tune the fit:  CTX=64k PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=512 CORES=8 ./run-strata-2gpu.sh
 #   Pin to specific cores:  CORES=\"0,2,4,6\" ./run-strata-2gpu.sh   (or CORES=off to disable pinning)
 MODEL_DIR="${MODEL_DIR:-/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
 IMAGE="${IMAGE:-ghcr.io/niko1221/strata:0.2.13-sycl}"
