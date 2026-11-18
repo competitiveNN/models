@@ -74,7 +74,7 @@ exec podman run --interactive --tty \
     -c 'strata launch \
         --drafting off \
         --mtp off \
-        --set vram-reserve-mib=0 \
+        --set vram-reserve-mib=512 \
         --no-api-key \
         --no-tui \
         --family qwen \
