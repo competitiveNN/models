@@ -127,7 +127,7 @@ LAUNCH_CMD="strata launch \
     --mtp off \
     --no-api-key \
     --no-tui \
-    --family swift \
+    --family qwen \
     --model IQ3_XXS \
     --model-path /model/ \
     --context ${CTX} \
