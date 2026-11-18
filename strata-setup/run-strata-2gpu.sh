@@ -52,6 +52,9 @@ GPU_DEVICES=(
     --device=/dev/dri/renderD129
 )
 
+# Host repo root (for Strata-data/packs/swift-iq3_xxs)
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+
 exec podman run --interactive --tty \
     --name="$NAME" \
     "${GPU_DEVICES[@]}" \
@@ -60,6 +63,7 @@ exec podman run --interactive --tty \
     --ulimit=core=0 \
     --stop-timeout=120 \
     --volume="${MODEL_DIR}:/model/" \
+    --volume="${ROOT}/Strata-data:/data/Strata-data:ro" \
     --env=SYCL_CACHE_PERSISTENT=0 \
     --env='ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1' \
     --env=STRATA_SPIN_MAX=200000000 \
