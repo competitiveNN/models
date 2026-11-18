@@ -35,8 +35,8 @@
 #   * 16384 regressed, 30000 would need ~20 GiB of prompt buffer on one card;
 #   * with PREFILL=8192 the run loads with ~450 MiB free and prefill ~1580 tok/s.
 # Usage: ./run-strata-2gpu.sh
-#   Tune the fit:  CTX=262144 PREFILL=8192 KV_RESIDENT=4096 VRAM_RESERVE=512 ./run-strata-2gpu.sh
-
+#   Tune the fit:  CTX=262144 PREFILL=8192 KV_RESIDENT=4096 VRAM_RESERVE=512 CORES=8 ./run-strata-2gpu.sh
+#   Pin to specific cores:  CORES=\"0,2,4,6\" ./run-strata-2gpu.sh   (or CORES=off to disable pinning)
 MODEL_DIR="${MODEL_DIR:-/home/fra/dev/models/XeStrata-data/models/IQ3_XXS}"
 IMAGE="${IMAGE:-ghcr.io/niko1221/strata:0.2.13-sycl}"
 NAME="${NAME:-strata}"
@@ -51,7 +51,9 @@ CTX="${CTX:-262144}"
 PREFILL="${PREFILL:-8192}"
 KV_RESIDENT="${KV_RESIDENT:-4096}"
 VRAM_RESERVE="${VRAM_RESERVE:-512}"
-
+VRAM_RESERVE="${VRAM_RESERVE:-512}"
+# CORES: number of CPU workers to pin (P-cores first). Empty = all P-cores; 0/off = no pinning.
+CORES="${CORES:-}"
 if [ ! -d "$MODEL_DIR" ]; then
     echo "run-strata-2gpu.sh: model folder not found: $MODEL_DIR" >&2
     echo "  set MODEL_DIR to the folder that holds the GGUF shards." >&2
@@ -72,6 +74,73 @@ GPU_DEVICES=(
 # Host repo root (for Strata-data/packs/swift-iq3_xxs)
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
+# --- CPU worker pinning (P-cores first) ---
+# Detect logical CPUs and split them into P-cores (high max frequency) and the rest,
+# so the CPU expert workers can be pinned to the performance cores on hybrid parts
+# (e.g. Intel Core Ultra: 8 P-cores at ~5.4 GHz, 12 E-cores at ~4.6 GHz).
+_MAXF=0
+for _c in /sys/devices/system/cpu/cpu[0-9]*; do
+    _f=$(cat "$_c/cpufreq/scaling_max_freq" 2>/dev/null || echo 0)
+    [ "$_f" -gt "$_MAXF" ] 2>/dev/null && _MAXF=$_f
+done
+_P_CORES=""
+_E_CORES=""
+for _c in /sys/devices/system/cpu/cpu[0-9]*; do
+    _n=${_c##*cpu}
+    _f=$(cat "$_c/cpufreq/scaling_max_freq" 2>/dev/null || echo 0)
+    if [ "$_MAXF" -gt 0 ] && [ "$_f" -ge "$((_MAXF * 9 / 10))" ]; then
+        _P_CORES="${_P_CORES:+$_P_CORES,}$_n"
+    else
+        _E_CORES="${_E_CORES:+$_E_CORES,}$_n"
+    fi
+done
+# CORES=N pins that many workers (P-cores first, then E-cores). Empty (default) pins
+# to all detected P-cores; CORES=0 (or "off") leaves placement to the engine.
+CORES="${CORES:-}"
+if [ "$CORES" = "off" ] || [ "$CORES" = "0" ]; then
+    _POOL_LIST=""
+    CORES=""
+elif [ -z "$CORES" ]; then
+    CORES=$(printf '%s' "$_P_CORES" | tr ',' '\n' | grep -c .)
+fi
+if [ -n "${CORES:-}" ]; then
+    _POOL_LIST=$(printf '%s\n%s\n' "$_P_CORES" "$_E_CORES" | tr ',' '\n' | grep -v '^$' | head -n "$CORES" | paste -sd, -)
+else
+    _POOL_LIST=""
+fi
+if [ -n "$_POOL_LIST" ]; then
+    echo "run-strata-2gpu.sh: pinning CPU workers to cores: $_POOL_LIST" >&2
+fi
+
+# Build the in-container launch command (pool-cores appended only when set).
+LAUNCH_CMD="strata launch \
+    --drafting off \
+    --mtp off \
+    --set vram-reserve-mib=${VRAM_RESERVE} \
+    --no-api-key \
+    --no-tui \
+    --family qwen \
+    --model IQ3_XXS \
+    --model-path /model/ \
+    --context ${CTX} \
+    --vision off \
+    --access lan \
+    --port 8080 \
+    --gpu 0,1 \
+    --set prefill=${PREFILL} \
+    --set prefill-borrow=on \
+    --set spec=4 \
+    --parallel 1 \
+    --set expert-cache=0 \
+    --set kv-resident=${KV_RESIDENT} \
+    --set pipeline-windows=2 \
+    --set expert-cache-per-layer \
+    --set trim-stage-weights"
+if [ -n "$_POOL_LIST" ]; then
+    LAUNCH_CMD="${LAUNCH_CMD} --pool-cores ${_POOL_LIST}"
+fi
+LAUNCH_CMD="${LAUNCH_CMD}; sleep infinity"
+
 exec podman run --interactive --tty \
     --name="$NAME" \
     "${GPU_DEVICES[@]}" \
@@ -88,27 +157,4 @@ exec podman run --interactive --tty \
     --rm \
     --entrypoint=/bin/bash \
     "$IMAGE" \
-    -c 'strata launch \
-        --drafting off \
-        --mtp off \
-        --set vram-reserve-mib='"${VRAM_RESERVE}"' \
-        --no-api-key \
-        --no-tui \
-        --family qwen \
-        --model IQ3_XXS \
-        --model-path /model/ \
-        --context '"${CTX}"' \
-        --vision off \
-        --access lan \
-        --port 8080 \
-        --gpu 0,1 \
-        --set prefill='"${PREFILL}"' \
-        --set prefill-borrow=on \
-        --set spec=4 \
-        --parallel 1 \
-        --set expert-cache=0 \
-        --set kv-resident='"${KV_RESIDENT}"' \
-        --set pipeline-windows=2 \
-        --set expert-cache-per-layer \
-        --set trim-stage-weights; \
-      sleep infinity'
+    -c "$LAUNCH_CMD"
