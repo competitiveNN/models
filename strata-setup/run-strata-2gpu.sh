@@ -95,24 +95,19 @@ for _c in /sys/devices/system/cpu/cpu[0-9]*; do
     fi
 done
 # CORES=N pins that many workers (P-cores first, then E-cores). Empty (default) pins
-# to all detected P-cores; CORES=0 (or "off") leaves placement to the engine.
+# CORES: number of workers (or explicit comma list like "0,2").
+# Empty = all P-cores; 0/off = no pinning.
 CORES="${CORES:-}"
 if [ "$CORES" = "off" ] || [ "$CORES" = "0" ]; then
     _POOL_LIST=""
-    CORES=""
-elif [ -z "$CORES" ]; then
-    CORES=$(printf '%s' "$_P_CORES" | tr ',' '\n' | grep -c .)
-fi
-if [ -n "${CORES:-}" ]; then
+elif echo "$CORES" | grep -q ','; then
+    _POOL_LIST="$CORES"
+elif [ -n "$CORES" ]; then
     _POOL_LIST=$(printf '%s\n%s\n' "$_P_CORES" "$_E_CORES" | tr ',' '\n' | grep -v '^$' | head -n "$CORES" | paste -sd, -)
 else
-    _POOL_LIST=""
+    CORES=$(printf '%s' "$_P_CORES" | tr ',' '\n' | grep -c .)
+    _POOL_LIST=$(printf '%s\n%s\n' "$_P_CORES" "$_E_CORES" | tr ',' '\n' | grep -v '^$' | head -n "$CORES" | paste -sd, -)
 fi
-if [ -n "$_POOL_LIST" ]; then
-    echo "run-strata-2gpu.sh: pinning CPU workers to cores: $_POOL_LIST" >&2
-fi
-
-# Build the in-container launch command (pool-cores appended only when set).
 LAUNCH_CMD="strata launch \
     --drafting off \
     --mtp off \
