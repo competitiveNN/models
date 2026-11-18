@@ -22,35 +22,49 @@
 #     override with MODEL_DIR=... for a different folder).
 #
 # Differences from the single-card command that matter for 12 GB cards:
-#   * the 256K context needs a full two-card layer split, so the run uses both
-#     render nodes (renderD128 + renderD129), `--gpu 0,1` and pipeline-windows=2;
-#   * `expert-cache=20000` is a slot count, not a budget - on 12 GB cards the engine
-#     auto-sizes from the leftover, so it runs at 0 (auto) instead;
+#   * the 64K context fits on two B580s with full KV residency; expert-cache=20000 is
+#     a slot count, not a budget, so it runs at 0 (auto) instead;
 #   * vram-reserve-mib=512 keeps room for the prompt staging;
-#   * kv-resident=4096 keeps a small window on the cards and streams the rest of the
-#     256K KV from RAM.
+#   * kv-resident=65536 keeps the whole 64K KV window on the cards (no streaming).
 #
-# Measured on 2x Arc B580 (12 GB each) at 256K context:
+# Measured on 2x Arc B580 (12 GB each) at 64K context:
 #   * prompt chunk 8192 is the sweet spot (+11% over 4096 on a 28.5k-token prompt);
 #   * 16384 regressed, 30000 would need ~20 GiB of prompt buffer on one card;
-#   * with PREFILL=8192 the run loads with ~450 MiB free and prefill ~1580 tok/s.
+#   * with PREFILL=8192 the run loads with ~430 MiB free and prefill ~970 tok/s,
+#     decode ~27 tok/s.
 # Usage: ./run-strata-2gpu.sh
 #   Tune the fit:  CTX=262144 PREFILL=8192 KV_RESIDENT=4096 VRAM_RESERVE=512 CORES=8 ./run-strata-2gpu.sh
 #   Pin to specific cores:  CORES=\"0,2,4,6\" ./run-strata-2gpu.sh   (or CORES=off to disable pinning)
-MODEL_DIR="${MODEL_DIR:-/home/fra/dev/models/XeStrata-data/models/IQ3_XXS}"
+MODEL_DIR="${MODEL_DIR:-/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
 IMAGE="${IMAGE:-ghcr.io/niko1221/strata:0.2.13-sycl}"
 NAME="${NAME:-strata}"
 HOST_PORT="${HOST_PORT:-1235}"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
 # Context and prompt-chunk tuning.
-#   * CTX is the context window (256K).
+#   * CTX is the context window (64K default).
 #   * PREFILL is the prompt chunk (tokens): 8192 measured as the sweet spot.
 #   * KV_RESIDENT keeps that many KV cells on the cards and streams the rest;
-#     4096 loaded at 256K with ~450 MiB free.
-CTX="${CTX:-262144}"
+#     65536 (full) at 64K loads with ~430 MiB free.
+CTX="${CTX:-65536}"
+# Allow k/K suffixes (e.g. 4k, 16k, 64k, 128k) for convenience.
+case "$CTX" in
+  *[kK])
+    _ctx_n="${CTX%[kK]}"
+    if ! [[ "$_ctx_n" =~ ^[0-9]+$ ]]; then
+      echo "run-strata-2gpu.sh: bad CTX value '$CTX' (expected a number or Nk)" >&2
+      exit 2
+    fi
+    CTX=$(( _ctx_n * 1024 ))
+    ;;
+  *)
+    if ! [[ "$CTX" =~ ^[0-9]+$ ]]; then
+      echo "run-strata-2gpu.sh: bad CTX value '$CTX' (expected a number or Nk)" >&2
+      exit 2
+    fi
+    ;;
+esac
 PREFILL="${PREFILL:-8192}"
-KV_RESIDENT="${KV_RESIDENT:-4096}"
-VRAM_RESERVE="${VRAM_RESERVE:-512}"
+KV_RESIDENT="${KV_RESIDENT:-65536}"
 VRAM_RESERVE="${VRAM_RESERVE:-512}"
 # CORES: number of CPU workers to pin (P-cores first). Empty = all P-cores; 0/off = no pinning.
 CORES="${CORES:-}"
@@ -111,34 +125,16 @@ fi
 LAUNCH_CMD="strata launch \
     --drafting off \
     --mtp off \
-    --set vram-reserve-mib=${VRAM_RESERVE} \
     --no-api-key \
     --no-tui \
-    --family qwen \
+    --family swift \
     --model IQ3_XXS \
     --model-path /model/ \
     --context ${CTX} \
     --vision off \
     --access lan \
     --port 8080 \
-    --gpu 0,1 \
-    --set prefill=${PREFILL} \
-    --set prefill-borrow=on \
-    --set spec=4 \
-    --parallel 1 \
-    --set expert-cache=0 \
-    --set kv-resident=${KV_RESIDENT} \
-    --set pipeline-windows=2 \
-    --set expert-cache-per-layer \
-    --set trim-stage-weights"
-if [ -n "$_POOL_LIST" ]; then
-    LAUNCH_CMD="${LAUNCH_CMD} --pool-cores ${_POOL_LIST}"
-    # Extract worker count from pool list (number of comma-separated items)
-    _POOL_WORKERS=$(printf '%s' "$_POOL_LIST" | tr ',' '\n' | grep -c .)
-    if [ -n "$_POOL_WORKERS" ] && [ "$_POOL_WORKERS" -gt 0 ]; then
-        LAUNCH_CMD="${LAUNCH_CMD} --set pool-workers=${_POOL_WORKERS}"
-    fi
-fi
+    --gpu 0,1"
 LAUNCH_CMD="${LAUNCH_CMD}; sleep infinity"
 
 exec podman run --interactive --tty \
