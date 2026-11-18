@@ -29,9 +29,7 @@
 #   * LAN access, port 8080/1235 and the SPIN_MAX / PREFILL_RING tuning are unchanged.
 #
 # Usage: ./run-strata-2gpu.sh
-#   Override the model folder:  MODEL_DIR=/path/to/ggufs ./run-strata-2gpu.sh
-#   Tune the fit:  CTX=65536 PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=512 ./run-strata-2gpu.sh
-set -euo pipefail
+#   Tune the fit:  CTX=262144 PREFILL=8192 KV_RESIDENT=4096 VRAM_RESERVE=512 ./run-strata-2gpu.sh
 
 MODEL_DIR="${MODEL_DIR:-/home/fra/dev/models/XeStrata-data/models/IQ3_XXS}"
 IMAGE="${IMAGE:-ghcr.io/niko1221/strata:0.2.13-sycl}"
@@ -44,9 +42,9 @@ CONTAINER_PORT="${CONTAINER_PORT:-8080}"
 #   * KV_RESIDENT keeps that many KV cells on the cards and streams the rest.  65536
 #     (full residency) loads fine (430 MiB free) and gives ~27 tok/s decode at 55k
 #     context vs ~22 tok/s at 32768.
-CTX="${CTX:-65536}"
+CTX="${CTX:-262144}"
 PREFILL="${PREFILL:-8192}"
-KV_RESIDENT="${KV_RESIDENT:-65536}"
+KV_RESIDENT="${KV_RESIDENT:-4096}"
 VRAM_RESERVE="${VRAM_RESERVE:-512}"
 
 if [ ! -d "$MODEL_DIR" ]; then
