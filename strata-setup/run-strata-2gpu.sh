@@ -18,8 +18,8 @@
 #   * `--set trim-stage-weights` lets each card load only its own layers' dense weights,
 #     leaving more VRAM for the expert cache;
 #   * the model path points at the GGUF directory passed via MODEL_DIR (defaults to
-#     the original Qwen IQ3_XXS shards under XeStrata-data, which match the
-#     qwen/IQ3_XXS family/model; override with MODEL_DIR=... for a different folder).
+#     the Swift-1.5 Qwen3.8 Flash-Next GSQ-RCO GGUF folder under ~/data/models/gguf/;
+#     override with MODEL_DIR=... for a different folder).
 #
 # Everything else (drafting off, MTP off, the 256K context, prefill 30000, spec 4,
 # expert-cache 20000, kv-resident 32768, vram-reserve 0, LAN access, port 8080, the
@@ -29,7 +29,7 @@
 #   Override the model folder:  MODEL_DIR=/path/to/ggufs ./run-strata-2gpu.sh
 set -euo pipefail
 
-MODEL_DIR="${MODEL_DIR:-/home/fra/dev/models/XeStrata-data/models/IQ3_XXS}"
+MODEL_DIR="${MODEL_DIR:-$HOME/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
 IMAGE="${IMAGE:-ghcr.io/niko1221/strata:0.2.13-sycl}"
 NAME="${NAME:-strata}"
 HOST_PORT="${HOST_PORT:-1235}"
