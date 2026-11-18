@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the Strata SYCL server for Qwen3.8-Flash-Next Coder on 2x Intel Arc B580.
+# Run the Strata SYCL server for Qwen3.8-Flash-Next IQ3_XXS on 2x Intel Arc B580.
 #
 # Derived from the single-card podman command:
 #   podman run ... --device=/dev/dri/renderD129 --volume=...IQ3_XXS/:/model/ ...
@@ -17,17 +17,17 @@
 #     more on a split where each card holds a different set of layers;
 #   * `--set trim-stage-weights` lets each card load only its own layers' dense weights,
 #     leaving more VRAM for the expert cache;
-#   * the model path points at the Coder GGUF directory. `--family coder --model IQ1_M`
-#     is the Coder size in the catalog; with `--model-path` strata also reads the file
-#     headers, so a different quantization in that folder is used with a notice rather
-#     than refused.
+#   * the model path points at the GGUF directory passed via MODEL_DIR (defaults to
+#     the path you specified; the directory name may say "Coder" but the family/model
+#     stay as qwen/IQ3_XXS as in the original command - strata reads the file headers
+#     under --model-path and will notice if the files actually differ).
 #
 # Everything else (drafting off, MTP off, the 256K context, prefill 30000, spec 4,
 # expert-cache 20000, kv-resident 32768, vram-reserve 0, LAN access, port 8080, the
 # SPIN_MAX / PREFILL_RING tuning) is carried over unchanged.
 #
-# Usage: ./run-strata-coder-2gpu.sh
-#   Override the model folder:  MODEL_DIR=/path/to/ggufs ./run-strata-coder-2gpu.sh
+# Usage: ./run-strata-2gpu.sh
+#   Override the model folder:  MODEL_DIR=/path/to/ggufs ./run-strata-2gpu.sh
 set -euo pipefail
 
 MODEL_DIR="${MODEL_DIR:-$HOME/data/models/gguf/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF}"
@@ -37,14 +37,14 @@ HOST_PORT="${HOST_PORT:-1235}"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
 
 if [ ! -d "$MODEL_DIR" ]; then
-    echo "run-strata-coder-2gpu.sh: model folder not found: $MODEL_DIR" >&2
-    echo "  set MODEL_DIR to the folder that holds the Coder GGUF shards." >&2
+    echo "run-strata-2gpu.sh: model folder not found: $MODEL_DIR" >&2
+    echo "  set MODEL_DIR to the folder that holds the GGUF shards." >&2
     exit 2
 fi
 if ! find "$MODEL_DIR" -maxdepth 1 -type f -iname '*.gguf' | grep -q .; then
-    echo "run-strata-coder-2gpu.sh: no .gguf files found in $MODEL_DIR" >&2
+    echo "run-strata-2gpu.sh: no .gguf files found in $MODEL_DIR" >&2
     echo "  the script will still start podman, but strata will fail inside the container." >&2
-    echo "  download the Coder GGUF shards into that folder first." >&2
+    echo "  download the GGUF shards into that folder first." >&2
 fi
 
 # Both Battlemage cards: renderD128 (04:00.0) and renderD129 (86:00.0).
@@ -74,8 +74,8 @@ exec podman run --interactive --tty \
         --set vram-reserve-mib=0 \
         --no-api-key \
         --no-tui \
-        --family coder \
-        --model IQ1_M \
+        --family qwen \
+        --model IQ3_XXS \
         --model-path /model/ \
         --context 262144 \
         --vision off \
