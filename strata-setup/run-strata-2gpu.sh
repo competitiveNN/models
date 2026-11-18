@@ -21,12 +21,16 @@
 #     the Swift-1.5 Qwen3.8 Flash-Next GSQ-RCO GGUF folder under ~/data/models/gguf/;
 #     override with MODEL_DIR=... for a different folder).
 #
-# Everything else (drafting off, MTP off, the 256K context, prefill 30000, spec 4,
-# expert-cache 20000, kv-resident 32768, vram-reserve 0, LAN access, port 8080, the
-# SPIN_MAX / PREFILL_RING tuning) is carried over unchanged.
+# Differences from the single-card command that matter for 12 GB cards:
+#   * the 256K context and `expert-cache=20000` do not fit twice over two B580s, so the
+#     run dropped to --context 65536, expert-cache=0 (experts stream from RAM, which is
+#     where the model spends its VRAM) and vram-reserve-mib=512;
+#   * kv-resident=32768 keeps half the KV window on the cards and streams the rest;
+#   * LAN access, port 8080/1235 and the SPIN_MAX / PREFILL_RING tuning are unchanged.
 #
 # Usage: ./run-strata-2gpu.sh
 #   Override the model folder:  MODEL_DIR=/path/to/ggufs ./run-strata-2gpu.sh
+#   Tune the fit:  CTX=65536 PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=512 ./run-strata-2gpu.sh
 set -euo pipefail
 
 MODEL_DIR="${MODEL_DIR:-/home/fra/dev/models/XeStrata-data/models/IQ3_XXS}"
@@ -34,6 +38,16 @@ IMAGE="${IMAGE:-ghcr.io/niko1221/strata:0.2.13-sycl}"
 NAME="${NAME:-strata}"
 HOST_PORT="${HOST_PORT:-1235}"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
+# Context and prompt-chunk tuning.
+#   * PREFILL is the prompt chunk (tokens).  Measured on 2x B580: 8192 is the sweet
+#     spot (1677 tok/s prefill at 28.5k tokens vs 1514 at 4096); 16384 regresses.
+#   * KV_RESIDENT keeps that many KV cells on the cards and streams the rest.  65536
+#     (full residency) loads fine (430 MiB free) and gives ~27 tok/s decode at 55k
+#     context vs ~22 tok/s at 32768.
+CTX="${CTX:-65536}"
+PREFILL="${PREFILL:-8192}"
+KV_RESIDENT="${KV_RESIDENT:-65536}"
+VRAM_RESERVE="${VRAM_RESERVE:-512}"
 
 if [ ! -d "$MODEL_DIR" ]; then
     echo "run-strata-2gpu.sh: model folder not found: $MODEL_DIR" >&2
@@ -74,23 +88,23 @@ exec podman run --interactive --tty \
     -c 'strata launch \
         --drafting off \
         --mtp off \
-        --set vram-reserve-mib=512 \
+        --set vram-reserve-mib='"${VRAM_RESERVE}"' \
         --no-api-key \
         --no-tui \
         --family qwen \
         --model IQ3_XXS \
         --model-path /model/ \
-        --context 131072 \
+        --context '"${CTX}"' \
         --vision off \
         --access lan \
         --port 8080 \
         --gpu 0,1 \
-        --set prefill=4096 \
+        --set prefill='"${PREFILL}"' \
         --set prefill-borrow=on \
         --set spec=4 \
         --parallel 1 \
         --set expert-cache=0 \
-        --set kv-resident=32768 \
+        --set kv-resident='"${KV_RESIDENT}"' \
         --set pipeline-windows=2 \
         --set expert-cache-per-layer \
         --set trim-stage-weights; \
