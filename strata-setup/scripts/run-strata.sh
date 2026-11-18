@@ -24,7 +24,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/strata-src"
 RUNS="$ROOT/runs"
 DOCKER="${DOCKER:-podman}"
-GGUF_DIR="${GGUF_DIR:-/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
+GGUF_DIR="${GGUF_DIR:-/home/fra/dev/models/XeStrata-data/models/IQ3_XXS}"
 IMAGE="${IMAGE:-strata-sycl-b580}"
 mkdir -p "$RUNS"
 

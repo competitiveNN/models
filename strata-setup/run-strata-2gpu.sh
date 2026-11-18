@@ -123,8 +123,6 @@ else
     _POOL_LIST=$(printf '%s\n%s\n' "$_P_CORES" "$_E_CORES" | tr ',' '\n' | grep -v '^$' | head -n "$CORES" | paste -sd, -)
 fi
 LAUNCH_CMD="strata launch \
-    --drafting off \
-    --mtp off \
     --no-api-key \
     --no-tui \
     --family qwen \
@@ -134,10 +132,22 @@ LAUNCH_CMD="strata launch \
     --vision off \
     --access lan \
     --port 8080 \
-    --gpu 0,1"
+    --gpu 0,1 \
+    --set pipeline-windows=2 \
+    --set vram-reserve-mib=700 \
+    --set expert-cache=1024 \
+    --set trim-stage-weights \
+    --set kv=int8 \
+    --set prefill=auto \
+    --set spec-min-p=0.5 \
+    --set pool-workers=8 \
+    --set pool-affinity=p-cores \
+    --set host-core=first \
+    --set no-prefill-borrow \
+    --set mmap-experts"
 LAUNCH_CMD="${LAUNCH_CMD}; sleep infinity"
 
-exec podman run --interactive --tty \
+podman run -d \
     --name="$NAME" \
     "${GPU_DEVICES[@]}" \
     --user=root \
@@ -146,10 +156,21 @@ exec podman run --interactive --tty \
     --stop-timeout=120 \
     --volume="${MODEL_DIR}:/model/:Z,U" \
     --volume="${ROOT}/Strata-data:/data/Strata-data:Z,U" \
-    --env=SYCL_CACHE_PERSISTENT=0 \
+    --env=SYCL_CACHE_PERSISTENT=1 \
     --env='ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1' \
     --env=STRATA_SPIN_MAX=200000000 \
     --env=STRATA_PREFILL_RING=16 \
+    --env=STRATA_VERIFY_DEVICE_PLAN=1 \
+    --env=STRATA_STAGE_TRIM=1 \
+    --env=STRATA_RING_TIMEOUT_S=600 \
+    --env=STRATA_SPLIT_WAIT_MS=600000 \
+    --env=STRATA_VERIFY_DRAIN_TIMEOUT_MS=120000 \
+    --env=STRATA_PREFILL_MMQ=auto \
+    --env=STRATA_WINDOW_SYNC=0 \
+    --env=IGC_EnableGEPSimplification=0 \
+    --env=STRATA_MIRROR_MIB=16384 \
+    --env=STRATA_VERIFY_NO_HOST=0 \
+    --env=STRATA_COPY_ENGINE=0 \
     --rm \
     --entrypoint=/bin/bash \
     "$IMAGE" \

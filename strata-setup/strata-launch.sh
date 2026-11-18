@@ -105,7 +105,7 @@ fi
 if [ "$SELF_CONTAINED" = "1" ]; then
   RUN_ARGS+=(-v "$REPO_ROOT/Strata-data:/work/Strata-data:Z"
              -v "$REPO_ROOT/runs:/work/runs:Z")
-  : "${GGUF_DIR:=/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
+  : "${GGUF_DIR:=/home/fra/dev/models/XeStrata-data/models/IQ3_XXS}"
   if [ -d "$GGUF_DIR" ]; then RUN_ARGS+=(-v "$GGUF_DIR:/gguf:ro"); fi
 else
   RUN_ARGS+=(-v "$REPO_ROOT:/work:Z")
