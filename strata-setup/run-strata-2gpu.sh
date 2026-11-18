@@ -29,7 +29,7 @@
 #   Override the model folder:  MODEL_DIR=/path/to/ggufs ./run-strata-2gpu.sh
 set -euo pipefail
 
-MODEL_DIR="${MODEL_DIR:-$HOME/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
+MODEL_DIR="${MODEL_DIR:-/home/fra/dev/models/XeStrata-data/models/IQ3_XXS}"
 IMAGE="${IMAGE:-ghcr.io/niko1221/strata:0.2.13-sycl}"
 NAME="${NAME:-strata}"
 HOST_PORT="${HOST_PORT:-1235}"
@@ -62,8 +62,8 @@ exec podman run --interactive --tty \
     --publish="${HOST_PORT}:${CONTAINER_PORT}" \
     --ulimit=core=0 \
     --stop-timeout=120 \
-    --volume="${MODEL_DIR}:/model/" \
-    --volume="${ROOT}/Strata-data:/data/Strata-data:ro" \
+    --volume="${MODEL_DIR}:/model/:Z,U" \
+    --volume="${ROOT}/Strata-data:/data/Strata-data:Z,U" \
     --env=SYCL_CACHE_PERSISTENT=0 \
     --env='ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1' \
     --env=STRATA_SPIN_MAX=200000000 \
@@ -77,7 +77,7 @@ exec podman run --interactive --tty \
         --set vram-reserve-mib=0 \
         --no-api-key \
         --no-tui \
-        --family swift \
+        --family qwen \
         --model IQ3_XXS \
         --model-path /model/ \
         --context 262144 \
