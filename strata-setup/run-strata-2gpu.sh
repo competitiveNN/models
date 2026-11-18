@@ -89,7 +89,7 @@ exec podman run --interactive --tty \
         --set prefill-borrow=on \
         --set spec=4 \
         --parallel 1 \
-        --set expert-cache=20000 \
+        --set expert-cache=4096 \
         --set kv-resident=32768 \
         --set pipeline-windows=2 \
         --set expert-cache-per-layer \
