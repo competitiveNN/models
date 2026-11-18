@@ -84,8 +84,8 @@ exec podman run --interactive --tty \
         --vision off \
         --access lan \
         --port 8080 \
-        --gpu 0 \
-        --set prefill=30000 \
+        --gpu 0,1 \
+        --set prefill=4096 \
         --set prefill-borrow=on \
         --set spec=4 \
         --parallel 1 \
