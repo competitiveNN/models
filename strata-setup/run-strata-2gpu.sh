@@ -3,7 +3,7 @@
 #
 # Derived from the single-card podman command:
 #   podman run ... --device=/dev/dri/renderD129 --volume=...IQ3_XXS/:/model/ ...
-#     'strata launch --drafting off --mtp off ... --family qwen --model IQ3_XXS ...'
+#     'strata launch --drafting off --mtp off ... --family swift --model IQ3_XXS ...'
 #
 # Changes for the two B580 cards (Battlemage G21, renderD128 + renderD129):
 #   * both render nodes are passed to the container (the old command bound only renderD129);
@@ -35,7 +35,7 @@
 # Usage: ./run-strata-2gpu.sh
 #   Tune the fit:  CTX=64k PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=512 CORES=8 ./run-strata-2gpu.sh
 #   Pin to specific cores:  CORES=\"0,2,4,6\" ./run-strata-2gpu.sh   (or CORES=off to disable pinning)
-MODEL_DIR="${MODEL_DIR:-/home/fra/dev/models/XeStrata-data/models/IQ3_XXS}"
+MODEL_DIR="${MODEL_DIR:-/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
 IMAGE="${IMAGE:-ghcr.io/niko1221/strata:0.2.13-sycl}"
 NAME="${NAME:-strata}"
 HOST_PORT="${HOST_PORT:-1235}"
@@ -125,7 +125,7 @@ fi
 LAUNCH_CMD="strata launch \
     --no-api-key \
     --no-tui \
-    --family qwen \
+    --family swift \
     --model IQ3_XXS \
     --model-path /model/ \
     --context ${CTX} \
@@ -156,6 +156,7 @@ podman run -d \
     --stop-timeout=120 \
     --volume="${MODEL_DIR}:/model/:Z,U" \
     --volume="${ROOT}/Strata-data:/data/Strata-data:Z,U" \
+    --volume="${ROOT}/adopt_patched.py:/opt/strata/terminal/strata_cli/launch/adopt.py:Z,U" \
     --env=SYCL_CACHE_PERSISTENT=1 \
     --env='ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1' \
     --env=STRATA_SPIN_MAX=200000000 \
