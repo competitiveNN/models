@@ -156,7 +156,6 @@ podman run -d \
     --stop-timeout=120 \
     --volume="${MODEL_DIR}:/model/:Z,U" \
     --volume="${ROOT}/Strata-data:/data/Strata-data:Z,U" \
-    --volume="${ROOT}/adopt_patched.py:/opt/strata/terminal/strata_cli/launch/adopt.py:Z,U" \
     --env=SYCL_CACHE_PERSISTENT=1 \
     --env='ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1' \
     --env=STRATA_SPIN_MAX=200000000 \
