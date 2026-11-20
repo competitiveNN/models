@@ -50,6 +50,32 @@ MODELS_HOST_ROOT = os.path.expanduser(os.environ.get("MODELS_ROOT", "~/data/mode
 MODELS_MOUNT_POINT = "/models"
 
 
+def format_size(size_bytes):
+    """Format a byte count as a human-readable string (B, KB, MB, GB, ...)."""
+    if size_bytes is None:
+        return "unknown"
+    try:
+        size = float(size_bytes)
+    except (TypeError, ValueError):
+        return "unknown"
+    if size < 0:
+        return "unknown"
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    idx = 0
+    while size >= 1024 and idx < len(units) - 1:
+        size /= 1024.0
+        idx += 1
+    if idx == 0:
+        return f"{int(size)} {units[idx]}"
+    return f"{size:.2f} {units[idx]}"
+
+
+# Common aliases for the human-readable size formatter.
+human_readable_size = format_size
+humanize_size = format_size
+format_bytes = format_size
+
+
 def parse_model_path(model_input, default_user="unsloth"):
     """
     Parse model input and return user/model_name format.
@@ -1008,7 +1034,8 @@ def download_model(repo_id, local_dir, quantization=None, exclude_quantizations=
         if len(matching_model_files) > 1:
             print(f"Multiple model files found matching '{quantization}':")
             for i, file in enumerate(matching_model_files, 1):
-                print(f"  {i}. {file}")
+                size = file_sizes.get(file) if isinstance(file_sizes, dict) else None
+                print(f"  {i}. {file} ({format_size(size)})")
             
             try:
                 choice = input("Select file number (or press Enter for all): ").strip()
