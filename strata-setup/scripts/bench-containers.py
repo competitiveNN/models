@@ -65,16 +65,8 @@ def run_prompt(url, prompt, max_tokens_override=None, api_key=None):
                     content = message.get("reasoning_content") or message.get("text") or ""
             else:
                 content = ""
-            # Degenerate/coherence check: repeated tokens or gibberish (e.g. "!!!!")
-            words = (content or "").split()
-            degenerate = False
-            if len(words) >= 5:
-                unique_ratio = len(set(words)) / len(words)
-                if unique_ratio < 0.3:
-                    degenerate = True
-            # catch runs of identical non-word characters (e.g. "!!!!")
-            if not degenerate and content and len(set(content.strip())) <= 2 and len(content.strip()) >= 8:
-                degenerate = True
+            from coherence import is_degenerate_response
+            degenerate = is_degenerate_response(message)
             timings = data.get("timings", {}) or {}
             usage = data.get("usage", {}) or {}
             return {
