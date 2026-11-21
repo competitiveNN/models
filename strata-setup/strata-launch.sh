@@ -57,7 +57,7 @@ case "$IMAGE" in *strata-old*|*strata-edge*) SELF_CONTAINED=1 ;; esac
 if [ "$GPU_MODE" = "2" ]; then
   DEFAULT_PORT=8081
   DEFAULT_MODEL="strata-swift-iq3_xxs-2gpu-clean"
-  CONFIG_NAME="strata-swift-iq3_xxs-2gpu-clean.json"
+  case "$IMAGE" in *strata-edge*) CONFIG_NAME="strata-edge-fixed.json" ;; *) CONFIG_NAME="strata-swift-iq3_xxs-2gpu-clean.json" ;; esac
 else
   DEFAULT_PORT=8082
   DEFAULT_MODEL="tdr-safe-1gpu"
@@ -107,6 +107,11 @@ if [ "$SELF_CONTAINED" = "1" ]; then
              -v "$REPO_ROOT/runs:/work/runs:Z")
   : "${GGUF_DIR:=/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
   if [ -d "$GGUF_DIR" ]; then RUN_ARGS+=(-v "$GGUF_DIR:/gguf:ro"); fi
+  # strata-old adopts its run config on first start; the patched adopter picks the
+  # shard that actually holds per_layer_token_embd.weight instead of the last shard.
+  case "$IMAGE" in *strata-old*) RUN_ARGS+=(-v "$REPO_ROOT/adopt_patched.py:/opt/strata/terminal/strata_cli/launch/adopt.py:Z");; esac
+  # strata-edge ships a Python entrypoint that accepts `bash -c`; override only there.
+  case "$IMAGE" in *strata-edge*) RUN_ARGS+=(--entrypoint /bin/bash);; esac
 else
   RUN_ARGS+=(-v "$REPO_ROOT:/work:Z")
 fi
@@ -117,6 +122,8 @@ if [ -n "$CONFIG_HOST" ]; then
 fi
 
 RUN_ARGS+=(-e "LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.2/lib:/opt/intel/oneapi/mkl/2026.2/lib:/opt/intel/oneapi/redist/lib:/opt/intel/oneapi/umf/1.2/lib")
+RUN_ARGS+=(-e "IGC_EnableGEPSimplification=0")
+RUN_ARGS+=(-e "STRATA_SPLIT_MISS_MS=108")
 [ "$GPU_MODE" = "2" ] && RUN_ARGS+=(-e "ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1")
 
 # Stop existing

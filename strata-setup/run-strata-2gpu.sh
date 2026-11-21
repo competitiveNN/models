@@ -33,7 +33,7 @@
 #   * with PREFILL=8192 the run loads with ~430 MiB free and prefill ~970 tok/s,
 #     decode ~27 tok/s.
 # Usage: ./run-strata-2gpu.sh
-#   Tune the fit:  CTX=64k PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=512 CORES=8 ./run-strata-2gpu.sh
+#   Tune the fit:  CTX=64k PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=256 CORES=8 ./run-strata-2gpu.sh
 #   Pin to specific cores:  CORES=\"0,2,4,6\" ./run-strata-2gpu.sh   (or CORES=off to disable pinning)
 MODEL_DIR="${MODEL_DIR:-/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
 IMAGE="${IMAGE:-ghcr.io/niko1221/strata:0.2.13-sycl}"
@@ -65,7 +65,14 @@ case "$CTX" in
 esac
 PREFILL="${PREFILL:-8192}"
 KV_RESIDENT="${KV_RESIDENT:-65536}"
-VRAM_RESERVE="${VRAM_RESERVE:-512}"
+VRAM_RESERVE="${VRAM_RESERVE:-256}"
+# Advanced tuning overrides (defaults: optimized for 2x B580).
+EXPERT_CACHE="${EXPERT_CACHE:-auto}"
+SPEC="${SPEC:-4}"
+POOL_WORKERS="${POOL_WORKERS:-12}"
+DRAFTING="${DRAFTING:-auto}"
+MTP="${MTP:-on}"
+KV="${KV:-int8}"
 # CORES: number of CPU workers to pin (P-cores first). Empty = all P-cores; 0/off = no pinning.
 CORES="${CORES:-}"
 if [ ! -d "$MODEL_DIR" ]; then
@@ -133,17 +140,21 @@ LAUNCH_CMD="strata launch \
     --access lan \
     --port 8080 \
     --gpu 0,1 \
+    --mtp ${MTP} \
+    --drafting ${DRAFTING} \
     --set pipeline-windows=2 \
-    --set vram-reserve-mib=700 \
-    --set expert-cache=1024 \
+    --set vram-reserve-mib=${VRAM_RESERVE} \
+    --set expert-cache=${EXPERT_CACHE} \
+    --set spec=${SPEC} \
     --set trim-stage-weights \
-    --set kv=int8 \
-    --set prefill=auto \
+    --set kv=${KV} \
+    --set prefill=auto:8192 \
     --set spec-min-p=0.5 \
-    --set pool-workers=8 \
+    --set pool-workers=${POOL_WORKERS} \
     --set pool-affinity=p-cores \
     --set host-core=first \
-    --set no-prefill-borrow \
+    --set expert-cache-per-layer \
+    --set stream-experts \
     --set mmap-experts"
 LAUNCH_CMD="${LAUNCH_CMD}; sleep infinity"
 
@@ -173,6 +184,7 @@ podman run -d \
     --env=STRATA_MIRROR_MIB=16384 \
     --env=STRATA_VERIFY_NO_HOST=0 \
     --env=STRATA_COPY_ENGINE=0 \
+    --env=STRATA_SPLIT_MISS_MS=108 \
     --rm \
     --entrypoint=/bin/bash \
     "$IMAGE" \
