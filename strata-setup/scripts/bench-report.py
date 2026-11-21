@@ -144,10 +144,18 @@ def is_benchmark_artifact(data):
             return False
     return True
 
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+from coherence import is_degenerate_response
+
 def extract_record_metrics(rec):
     """Extract (tps, ttft, latency) from a single record dict."""
     if not isinstance(rec, dict):
         return None, None, None
+    # Check for degenerate output if content_preview present
+    # (this adds a flag to the record for downstream consumers)
+    if "content_preview" in rec:
+        rec["degenerate"] = is_degenerate_response({"content": rec["content_preview"]})
 
     tps = None
     for k in ("decode_tps", "decode_toks_per_sec", "tokens/s", "tok/s", "throughput", "tps"):
@@ -231,7 +239,7 @@ def extract_latency(data):
     return None
 
 def extract_artifact_samples(data, filename=""):
-    """Return list of (label, tps, ttft, latency) for all valid benchmark runs in data."""
+    """Return list of (label, tps, ttft, latency, degenerate) for all valid benchmark runs in data."""
     samples = []
     if not isinstance(data, dict):
         return samples
@@ -243,25 +251,30 @@ def extract_artifact_samples(data, filename=""):
                     for idx, r in enumerate(img_val["results"]):
                         tps, ttft, lat = extract_record_metrics(r)
                         if tps is not None or ttft is not None or lat is not None:
-                            samples.append((f"{filename}:{img_key}[{idx}]", tps, ttft, lat))
+                            degenerate = r.get("degenerate", False)
+                            samples.append((f"{filename}:{img_key}[{idx}]", tps, ttft, lat, degenerate))
                 else:
                     tps, ttft, lat = extract_record_metrics(img_val)
                     if tps is not None or ttft is not None or lat is not None:
-                        samples.append((f"{filename}:{img_key}", tps, ttft, lat))
+                        degenerate = img_val.get("degenerate", False)
+                        samples.append((f"{filename}:{img_key}", tps, ttft, lat, degenerate))
     elif isinstance(data.get("results"), list):
         for idx, r in enumerate(data["results"]):
             tps, ttft, lat = extract_record_metrics(r)
             if tps is not None or ttft is not None or lat is not None:
-                samples.append((f"{filename}[{idx}]", tps, ttft, lat))
+                degenerate = r.get("degenerate", False)
+                samples.append((f"{filename}[{idx}]", tps, ttft, lat, degenerate))
     elif isinstance(data.get("requests"), list):
         for idx, r in enumerate(data["requests"]):
             tps, ttft, lat = extract_record_metrics(r)
             if tps is not None or ttft is not None or lat is not None:
-                samples.append((f"{filename}[{idx}]", tps, ttft, lat))
+                degenerate = r.get("degenerate", False)
+                samples.append((f"{filename}[{idx}]", tps, ttft, lat, degenerate))
     else:
         tps, ttft, lat = extract_record_metrics(data)
         if tps is not None or ttft is not None or lat is not None:
-            samples.append((filename, tps, ttft, lat))
+            degenerate = data.get("degenerate", False)
+            samples.append((filename, tps, ttft, lat, degenerate))
 
     return samples
 
@@ -371,6 +384,7 @@ def main():
     parser.add_argument("--json-out", default=None, help="Optional JSON export path")
     parser.add_argument("--prometheus-out", default=None, help="Optional Prometheus metrics export path")
     parser.add_argument("--fail-on-regression", action="store_true", help="Exit with code 1 if regression detected")
+    parser.add_argument("--fail-on-degenerate", action="store_true", help="Exit with code 1 if any degenerate outputs detected")
     parser.add_argument("--anomaly-threshold", type=float, default=1.5, help="IQR multiplier for anomaly detection (default 1.5)")
     parser.add_argument("--budget-min-tps", type=float, default=None, help="Hard minimum throughput (tokens/s) threshold; exit 1 if violated")
     parser.add_argument("--budget-max-latency", type=float, default=None, help="Hard maximum latency (seconds) threshold; exit 1 if violated")
@@ -402,29 +416,27 @@ def main():
             samples = extract_artifact_samples(data, Path(jf).name)
             if samples:
                 parsed_files += 1
-                metrics.extend(
-                    {
+                for label, tps, ttft, latency, degenerate in samples:
+                    metrics.append({
                         "file": label,
                         "tps": tps,
                         "ttft": ttft,
                         "latency": latency,
-                    }
-                    for label, tps, ttft, latency in samples
-                )
+                        "degenerate": degenerate,
+                    })
         except Exception as e:
             print(f"Warning: Failed to process {jf}: {e}", file=sys.stderr)
             samples = extract_artifact_samples(data, Path(jf).name)
             if samples:
                 parsed_files += 1
-                metrics.extend(
-                    {
+                for label, tps, ttft, latency, degenerate in samples:
+                    metrics.append({
                         "file": label,
                         "tps": tps,
                         "ttft": ttft,
                         "latency": latency,
-                    }
-                    for label, tps, ttft, latency in samples
-                )
+                        "degenerate": degenerate,
+                    })
         except Exception as e:
             print(f"Warning: Failed to process {jf}: {e}", file=sys.stderr)
 
@@ -503,11 +515,28 @@ def main():
     summary_lines.append("## Per-Artifact Metrics Summary")
     summary_lines.append("| Artifact | TPS (tok/s) | TTFT (s) | Latency (s) |")
     summary_lines.append("|---|---|---|---|")
+    # Count degenerate responses across all artifacts
+    degenerate_total = 0
+    degenerate_by_image = {}
     for m in metrics:
+        file_artifacts = json_files[:len(metrics)]  # approximate
+        # Note: metrics list order matches json_files iteration order
+        for rec in _iter_records(m):
+            if rec.get("degenerate"):
+                degenerate_total += 1
+                img = rec.get("image", "unknown")
+                degenerate_by_image[img] = degenerate_by_image.get(img, 0) + 1
         tps_str = f"{m['tps']:.1f}" if m["tps"] is not None else "N/A"
         ttft_str = f"{m['ttft']:.2f}" if m["ttft"] is not None else "N/A"
         lat_str = f"{m['latency']:.2f}" if m["latency"] is not None else "N/A"
         summary_lines.append(f"| `{m['file']}` | {tps_str} | {ttft_str} | {lat_str} |")
+
+    if degenerate_total:
+        summary_lines.append("")
+        summary_lines.append("## Output Coherence Summary")
+        summary_lines.append(f"- Total degenerate outputs detected: {degenerate_total}")
+        for img, cnt in sorted(degenerate_by_image.items()):
+            summary_lines.append(f"- {img}: {cnt} degenerate")
     summary_lines.append("")
 
     regression_alert = False
@@ -609,6 +638,7 @@ def main():
     if args.json_out:
         json_out_path = Path(args.json_out)
         json_out_path.parent.mkdir(parents=True, exist_ok=True)
+        degenerate_total = sum(1 for m in metrics for _ in _iter_records(m) if _.get("degenerate"))
         export_data = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "artifacts_analyzed": len(metrics),
@@ -616,6 +646,7 @@ def main():
             "latency_stats": lat_stats,
             "regression_detected": regression_alert,
             "sla_violated": sla_violated,
+            "degenerate_outputs": degenerate_total,
             "metrics": metrics,
         }
         json_out_path.write_text(json.dumps(export_data, indent=2))
@@ -683,6 +714,12 @@ def main():
 
     if args.strict_schema and schema_failures > 0:
         print(f"❌ Schema validation failed for {schema_failures} artifact(s)!", file=sys.stderr)
+        return 1
+
+    # Check for degenerate outputs
+    degenerate_total = sum(1 for m in metrics for _ in _iter_records(m) if _.get("degenerate"))
+    if args.fail_on_degenerate and degenerate_total > 0:
+        print(f"❌ Degenerate outputs detected: {degenerate_total}", file=sys.stderr)
         return 1
 
     if regression_alert or baseline_regression:
