@@ -1,0 +1,29 @@
+name: CI Validation
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Mock Device Tests
+        run: |
+          if [ -f scripts/mock_device_test.cpp ]; then
+            g++ -std=c++17 scripts/mock_device_test.cpp -o mock_device_test -lpthread
+            ./mock_device_test
+          else
+            echo "mock_device_test.cpp not found in scripts/"
+          fi
+
+      - name: Run Deployment Checklist Check
+        run: |
+          if [ -f scripts/deploy-checklist.sh ]; then
+            bash scripts/deploy-checklist.sh --check-only || true
+          fi

@@ -1,0 +1,38 @@
+name: Strata Benchmarks & Regression Check
+
+on:
+  push:
+    branches: [ main, clean-upstream, edge ]
+  pull_request:
+    branches: [ main, clean-upstream ]
+  workflow_dispatch:
+
+jobs:
+  benchmark-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run Unit Tests
+        run: |
+          python3 -m unittest discover tests
+
+      - name: Run Benchmark Trend & Regression Check
+        run: |
+          python3 scripts/bench-report.py --output runs/trend-report.md --json-out runs/trend-report.json --prometheus-out runs/metrics.prom --fail-on-regression --strict-schema
+          cat runs/trend-report.md
+
+      - name: Upload Benchmark Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: strata-benchmark-trend-report
+          path: |
+            runs/trend-report.md
+            runs/trend-report.json
+            runs/metrics.prom
