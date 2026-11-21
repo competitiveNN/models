@@ -110,8 +110,8 @@ if [ "$SELF_CONTAINED" = "1" ]; then
   # strata-old adopts its run config on first start; the patched adopter picks the
   # shard that actually holds per_layer_token_embd.weight instead of the last shard.
   case "$IMAGE" in *strata-old*) RUN_ARGS+=(-v "$REPO_ROOT/adopt_patched.py:/opt/strata/terminal/strata_cli/launch/adopt.py:Z");; esac
-  # strata-edge ships a Python entrypoint that accepts `bash -c`; override only there.
-  case "$IMAGE" in *strata-edge*) RUN_ARGS+=(--entrypoint /bin/bash);; esac
+  # strata-old and strata-edge ship entrypoints that need bash override.
+  case "$IMAGE" in *strata-old*|*strata-edge*) RUN_ARGS+=(--entrypoint /bin/bash);; esac
 else
   RUN_ARGS+=(-v "$REPO_ROOT:/work:Z")
 fi
@@ -131,7 +131,7 @@ podman rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
 log_info "Launching Strata ($IMAGE, ${GPU_MODE}GPU) on port $PORT..."
 if ! podman "${RUN_ARGS[@]}" "$IMAGE" \
-  -c "cd /work/strata-src && exec python3 sycl/serve/server_intel.py --engine strata --config /work/strata-src/$CONFIG_NAME --port $PORT" \
+  -c "export PATH=/opt/strata/terminal/python/bin:\$PATH && cd /work/strata-src && exec python3 sycl/serve/server_intel.py --engine strata --config /work/strata-src/$CONFIG_NAME --port $PORT" \
   >/dev/null; then
   log_error "podman run failed (see the message above)"; exit 1
 fi

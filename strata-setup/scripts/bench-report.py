@@ -1,0 +1,696 @@
+#!/usr/bin/env python3
+"""Analyze benchmark runs in runs/ and generate performance trend and regression reports.
+
+Usage:
+    python3 scripts/bench-report.py [--output runs/trend-report.md] [--json-out runs/trend-report.json] [--prometheus-out runs/metrics.prom] [--fail-on-regression]
+
+Generates:
+  - A Markdown report with trends, quantiles, distribution visualizations, moving averages, regressions, and throughput summaries
+  - Optional structured JSON export for CI consumption
+  - Optional Prometheus exposition format metrics export
+  - Exits with code 0 on success, 1 if regressions detected and --fail-on-regression is set
+"""
+from __future__ import annotations
+import argparse, json, glob, re, sys, statistics
+from pathlib import Path
+from datetime import datetime, timezone
+
+ROOT = Path(__file__).resolve().parents[1]
+RUNS = ROOT / "runs"
+
+def load_json_robust(path):
+    """Load JSON file, repairing trailing commas and unescaped control characters inside string literals."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    text = re.sub(r',\s*([\]}])', r'\1', text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        res = []
+        in_str = False
+        escaped = False
+        for c in text:
+            if escaped:
+                res.append(c)
+                escaped = False
+                continue
+            if c == '\\' and in_str:
+                res.append(c)
+                escaped = True
+                continue
+            if c == '"':
+                in_str = not in_str
+                res.append(c)
+                continue
+            if in_str:
+                if c == '\n':
+                    res.append('\\n')
+                elif c == '\r':
+                    res.append('\\r')
+                elif c == '\t':
+                    res.append('\\t')
+                elif ord(c) < 32:
+                    res.append(f'\\u{ord(c):04x}')
+                else:
+                    res.append(c)
+            else:
+                res.append(c)
+        cleaned = ''.join(res)
+        cleaned = re.sub(r',\s*([\]}])', r'\1', cleaned)
+        return json.loads(cleaned)
+
+def _has_valid_record(rec):
+    """Check if a single record dict contains recognized benchmark metrics."""
+    if not isinstance(rec, dict):
+        return False
+    if any(k in rec for k in ("decode_tps", "decode_toks_per_sec", "ttft_s", "ttft_ms", "wall_s", "latency", "latency_ms")):
+        return True
+    timings = rec.get("timings") or rec.get("timing")
+    if isinstance(timings, dict) and any(k in timings for k in ("decode_tps", "predicted_per_second", "tokens_per_second", "ttft_s")):
+        return True
+    return False
+
+def validate_benchmark_schema(data):
+    """Validate that benchmark artifact data matches expected schema structures."""
+    if not isinstance(data, dict):
+        return False, "Root must be a dictionary"
+    if not data:
+        return False, "Empty dictionary"
+
+    # Direct scalar metrics at top level
+    if any(k in data for k in ("decode_tps", "decode_toks_per_sec", "ttft_s", "ttft_ms", "wall_s", "latency", "latency_ms")):
+        return True, "OK"
+
+    # Container shapes
+    if "images" in data:
+        images = data["images"]
+        if isinstance(images, dict):
+            if not images:
+                return False, "images must be non-empty"
+            entries = list(images.values())
+        elif isinstance(images, list):
+            if not images:
+                return False, "images must be non-empty"
+            entries = images
+        else:
+            return False, "images must be a dict or list"
+        for img_val in entries:
+            if not isinstance(img_val, dict):
+                return False, "image entry must be a dict"
+            if isinstance(img_val.get("results"), list):
+                if not img_val["results"]:
+                    return False, "results list must be non-empty"
+                if not any(_has_valid_record(r) for r in img_val["results"]):
+                    return False, "results must contain valid benchmark records"
+            elif not _has_valid_record(img_val):
+                return False, "image entry must contain valid benchmark metrics"
+        return True, "OK"
+
+    if "results" in data:
+        results = data["results"]
+        if not isinstance(results, list) or not results:
+            return False, "results must be a non-empty list"
+        if not any(_has_valid_record(r) for r in results):
+            return False, "results must contain valid benchmark records"
+        return True, "OK"
+
+    if "requests" in data:
+        requests = data["requests"]
+        if not isinstance(requests, list) or not requests:
+            return False, "requests must be a non-empty list"
+        if not any(_has_valid_record(r) for r in requests):
+            return False, "requests must contain valid benchmark records"
+        return True, "OK"
+
+    # Trend/report artifacts (generated by bench-report.py --json-out)
+    if "metrics" in data:
+        metrics = data["metrics"]
+        if not isinstance(metrics, list) or not metrics:
+            return False, "metrics must be a non-empty list"
+        return True, "OK"
+
+    return False, "Missing recognized benchmark metric or container keys"
+
+def is_benchmark_artifact(data):
+    """Determine if a parsed JSON dict is a benchmark result artifact vs server config."""
+    ok, _ = validate_benchmark_schema(data)
+    if not ok:
+        return False
+    # Explicitly reject server configs that lack benchmark containers or multiple metrics
+    if isinstance(data, dict) and "exe" in data and "args" in data and "port" in data:
+        has_container = any(k in data for k in ("images", "results", "requests"))
+        metric_keys = [k for k in ("decode_tps", "decode_toks_per_sec", "ttft_s", "ttft_ms", "wall_s", "latency", "latency_ms") if k in data]
+        if not has_container and len(metric_keys) < 2:
+            return False
+    return True
+
+def extract_record_metrics(rec):
+    """Extract (tps, ttft, latency) from a single record dict."""
+    if not isinstance(rec, dict):
+        return None, None, None
+
+    tps = None
+    for k in ("decode_tps", "decode_toks_per_sec", "tokens/s", "tok/s", "throughput", "tps"):
+        if isinstance(rec.get(k), (int, float)):
+            tps = float(rec[k])
+            break
+
+    ttft = None
+    if isinstance(rec.get("ttft_s"), (int, float)):
+        ttft = float(rec["ttft_s"])
+    elif isinstance(rec.get("ttft_ms"), (int, float)):
+        ttft = float(rec["ttft_ms"]) / 1000.0
+    elif isinstance(rec.get("ttft"), (int, float)):
+        ttft = float(rec["ttft"])
+
+    lat = None
+    for k in ("wall_s", "latency_s", "latency", "duration"):
+        if isinstance(rec.get(k), (int, float)):
+            lat = float(rec[k])
+            break
+    if lat is None and isinstance(rec.get("latency_ms"), (int, float)):
+        lat = float(rec["latency_ms"]) / 1000.0
+
+    timings = rec.get("timings") or rec.get("timing")
+    if isinstance(timings, dict):
+        if tps is None:
+            for tk in ("decode_tps", "predicted_per_second", "tokens_per_second"):
+                if isinstance(timings.get(tk), (int, float)):
+                    tps = float(timings[tk])
+                    break
+        if ttft is None and isinstance(timings.get("ttft_s"), (int, float)):
+            ttft = float(timings["ttft_s"])
+        elif ttft is None and isinstance(timings.get("prompt_per_second"), (int, float)):
+            ttft = float(timings["prompt_per_second"])
+
+    return tps, ttft, lat
+
+def _iter_records(data):
+    """Yield benchmark run records from any supported artifact shape."""
+    if not isinstance(data, dict):
+        return
+    if isinstance(data.get("images"), dict):
+        for img in data["images"].values():
+            if isinstance(img, dict):
+                if isinstance(img.get("results"), list):
+                    yield from img["results"]
+                else:
+                    yield img
+    elif isinstance(data.get("results"), list):
+        yield from data["results"]
+    elif isinstance(data.get("requests"), list):
+        yield from data["requests"]
+    else:
+        yield data
+
+
+def extract_tps(data):
+    """Try to extract decode tokens-per-second from various JSON shapes."""
+    for rec in _iter_records(data):
+        tps, _, _ = extract_record_metrics(rec)
+        if tps is not None:
+            return tps
+    return None
+
+
+def extract_ttft(data):
+    """Try to extract time-to-first-token."""
+    for rec in _iter_records(data):
+        _, ttft, _ = extract_record_metrics(rec)
+        if ttft is not None:
+            return ttft
+    return None
+
+
+def extract_latency(data):
+    """Try to extract average latency."""
+    for rec in _iter_records(data):
+        _, _, lat = extract_record_metrics(rec)
+        if lat is not None:
+            return lat
+    return None
+
+def extract_artifact_samples(data, filename=""):
+    """Return list of (label, tps, ttft, latency) for all valid benchmark runs in data."""
+    samples = []
+    if not isinstance(data, dict):
+        return samples
+
+    if "images" in data and isinstance(data["images"], dict):
+        for img_key, img_val in data["images"].items():
+            if isinstance(img_val, dict):
+                if isinstance(img_val.get("results"), list):
+                    for idx, r in enumerate(img_val["results"]):
+                        tps, ttft, lat = extract_record_metrics(r)
+                        if tps is not None or ttft is not None or lat is not None:
+                            samples.append((f"{filename}:{img_key}[{idx}]", tps, ttft, lat))
+                else:
+                    tps, ttft, lat = extract_record_metrics(img_val)
+                    if tps is not None or ttft is not None or lat is not None:
+                        samples.append((f"{filename}:{img_key}", tps, ttft, lat))
+    elif isinstance(data.get("results"), list):
+        for idx, r in enumerate(data["results"]):
+            tps, ttft, lat = extract_record_metrics(r)
+            if tps is not None or ttft is not None or lat is not None:
+                samples.append((f"{filename}[{idx}]", tps, ttft, lat))
+    elif isinstance(data.get("requests"), list):
+        for idx, r in enumerate(data["requests"]):
+            tps, ttft, lat = extract_record_metrics(r)
+            if tps is not None or ttft is not None or lat is not None:
+                samples.append((f"{filename}[{idx}]", tps, ttft, lat))
+    else:
+        tps, ttft, lat = extract_record_metrics(data)
+        if tps is not None or ttft is not None or lat is not None:
+            samples.append((filename, tps, ttft, lat))
+
+    return samples
+
+def compute_quantiles(values):
+    if not values:
+        return None, None, None, None
+    s = sorted(values)
+    p50 = statistics.median(s)
+    p95_idx = int(len(s) * 0.95)
+    p99_idx = int(len(s) * 0.99)
+    p999_idx = int(len(s) * 0.999)
+    p95 = s[min(p95_idx, len(s) - 1)]
+    p99 = s[min(p99_idx, len(s) - 1)]
+    p999 = s[min(p999_idx, len(s) - 1)]
+    return p50, p95, p99, p999
+
+def compute_moving_average(values, window=3):
+    if not values:
+        return []
+    ma = []
+    for i in range(len(values)):
+        start = max(0, i - window + 1)
+        chunk = values[start:i+1]
+        ma.append(sum(chunk) / len(chunk))
+    return ma
+
+def compute_iqr(values):
+    if not values:
+        return None, None, None
+    s = sorted(values)
+    q1 = s[max(0, int(len(s) * 0.25))]
+    q3 = s[min(len(s) - 1, int(len(s) * 0.75))]
+    iqr = q3 - q1
+    return q1, q3, iqr
+
+def detect_iqr_anomalies(values, k=1.5):
+    if not values or len(values) < 4:
+        return []
+    q1, q3, iqr = compute_iqr(values)
+    lower = q1 - k * iqr
+    upper = q3 + k * iqr
+    return [v for v in values if v < lower or v > upper]
+def ascii_histogram(values, bins=5):
+    if not values or len(values) < 2:
+        return ["(Insufficient data for histogram)"]
+    vmin, vmax = min(values), max(values)
+    if vmin == vmax:
+        return [f"[{vmin:.1f}] {'#' * 10} (100%)"]
+    span = vmax - vmin
+    step = span / bins
+    counts = [0] * bins
+    for v in values:
+        idx = int((v - vmin) / step)
+        if idx >= bins:
+            idx = bins - 1
+        counts[idx] += 1
+    
+    lines = []
+    total = len(values)
+    for i in range(bins):
+        b_low = vmin + i * step
+        b_high = vmin + (i + 1) * step
+        cnt = counts[i]
+        pct = (cnt / total) * 100
+        bar = '#' * int(pct / 5 + 0.5)
+        lines.append(f"`[{b_low:5.1f} - {b_high:5.1f}]` | {bar:<20} | {cnt} ({pct:.0f}%)")
+    return lines
+def format_prometheus_metrics(tps_stats, lat_stats, regression_detected, artifacts_count, sla_violated=False):
+    """Format metrics into Prometheus exposition format."""
+    lines = []
+    lines.append("# HELP strata_benchmark_artifacts_analyzed Total benchmark artifacts analyzed")
+    lines.append("# TYPE strata_benchmark_artifacts_analyzed gauge")
+    lines.append(f"strata_benchmark_artifacts_analyzed {artifacts_count}")
+
+    lines.append("# HELP strata_benchmark_regression_detected Flag indicating performance regression")
+    lines.append("# TYPE strata_benchmark_regression_detected gauge")
+    lines.append(f"strata_benchmark_regression_detected {1 if regression_detected else 0}")
+
+    lines.append("# HELP strata_benchmark_sla_violated Flag indicating SLA violation")
+    lines.append("# TYPE strata_benchmark_sla_violated gauge")
+    lines.append(f"strata_benchmark_sla_violated {1 if sla_violated else 0}")
+
+    if tps_stats:
+        lines.append("# HELP strata_throughput_tok_s Throughput decode tokens per second stats")
+        lines.append("# TYPE strata_throughput_tok_s gauge")
+        for stat, val in tps_stats.items():
+            if val is not None:
+                lines.append(f'strata_throughput_tok_s{{quantile="{stat}"}} {val}')
+
+    if lat_stats:
+        lines.append("# HELP strata_latency_seconds Latency / wall time stats in seconds")
+        lines.append("# TYPE strata_latency_seconds gauge")
+        for stat, val in lat_stats.items():
+            if val is not None:
+                lines.append(f'strata_latency_seconds{{quantile="{stat}"}} {val}')
+
+    # Add Prometheus export timestamp / metadata gauge
+    lines.append("# HELP strata_benchmark_report_timestamp Timestamp of benchmark report generation in epoch seconds")
+    lines.append("# TYPE strata_benchmark_report_timestamp gauge")
+    lines.append(f"strata_benchmark_report_timestamp {int(datetime.now(timezone.utc).timestamp())}")
+
+    return "\n".join(lines) + "\n"
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", default=str(RUNS / "trend-report.md"))
+    parser.add_argument("--json-out", default=None, help="Optional JSON export path")
+    parser.add_argument("--prometheus-out", default=None, help="Optional Prometheus metrics export path")
+    parser.add_argument("--fail-on-regression", action="store_true", help="Exit with code 1 if regression detected")
+    parser.add_argument("--anomaly-threshold", type=float, default=1.5, help="IQR multiplier for anomaly detection (default 1.5)")
+    parser.add_argument("--budget-min-tps", type=float, default=None, help="Hard minimum throughput (tokens/s) threshold; exit 1 if violated")
+    parser.add_argument("--budget-max-latency", type=float, default=None, help="Hard maximum latency (seconds) threshold; exit 1 if violated")
+    parser.add_argument("--history-out", default=str(RUNS / "perf-history.jsonl"), help="Append JSONL historical trend log path")
+    parser.add_argument("--compare-baseline", default=None, help="Path to a baseline JSON report to compare against for regression detection")
+    parser.add_argument("--html-out", default=None, help="Optional HTML report output path")
+    parser.add_argument("--strict-schema", action="store_true", help="Exit with code 1 if any artifact fails schema validation")
+    parser.add_argument("--webhook-url", default=None, help="Optional webhook URL to post regression or SLA alerts")
+    parser.add_argument("--regression-threshold", type=float, default=0.85, help="Regression threshold as fraction of median (default 0.85 = 15%% drop)")
+    args = parser.parse_args()
+    json_files = sorted(glob.glob(str(RUNS / "*.json")))
+
+    metrics = []
+    parsed_files = 0
+    schema_failures = 0
+    for jf in json_files:
+        if Path(jf).name in ("trend-report.json",):
+            continue
+        try:
+            data = load_json_robust(jf)
+            ok, reason = validate_benchmark_schema(data)
+            if not ok:
+                print(f"  Skipping {Path(jf).name}: schema validation failed ({reason})", file=sys.stderr)
+                schema_failures += 1
+                continue
+            if not is_benchmark_artifact(data):
+                print(f"  Skipping {Path(jf).name}: not a benchmark artifact", file=sys.stderr)
+                continue
+            samples = extract_artifact_samples(data, Path(jf).name)
+            if samples:
+                parsed_files += 1
+                metrics.extend(
+                    {
+                        "file": label,
+                        "tps": tps,
+                        "ttft": ttft,
+                        "latency": latency,
+                    }
+                    for label, tps, ttft, latency in samples
+                )
+        except Exception as e:
+            print(f"Warning: Failed to process {jf}: {e}", file=sys.stderr)
+            samples = extract_artifact_samples(data, Path(jf).name)
+            if samples:
+                parsed_files += 1
+                metrics.extend(
+                    {
+                        "file": label,
+                        "tps": tps,
+                        "ttft": ttft,
+                        "latency": latency,
+                    }
+                    for label, tps, ttft, latency in samples
+                )
+        except Exception as e:
+            print(f"Warning: Failed to process {jf}: {e}", file=sys.stderr)
+
+    print(f"Analyzed {parsed_files} valid benchmark artifacts ({len(metrics)} runs) from runs/")
+
+    tps_values = [m["tps"] for m in metrics if m["tps"] is not None]
+    ttft_values = [m["ttft"] for m in metrics if m["ttft"] is not None]
+    latency_values = [m["latency"] for m in metrics if m["latency"] is not None]
+
+    summary_lines = []
+    summary_lines.append("# Strata Benchmark Trend & Regression Report")
+    summary_lines.append(f"Generated at: {datetime.now(timezone.utc).isoformat()} UTC\n")
+    summary_lines.append(f"Total benchmark JSON artifacts analyzed: {len(metrics)}\n")
+
+    # Throughput summary & quantiles
+    summary_lines.append("## Throughput (decode tokens/s)")
+    tps_stats = {}
+    if tps_values:
+        p50, p95, p99, p999 = compute_quantiles(tps_values)
+        tps_stats = {"p50": p50, "p95": p95, "p99": p99, "p999": p999, "min": min(tps_values), "max": max(tps_values), "mean": sum(tps_values)/len(tps_values)}
+        summary_lines.append(f"- **Median (p50)**: {p50:.1f} tok/s")
+        summary_lines.append(f"- **p95**: {p95:.1f} tok/s")
+        summary_lines.append(f"- **p99**: {p99:.1f} tok/s")
+        summary_lines.append(f"- **p99.9**: {p999:.1f} tok/s")
+        summary_lines.append(f"- **Min**: {min(tps_values):.1f} tok/s")
+        summary_lines.append(f"- **Max**: {max(tps_values):.1f} tok/s")
+        summary_lines.append("\n### Throughput Distribution")
+        summary_lines.append("| Range (tok/s) | Histogram | Count (%) |")
+        summary_lines.append("|---|---|---|")
+        summary_lines.extend(ascii_histogram(tps_values))
+    else:
+        summary_lines.append("- No decode TPS metrics found in artifacts")
+    summary_lines.append("")
+
+    # Latency summary & quantiles
+    summary_lines.append("## Latency / Wall Time (s)")
+    lat_stats = {}
+    if latency_values:
+        p50, p95, p99, p999 = compute_quantiles(latency_values)
+        lat_stats = {"p50": p50, "p95": p95, "p99": p99, "p999": p999, "min": min(latency_values), "max": max(latency_values), "mean": sum(latency_values)/len(latency_values)}
+        summary_lines.append(f"- **Median (p50)**: {p50:.2f}s")
+        summary_lines.append(f"- **p95**: {p95:.2f}s")
+        summary_lines.append(f"- **p99**: {p99:.2f}s")
+        summary_lines.append(f"- **p99.9**: {p999:.2f}s")
+        summary_lines.append("| Range (s) | Histogram | Count (%) |")
+        summary_lines.append("|---|---|---|")
+        summary_lines.extend(ascii_histogram(latency_values))
+    else:
+        summary_lines.append("- No latency metrics found in artifacts")
+    summary_lines.append("")
+
+    # Historical Trend & Moving Average Section
+    summary_lines.append("## Historical Trend & Moving Average (Window = 3)")
+    valid_tps_entries = [m for m in metrics if m["tps"] is not None]
+    if valid_tps_entries:
+        tps_seq = [m["tps"] for m in valid_tps_entries]
+        ma_seq = compute_moving_average(tps_seq, window=3)
+        summary_lines.append("| Artifact | TPS (tok/s) | 3-Run Moving Average (tok/s) |")
+        summary_lines.append("|---|---|---|")
+        for m, ma in zip(valid_tps_entries, ma_seq):
+            summary_lines.append(f"| `{m['file']}` | {m['tps']:.1f} | {ma:.1f} |")
+    else:
+        summary_lines.append("- Insufficient historical throughput data for moving average.")
+    summary_lines.append("")
+
+    # Anomaly Detection Section
+    summary_lines.append("## Anomaly Detection (IQR Method)")
+    tps_anomalies = detect_iqr_anomalies(tps_values, k=args.anomaly_threshold)
+    if tps_anomalies:
+        summary_lines.append(f"- ⚠️ Outlier throughput values detected: {tps_anomalies}")
+    else:
+        summary_lines.append("- ✅ No throughput anomalies detected within IQR threshold.")
+    summary_lines.append("")
+
+    # Per-artifact detail table
+    summary_lines.append("## Per-Artifact Metrics Summary")
+    summary_lines.append("| Artifact | TPS (tok/s) | TTFT (s) | Latency (s) |")
+    summary_lines.append("|---|---|---|---|")
+    for m in metrics:
+        tps_str = f"{m['tps']:.1f}" if m["tps"] is not None else "N/A"
+        ttft_str = f"{m['ttft']:.2f}" if m["ttft"] is not None else "N/A"
+        lat_str = f"{m['latency']:.2f}" if m["latency"] is not None else "N/A"
+        summary_lines.append(f"| `{m['file']}` | {tps_str} | {ttft_str} | {lat_str} |")
+    summary_lines.append("")
+
+    regression_alert = False
+    if len(tps_values) >= 3:
+        sorted_tps = sorted(tps_values, reverse=True)
+        latest = tps_values[-1]
+        earlier_median = statistics.median(sorted_tps[:-1]) if len(sorted_tps) > 1 else tps_values[0]
+        if earlier_median > 0 and latest < earlier_median * args.regression_threshold:
+            regression_alert = True
+            drop_pct = (1 - args.regression_threshold) * 100
+            summary_lines.append("## ⚠️ Potential Regression Detected")
+            summary_lines.append(
+                f"- TPS dropped from median ~{earlier_median:.1f} tok/s to latest {latest:.1f} tok/s "
+                f"({latest/earlier_median*100:.0f}% of median) - exceeds {drop_pct:.0f}% threshold.\n"
+            )
+    # Differential benchmark comparison against baseline
+    baseline_regression = False
+    if args.compare_baseline and Path(args.compare_baseline).exists():
+        try:
+            baseline_data = load_json_robust(args.compare_baseline)
+            baseline_tps = baseline_data.get("throughput_stats", {}).get("p50")
+            baseline_lat = baseline_data.get("latency_stats", {}).get("p50")
+            if baseline_tps is not None and tps_values:
+                current_tps = tps_stats.get("p50")
+                if current_tps is not None and current_tps < baseline_tps * args.regression_threshold:
+                    baseline_regression = True
+                    drop_pct = (1 - args.regression_threshold) * 100
+                    summary_lines.append("## ⚠️ Baseline Regression Detected")
+                    summary_lines.append(
+                        f"- Current p50 TPS ({current_tps:.1f}) < {args.regression_threshold*100:.0f}% of baseline p50 ({baseline_tps:.1f} tok/s)\n"
+                    )
+            if baseline_lat is not None and latency_values:
+                current_lat = lat_stats.get("p50")
+                if current_lat is not None and current_lat > baseline_lat / args.regression_threshold:
+                    baseline_regression = True
+                    lat_threshold = 100 / (args.regression_threshold * 100) * 100
+                    summary_lines.append("## ⚠️ Baseline Latency Regression Detected")
+                    summary_lines.append(
+                        f"- Current p50 latency ({current_lat:.2f}s) > {100/args.regression_threshold:.0f}% of baseline p50 ({baseline_lat:.2f}s)\n"
+                    )
+        except Exception as e:
+            print(f"Warning: Failed to load baseline {args.compare_baseline}: {e}", file=sys.stderr)
+    sla_violated = False
+    if args.budget_min_tps is not None and tps_values:
+        avg_tps = sum(tps_values) / len(tps_values)
+        if avg_tps < args.budget_min_tps:
+            sla_violated = True
+            summary_lines.append("## ❌ SLA Violation: Throughput Below Budget")
+            summary_lines.append(f"- Average TPS ({avg_tps:.1f}) < minimum budget ({args.budget_min_tps:.1f} tok/s)\n")
+
+    if args.budget_max_latency is not None and latency_values:
+        avg_lat = sum(latency_values) / len(latency_values)
+        if avg_lat > args.budget_max_latency:
+            sla_violated = True
+            summary_lines.append("## ❌ SLA Violation: Latency Above Budget")
+            summary_lines.append(f"- Average latency ({avg_lat:.2f}s) > maximum budget ({args.budget_max_latency:.2f}s)\n")
+
+    # Historical Trends Over Time
+    summary_lines.append("## Historical Trends Over Time (perf-history.jsonl)")
+    hist_path = Path(args.history_out or RUNS / "perf-history.jsonl")
+    if hist_path.exists():
+        with open(hist_path) as f:
+            hist_lines = [line.strip() for line in f if line.strip()]
+        summary_lines.append(f"- Total historical entries logged: {len(hist_lines)}")
+        recent_tps = []
+        for hl in hist_lines[-5:]:
+            try:
+                entry = json.loads(hl)
+                tps_val, _, _ = extract_record_metrics(entry)
+                if tps_val is None and isinstance(entry.get("throughput_stats"), dict):
+                    tps_val = entry["throughput_stats"].get("p50")
+                if tps_val is not None:
+                    recent_tps.append(tps_val)
+            except Exception:
+                pass
+        if recent_tps:
+            summary_lines.append(f"- Recent throughput (last {len(recent_tps)} historical runs): {recent_tps}")
+    else:
+        summary_lines.append("- No historical entries logged yet.")
+    summary_lines.append("")
+
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(summary_lines))
+
+    if args.history_out and tps_values:
+        hist_out_path = Path(args.history_out)
+        hist_out_path.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "throughput_stats": tps_stats,
+            "latency_stats": lat_stats,
+            "regression_detected": regression_alert,
+            "sla_violated": sla_violated,
+        }
+        with open(hist_out_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+    if args.json_out:
+        json_out_path = Path(args.json_out)
+        json_out_path.parent.mkdir(parents=True, exist_ok=True)
+        export_data = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "artifacts_analyzed": len(metrics),
+            "throughput_stats": tps_stats,
+            "latency_stats": lat_stats,
+            "regression_detected": regression_alert,
+            "sla_violated": sla_violated,
+            "metrics": metrics,
+        }
+        json_out_path.write_text(json.dumps(export_data, indent=2))
+        print(f"Exported structured JSON report to {json_out_path}")
+
+    if args.html_out:
+        html_out_path = Path(args.html_out)
+        html_out_path.parent.mkdir(parents=True, exist_ok=True)
+        md_content = out_path.read_text() if out_path.exists() else "# Strata Benchmark Report\n"
+        html_parts = [
+            "<!DOCTYPE html>",
+            "<html>",
+            "<head>",
+            '<meta charset="utf-8">',
+            "<title>Strata Benchmark Trend & Regression Report</title>",
+            "<style>",
+            "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; background: #0d1117; color: #c9d1d9; }",
+            "pre, code { background: #161b22; padding: 2px 6px; border-radius: 4px; }",
+            "table { border-collapse: collapse; width: 100%; margin-top: 20px; }",
+            "th, td { border: 1px solid #30363d; padding: 8px 12px; text-align: left; }",
+            "th { background: #21262d; }",
+            "h1, h2, h3 { color: #58a6ff; }",
+            "</style>",
+            "</head>",
+            "<body>",
+            "<h1>Strata Benchmark Trend & Regression Report</h1>",
+            "<p>Generated at: " + datetime.now(timezone.utc).isoformat() + " UTC</p>",
+            "<hr>",
+            "<p><em>Artifacts analyzed: " + str(len(metrics)) + "</em></p>",
+            "<h3>Summary Statistics</h3>",
+            "<ul>",
+            "  <li><strong>TPS Median (p50):</strong> " + str(tps_stats.get("p50", "N/A")) + " tok/s</li>",
+            "  <li><strong>TPS p99.9:</strong> " + str(tps_stats.get("p999", "N/A")) + " tok/s</li>",
+            "  <li><strong>Latency Median (p50):</strong> " + str(lat_stats.get("p50", "N/A")) + "s</li>",
+            "  <li><strong>Regression Detected:</strong> " + ("Yes" if regression_alert or baseline_regression else "No") + "</li>",
+            "  <li><strong>SLA Violated:</strong> " + ("Yes" if sla_violated else "No") + "</li>",
+            "</ul>",
+            "<h3>Raw Report</h3>",
+            "<pre>" + md_content.replace("<", "&lt;").replace(">", "&gt;") + "</pre>",
+            "</body>",
+            "</html>",
+        ]
+        html_out_path.write_text("\n".join(html_parts))
+        print("Exported HTML report to " + str(html_out_path))
+
+    if args.webhook_url and (regression_alert or baseline_regression or sla_violated):
+        try:
+            import urllib.request
+            alert_payload = {
+                "text": "Strata Benchmark Alert: regression=" + str(regression_alert or baseline_regression) + ", sla_violated=" + str(sla_violated)
+            }
+            req = urllib.request.Request(
+                args.webhook_url,
+                data=json.dumps(alert_payload).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                print("Dispatched webhook alert to " + args.webhook_url + " (status " + str(resp.status) + ")")
+        except Exception as e:
+            print("Warning: Failed to dispatch webhook alert: " + str(e), file=sys.stderr)
+    if sla_violated:
+        print("❌ SLA budget violation detected!", file=sys.stderr)
+        return 1
+
+    if args.strict_schema and schema_failures > 0:
+        print(f"❌ Schema validation failed for {schema_failures} artifact(s)!", file=sys.stderr)
+        return 1
+
+    if regression_alert or baseline_regression:
+        print(f"⚠️  Regression alert: potential performance drop detected!", file=sys.stderr)
+        if args.fail_on_regression:
+            return 1
+    print(f"✅ Benchmark report successfully written to {out_path}")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
