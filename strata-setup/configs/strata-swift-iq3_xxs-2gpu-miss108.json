@@ -32,7 +32,9 @@
     "first",
     "--vram-reserve-mib",
     "512",
-    "--expert-cache-per-layer"
+    "--expert-cache-per-layer",
+    "--pipeline-windows",
+    "2"
   ],
   "cwd": "/work/strata-src",
   "tokenizer": "/work/Strata-data/packs/swift-iq3_xxs/tokenizer",

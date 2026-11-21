@@ -23,9 +23,13 @@ jobs:
         run: |
           python3 -m unittest discover tests
 
+      - name: Validate Strata 2x B580 Configs
+        run: |
+          python3 scripts/validate_configs.py
+
       - name: Run Benchmark Trend & Regression Check
         run: |
-          python3 scripts/bench-report.py --output runs/trend-report.md --json-out runs/trend-report.json --prometheus-out runs/metrics.prom #  --strict-schema
+          python3 scripts/bench-report.py --output runs/trend-report.md --json-out runs/trend-report.json --prometheus-out runs/metrics.prom --strict-schema
           cat runs/trend-report.md
 
       - name: Upload Benchmark Report Artifact

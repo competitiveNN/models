@@ -32,7 +32,9 @@
     "first",
     "--vram-reserve-mib",
     "512",
-    "--expert-cache-per-layer"
+    "--expert-cache-per-layer",
+    "--pipeline-windows",
+    "2"
   ],
   "cwd": "/work/strata-src",
   "tokenizer": "/work/Strata-data/packs/swift-iq3_xxs/tokenizer",
@@ -50,6 +52,8 @@
     "STRATA_VERIFY_DEVICE_PLAN": "0",
     "STRATA_WINDOW_SYNC": "1",
     "ONEAPI_DEVICE_SELECTOR": "level_zero:*",
-    "STRATA_PREFILL_MMQ": "0"
+    "STRATA_PREFILL_MMQ": "0",
+    "IGC_EnableGEPSimplification": "0",
+    "SYCL_CACHE_PERSISTENT": "1"
   }
 }
