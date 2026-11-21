@@ -65,10 +65,21 @@ def run_prompt(url, prompt, max_tokens_override=None, api_key=None):
                     content = message.get("reasoning_content") or message.get("text") or ""
             else:
                 content = ""
+            # Degenerate/coherence check: repeated tokens or gibberish (e.g. "!!!!")
+            words = (content or "").split()
+            degenerate = False
+            if len(words) >= 5:
+                unique_ratio = len(set(words)) / len(words)
+                if unique_ratio < 0.3:
+                    degenerate = True
+            # catch runs of identical non-word characters (e.g. "!!!!")
+            if not degenerate and content and len(set(content.strip())) <= 2 and len(content.strip()) >= 8:
+                degenerate = True
             timings = data.get("timings", {}) or {}
             usage = data.get("usage", {}) or {}
             return {
                 "ok": True,
+                "degenerate": degenerate,
                 "wall_s": round(t1 - t0, 2),
                 "ttft_s": round(t1 - t0, 2),  # approximate; streaming would give exact TTFT
                 "prompt_tokens": usage.get("prompt_tokens", 0),
@@ -85,7 +96,7 @@ def run_prompt(url, prompt, max_tokens_override=None, api_key=None):
                 detail = e.read().decode("utf-8", "replace")[:300] or detail
         except Exception:
             pass
-        return {"ok": False, "error": detail, "wall_s": round(time.time() - t0, 2)}
+        return {"ok": False, "error": detail, "degenerate": False, "wall_s": round(time.time() - t0, 2)}
 
 def stop_container(name):
     try:
@@ -166,6 +177,8 @@ def run_image_bench(image_key, port, max_tokens, quick=False):
         r["prompt_name"] = p["name"]
         results.append(r)
         status = "OK" if r["ok"] else "FAIL"
+        if r.get("degenerate"):
+            status = "DEGENERATE"
         tps = r.get("decode_tps", 0)
         print(f"    {status}: decode={tps} tok/s, wall={r['wall_s']}s")
 
@@ -178,6 +191,7 @@ def main():
     ap.add_argument("--port-base", type=int, default=8090, help="base port for old/edge (ghcr uses 1235)")
     ap.add_argument("--max-tokens", type=int, default=None, help="override max_tokens for all prompts")
     ap.add_argument("--quick", action="store_true", help="run only the first prompt per image")
+    ap.add_argument("--fail-on-degenerate", action="store_true", help="Exit non-zero if any degenerate output detected")
     args = ap.parse_args()
 
     images = [x.strip() for x in args.images.split(",")]
@@ -193,6 +207,16 @@ def main():
     out_path = RUNS / f"bench-containers-{ts}.json"
     out_path.write_text(json.dumps(all_results, indent=2))
     print(f"\n=== Results written to {out_path} ===")
+
+    degenerate_count = 0
+    for key, res in all_results["images"].items():
+        for r in res.get("results", []) or []:
+            if r.get("degenerate"):
+                degenerate_count += 1
+    if degenerate_count:
+        print(f"\nWARNING: {degenerate_count} degenerate response(s) detected")
+    if args.fail_on_degenerate and degenerate_count:
+        sys.exit(2)
 
     # Print summary table
     print("\n{:<12} {:<18} {:>10} {:>10} {:>8}".format("Image", "Prompt", "Prefill", "Decode", "Wall"))
