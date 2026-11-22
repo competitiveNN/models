@@ -1,0 +1,24 @@
+# Grafana provisioning configuration for Strata B580 TP2 dashboard
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "30s"
+      queryTimeout: "60s"
+
+apiVersion: 1
+
+dashboards:
+  - name: "Strata B580 TP2"
+    folder: "Strata"
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards/strata-b580-tp2-dashboard.json
+      foldersFromFilesStructure: true

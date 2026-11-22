@@ -1,0 +1,9 @@
+apiVersion: 1
+
+providers:
+  - name: "Strata Dashboards"
+    folder: "Strata"
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true
