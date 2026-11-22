@@ -19,5 +19,10 @@ class TestE2EImageCoherenceSmoke(unittest.TestCase):
         self.assertTrue(hasattr(smoke, "main"))
 
 
+    def test_run_cmd_function(self):
+        rc, out, err = smoke.run_cmd(["echo", "hello"], timeout=10)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, "hello")
+
 if __name__ == "__main__":
     unittest.main()

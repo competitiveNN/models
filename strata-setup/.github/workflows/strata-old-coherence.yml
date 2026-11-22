@@ -67,6 +67,11 @@ jobs:
         run: |
           python3 bench-coherence-2xb580.py
 
+      - name: End-to-end image coherence smoke test
+        run: |
+          python3 scripts/e2e_image_coherence_smoke.py || true
+        if: github.event_name == 'workflow_dispatch'
+
       - name: Benchmark regression check
         run: |
           python3 scripts/bench-automation.py --run || true

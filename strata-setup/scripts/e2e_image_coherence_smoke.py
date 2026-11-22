@@ -34,11 +34,19 @@ def run_cmd(args: list[str], timeout: int = 120) -> tuple[int, str, str]:
 def start_container() -> bool:
     # Remove existing container if any
     run_cmd(["podman", "rm", "-f", CONTAINER_NAME], timeout=30)
-    # Run container with host networking
+    import os
+    model_dir = os.environ.get("MODEL_DIR", "/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF")
+    data_dir = os.environ.get("DATA_DIR", "/home/fra/data/models/gguf/Strata-data")
+    # Run container with proper mounts and port publishing
     rc, out, err = run_cmd([
         "podman", "run", "-d", "--name", CONTAINER_NAME,
-        "--network", "host", "--privileged",
+        "--privileged",
         "--device", "/dev/dri",
+        "--publish", "127.0.0.1:1235:8080",
+        f"--volume={model_dir}:/model/:Z,U",
+        f"--volume={data_dir}:/data/Strata-data:Z,U",
+        "--env", "SYCL_CACHE_PERSISTENT=1",
+        "--env", "ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1",
         IMAGE,
     ], timeout=60)
     if rc != 0:
