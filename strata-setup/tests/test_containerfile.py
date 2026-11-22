@@ -97,7 +97,12 @@ class TestContainerfile(unittest.TestCase):
                       "healthcheck must target localhost:8080/health")
 
     def test_contains_2gpu_config_keys(self):
-        from scripts.validate_configs import REQUIRED_ARGS
+        import importlib.util
+        _vc = Path(__file__).resolve().parents[1] / 'scripts' / 'validate_configs.py'
+        _spec = importlib.util.spec_from_file_location('validate_configs', _vc)
+        _v = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_v)
+        REQUIRED_ARGS = _v.REQUIRED_ARGS
         cfg = ROOT / "configs" / "strata-swift-iq3_xxs-2gpu-clean.json"
         if not cfg.exists():
             return
