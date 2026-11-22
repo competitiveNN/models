@@ -89,7 +89,7 @@ unit tests in `tests/test_coherence.py`.
 
 **Coherence verification:**
 - `bench-coherence-2xb580.py`: 4/4 prompts PASS (no `!!!!!!` loops)
-- Unit tests: 56/56 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`, `test_prometheus`, `test_vram_balancer`, `test_pcie_topology`)
+- Unit tests: 57/57 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`, `test_prometheus`, `test_vram_balancer`, `test_pcie_topology`, `test_soak_test`)
 - Container smoke test: 3/3 checks pass (engine placement, usable engine, libze_loader resolves)
 
 ## Benchmark automation
@@ -124,6 +124,10 @@ Baseline: `runs/baseline-2xb580.json` (not committed; regenerate with `--baselin
 ## PCIe topology
 
 - `scripts/b580_pcie_topology.py`: probes Intel Arc B580 PCI Express topology, bus IDs, speeds, and NUMA affinity; tested via `tests/test_pcie_topology.py`.
+
+## Soak testing
+
+- `scripts/strata_soak_test.py`: orchestrates repeated lightweight inference iterations and coherence/latency checks; tested via `tests/test_soak_test.py`.
 
 ## CI pipeline (`.github/workflows/strata-old-coherence.yml`)
 
