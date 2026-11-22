@@ -35,6 +35,13 @@ jobs:
         run: |
           python3 scripts/validate_configs.py
 
+      - name: Validate model weights (if model dir available)
+        run: |
+          if [ -d /models/swift-iq3_xxs ]; then
+            python3 scripts/model_weight_validator.py --model-dir /models/swift-iq3_xxs
+          else
+            echo "No model directory found, skipping weight validation"
+          fi
   integration-coherence:
     needs: unit-coherence
     runs-on: self-hosted  # requires 2x Intel Arc B580 + container runtime
@@ -46,7 +53,7 @@ jobs:
       - name: Build strata-old image and smoke-test
         run: |
           make strata-image
-
+          make verify-image-digest || true
       - name: Run container
         run: |
           ./run-strata-2gpu.sh

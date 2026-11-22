@@ -89,7 +89,7 @@ unit tests in `tests/test_coherence.py`.
 
 **Coherence verification:**
 - `bench-coherence-2xb580.py`: 4/4 prompts PASS (no `!!!!!!` loops)
-- Unit tests: 72/72 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`, `test_prometheus`, `test_vram_balancer`, `test_pcie_topology`, `test_soak_test`, `test_failover_drill`, `test_dashboard`, `test_resilience_check`, `test_thermal`, `test_benchmark_trend`, `test_anomaly_detection`, `test_multinode_orchestrator`, `test_model_weight_validator`)
+- Unit tests: 75/75 green (including `test_adopt`, `test_anomaly_detection`, `test_benchmark_trend`, `test_bench_report`, `test_coherence`, `test_containerfile`, `test_dashboard`, `test_e2e_image_coherence`, `test_failover_drill`, `test_gpu_roles_failover`, `test_model_weight_validator`, `test_multinode_orchestrator`, `test_pcie_topology`, `test_pin_image_digest`, `test_profile_regression`, `test_prometheus`, `test_resilience_check`, `test_soak_test`, `test_split_config`, `test_summarize_coherence`, `test_telemetry`, `test_thermal`, `test_validate_configs`, `test_vram_balancer`)
 - Container smoke test: 3/3 checks pass (engine placement, usable engine, libze_loader resolves)
 
 ## Benchmark automation
@@ -152,6 +152,22 @@ Baseline: `runs/baseline-2xb580.json` (not committed; regenerate with `--baselin
 ## Model weight validation
 
 - `scripts/model_weight_validator.py`: validates GGUF shard completeness, PLE shard detection, and computes SHA256 checksums for model weight integrity verification; tested via `tests/test_model_weight_validator.py`.
+
+## End-to-end image coherence smoke test
+
+- `scripts/e2e-image-coherence-smoke.py`: runs the strata-old container image, waits for health, and runs the coherence gate against the live server.
+
+## Image digest pinning
+
+- `scripts/pin_image_digest.py`: pins and verifies the built strata-old image digest for reproducible builds.
+
+## End-to-end image coherence smoke test
+
+- `scripts/e2e_image_coherence_smoke.py`: runs the strata-old container image, waits for health, and runs the coherence gate against the live server; tested via `tests/test_e2e_image_coherence.py`.
+
+## Image digest pinning
+
+- `scripts/pin_image_digest.py`: pins and verifies the built strata-old image digest for reproducible builds; tested via `tests/test_pin_image_digest.py`.
 
 ## Grafana provisioning
 

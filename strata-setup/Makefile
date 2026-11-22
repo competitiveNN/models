@@ -9,6 +9,16 @@ test-all:
 strata-image:
 	podman build -f Containerfile.strata -t localhost/strata-old:latest .
 	$(MAKE) strata-smoke
+	$(MAKE) pin-image-digest
+
+pin-image-digest:
+	python3 scripts/pin_image_digest.py --pin
+
+verify-image-digest:
+	python3 scripts/pin_image_digest.py --verify
+
+validate-model:
+	python3 scripts/model_weight_validator.py --model-dir /model/Swift-Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf 2>/dev/null || python3 scripts/model_weight_validator.py --model-dir /models/swift-iq3_xxs 2>/dev/null || echo "[validate-model] no model dir found, skipping"
 
 strata-smoke:
 	./scripts/strata-old-smoke.sh
