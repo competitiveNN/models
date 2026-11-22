@@ -1,0 +1,32 @@
+# ==============================================================================
+# Pre-commit Hooks for Strata Benchmark Automation
+# ==============================================================================
+repos:
+  - repo: local
+    hooks:
+      - id: strata-bench-tests
+        name: Run Strata benchmark unit tests
+        entry: python3 -m unittest discover tests
+        language: system
+        files: ^(scripts/bench-report\.py|tests/test_bench_report\.py)$
+        pass_filenames: false
+
+      - id: strata-bench-report
+        name: Generate benchmark trend report
+        entry: bash -c 'python3 scripts/bench-report.py --output runs/trend-report.md --json-out runs/trend-report.json --prometheus-out runs/metrics.prom --fail-on-regression'
+        language: system
+        files: ^runs/.*\.json$
+        pass_filenames: false
+      - id: strata-coherence-tests
+        name: Run Strata coherence unit tests
+        entry: python3 -m unittest tests.test_coherence tests.test_containerfile
+        language: system
+        files: ^(scripts/coherence\.py|tests/test_coherence\.py|tests/test_containerfile\.py|Containerfile\.strata|\.dockerignore|run-strata-2gpu\.sh)$
+        pass_filenames: false
+
+      - id: strata-old-smoke
+        name: strata-old image smoke test
+        entry: ./scripts/strata-old-smoke.sh
+        language: system
+        files: ^(Containerfile\.strata|strata-old-source/.*|run-strata-2gpu\.sh)$
+        pass_filenames: false

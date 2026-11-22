@@ -4817,7 +4817,7 @@ class Service:
         self.vision_no_shrink = False                    # the engine said its cache never shrinks (no --vram-elastic)
         self.vision_no_shrink_said = False
         self.last_image_at = 0.0                         # when an image turn last ended (the elastic encoder's idle)
-        self.reasoning_loop_recovery = False
+        self.reasoning_loop_recovery = "recover"
         self.reasoning_budget_configured = False         # the config named reasoning_budget_tokens (0 included): no family default
         self.reasoning_budget_tokens = 0                 # #123: the config's default thinking budget (0: none)
         self.repeat_stop_tokens = REPEAT_STOP_TOKENS     # #606: one token this many times in a row ends a reply (0: off)

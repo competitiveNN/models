@@ -36,7 +36,7 @@
 #   Tune the fit:  CTX=64k PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=256 CORES=8 ./run-strata-2gpu.sh
 #   Pin to specific cores:  CORES=\"0,2,4,6\" ./run-strata-2gpu.sh   (or CORES=off to disable pinning)
 MODEL_DIR="${MODEL_DIR:-/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
-IMAGE="${IMAGE:-ghcr.io/niko1221/strata:0.2.13-sycl}"
+IMAGE="${IMAGE:-localhost/strata-old:latest}"
 NAME="${NAME:-strata}"
 HOST_PORT="${HOST_PORT:-1235}"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
@@ -129,7 +129,7 @@ else
     CORES=$(printf '%s' "$_P_CORES" | tr ',' '\n' | grep -c .)
     _POOL_LIST=$(printf '%s\n%s\n' "$_P_CORES" "$_E_CORES" | tr ',' '\n' | grep -v '^$' | head -n "$CORES" | paste -sd, -)
 fi
-LAUNCH_CMD="strata launch \
+LAUNCH_CMD="mkdir -p /root/.local/share/strata/components/engine && cp -r /opt/strata/components/engine/0.1.59-linux-x86_64-sycl /root/.local/share/strata/components/engine/ 2>/dev/null; /opt/strata/terminal/bin/strata launch \
     --no-api-key \
     --no-tui \
     --family swift \
@@ -168,7 +168,6 @@ podman run -d \
     --stop-timeout=120 \
     --volume="${MODEL_DIR}:/model/:Z,U" \
     --volume="${ROOT}/Strata-data:/data/Strata-data:Z,U" \
-    --volume="${ROOT}/adopt_patched.py:/opt/strata/terminal/strata_cli/launch/adopt.py:Z,U" \
     --env=SYCL_CACHE_PERSISTENT=1 \
     --env='ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1' \
     --env=STRATA_SPIN_MAX=200000000 \

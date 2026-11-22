@@ -1,0 +1,69 @@
+name: strata-old 2x B580 Coherence Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'strata-old-source/**'
+      - 'Containerfile.strata'
+      - 'scripts/coherence.py'
+      - 'bench-coherence-2xb580.py'
+      - 'scripts/bench-automation.py'
+      - 'Makefile'
+      - 'tests/**'
+
+jobs:
+  unit-coherence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run coherence unit tests
+        run: |
+          python3 -m unittest discover tests -v
+
+      - name: Validate 2x B580 configs
+        run: |
+          python3 scripts/validate_configs.py
+
+  integration-coherence:
+    needs: unit-coherence
+    runs-on: self-hosted  # requires 2x Intel Arc B580 + container runtime
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build strata-old image and smoke-test
+        run: |
+          make strata-image
+
+      - name: Run container
+        run: |
+          ./run-strata-2gpu.sh
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:1235/health >/dev/null; then break; fi
+            sleep 10
+          done
+          curl -sf http://localhost:1235/health
+
+      - name: Coherence gate
+        run: |
+          python3 bench-coherence-2xb580.py
+
+      - name: Benchmark regression check
+        run: |
+          python3 scripts/bench-automation.py --run || true
+          python3 scripts/bench-automation.py --report || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          podman rm -f strata 2>/dev/null || true

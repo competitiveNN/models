@@ -42,3 +42,31 @@ class TestCoherence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDetectDegenerate(unittest.TestCase):
+    def setUp(self):
+        from coherence import detect_degenerate
+        self.dd = detect_degenerate
+
+    def test_clean(self):
+        self.assertIsNone(self.dd("Quantum computing uses qubits."))
+        self.assertIsNone(self.dd("The capital of France is Paris."))
+
+    def test_artifact(self):
+        self.assertIsNotNone(self.dd("!" * 20))
+        self.assertIsNotNone(self.dd("hello" + "!" * 10))
+
+    def test_repeated_word(self):
+        self.assertIsNotNone(self.dd("the " * 20))
+
+    def test_empty(self):
+        self.assertIsNotNone(self.dd(""))
+        self.assertIsNotNone(self.dd(None))
+
+    def test_excessive_punct(self):
+        self.assertIsNotNone(self.dd("a" + "?" * 30))
+
+
+if __name__ == "__main__":
+    unittest.main()

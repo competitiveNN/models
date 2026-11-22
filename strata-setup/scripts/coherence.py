@@ -31,6 +31,38 @@ def is_degenerate(text: str | None, min_words: int = 5, unique_ratio: float = 0.
     return False
 
 
+
+
+def detect_degenerate(text: str | None) -> str | None:
+    """Return a human-readable reason when `text` looks degenerate, else None.
+
+    Richer than `is_degenerate`: names the specific failure mode and also
+    catches long runs of a single repeated word. Used by the end-to-end
+    coherence gate (bench-coherence-2xb580.py) and CI.
+    """
+    if text is None:
+        return "empty/None output"
+    stripped = text.strip()
+    if not stripped:
+        return "empty output"
+    if "!!!!!!" in stripped:
+        return "repetitive '!!!!!!' artifact"
+    if stripped.count("!") > 20:
+        return "excessive exclamation marks"
+    if len(stripped) >= 8 and len(set(stripped)) <= 2:
+        return "only a few distinct characters"
+    words = stripped.split()
+    if len(words) >= 5 and len(set(words)) / len(words) < 0.3:
+        return "low unique-word ratio"
+    run = 1
+    for prev, cur in zip(words, words[1:]):
+        run = run + 1 if cur == prev else 1
+        if run > 15:
+            return "a single word repeated"
+    if PUNCT_RUN.search(stripped):
+        return "long run of repeated punctuation"
+    return None
+
 def response_text(message: dict | None) -> str:
     """Extract the best available text from an OpenAI-style message object."""
     if not isinstance(message, dict):
