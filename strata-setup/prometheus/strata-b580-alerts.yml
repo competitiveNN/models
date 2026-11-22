@@ -1,0 +1,94 @@
+# Prometheus alerting rules for Strata 2x B580 TP2 inference
+
+groups:
+- name: strata-b580-tp2-alerts
+  rules:
+  # GPU availability alerts
+  - alert: StrataB580GPUDown
+    expr: strata_b580_device_present == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Strata B580 GPU down"
+      description: "GPU {{ $labels.card }} is not present on the system"
+
+  # Level-Zero runtime alerts
+  - alert: StrataLevelZeroUnavailable
+    expr: strata_level_zero_available == 0
+    for: 30s
+    labels:
+      severity: critical
+    annotations:
+      summary: "Level-Zero runtime unavailable"
+      description: "Level-Zero (libze1) is not available - Strata SYCL engine will fail"
+
+  # VRAM pressure alerts
+  - alert: StrataVRAMPressure
+    expr: (strata_vram_used_gb / strata_vram_total_gb) > 0.9
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High VRAM usage on B580"
+      description: "VRAM usage {{ $value | humanizePercentage }} on {{ $labels.card }}"
+
+  # Throughput degradation alerts
+  - alert: StrataThroughputDegraded
+    expr: strata_throughput_tok_s{quantile="p50"} < 8
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Strata throughput degraded"
+      description: "Median throughput {{ $value }} tok/s is below 8 tok/s threshold"
+
+  # Latency spike alerts
+  - alert: StrataLatencySpike
+    expr: strata_latency_seconds{quantile="p95"} > 60
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Strata latency spike detected"
+      description: "P95 latency {{ $value }}s exceeds 60s threshold"
+
+  # Thermal throttling alerts
+  - alert: StrataGPUThrottling
+    expr: strata_gpu_temperature_celsius > 85
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "GPU temperature high"
+      description: "GPU {{ $labels.card }} temperature {{ $value }}°C exceeds 85°C"
+
+  # Container health alerts
+  - alert: StrataContainerUnhealthy
+    expr: up{job="strata"} == 0
+    for: 30s
+    labels:
+      severity: critical
+    annotations:
+      summary: "Strata container down"
+      description: "Strata container has been down for more than 30 seconds"
+
+  # Coherence/artifact alerts
+  - alert: StrataArtifactLoopDetected
+    expr: increase(strata_artifact_loops_total[5m]) > 0
+    for: 0s
+    labels:
+      severity: critical
+    annotations:
+      summary: "Artifact loop detected"
+      description: "Repetitive `!!!!!!` artifact loop detected in Strata output"
+
+  # Benchmark regression alerts
+  - alert: StrataBenchmarkRegression
+    expr: strata_benchmark_regression_detected == 1
+    for: 0s
+    labels:
+      severity: warning
+    annotations:
+      summary: "Benchmark regression detected"
+      description: "Automated benchmark detected >15% throughput regression"

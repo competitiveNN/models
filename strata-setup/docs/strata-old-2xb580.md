@@ -89,7 +89,7 @@ unit tests in `tests/test_coherence.py`.
 
 **Coherence verification:**
 - `bench-coherence-2xb580.py`: 4/4 prompts PASS (no `!!!!!!` loops)
-- Unit tests: 62/62 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`, `test_prometheus`, `test_vram_balancer`, `test_pcie_topology`, `test_soak_test`, `test_failover_drill`, `test_dashboard`, `test_resilience_check`)
+- Unit tests: 64/64 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`, `test_prometheus`, `test_vram_balancer`, `test_pcie_topology`, `test_soak_test`, `test_failover_drill`, `test_dashboard`, `test_resilience_check`, `test_thermal`)
 - Container smoke test: 3/3 checks pass (engine placement, usable engine, libze_loader resolves)
 
 ## Benchmark automation
@@ -128,6 +128,14 @@ Baseline: `runs/baseline-2xb580.json` (not committed; regenerate with `--baselin
 ## Resilience & chaos testing
 
 - `scripts/resilience_check.py`: runs automated fault-injection style checks (VRAM pressure, thermal throttling, container restart recovery) with fallback verification; tested via `tests/test_resilience_check.py`.
+
+## Thermal monitoring
+
+- `scripts/b580_thermal.py`: reads real GPU temperature, power draw, and frequency from Linux hwmon sysfs interfaces; exports Prometheus metrics; tested via `tests/test_thermal.py`.
+
+## Prometheus alerting rules
+
+- `prometheus/strata-b580-alerts.yml`: defines alerting rules for GPU availability, VRAM pressure, throughput degradation, latency spikes, thermal throttling, and artifact loop detection.
 
 ## Dashboard generation
 
