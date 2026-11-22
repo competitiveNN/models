@@ -89,7 +89,7 @@ unit tests in `tests/test_coherence.py`.
 
 **Coherence verification:**
 - `bench-coherence-2xb580.py`: 4/4 prompts PASS (no `!!!!!!` loops)
-- Unit tests: 75/75 green (including `test_adopt`, `test_anomaly_detection`, `test_benchmark_trend`, `test_bench_report`, `test_coherence`, `test_containerfile`, `test_dashboard`, `test_e2e_image_coherence`, `test_failover_drill`, `test_gpu_roles_failover`, `test_model_weight_validator`, `test_multinode_orchestrator`, `test_pcie_topology`, `test_pin_image_digest`, `test_profile_regression`, `test_prometheus`, `test_resilience_check`, `test_soak_test`, `test_split_config`, `test_summarize_coherence`, `test_telemetry`, `test_thermal`, `test_validate_configs`, `test_vram_balancer`)
+- Unit tests: 83/83 green (including `test_adopt`, `test_anomaly_detection`, `test_benchmark_trend`, `test_bench_report`, `test_coherence`, `test_containerfile`, `test_dashboard`, `test_e2e_image_coherence`, `test_failover_drill`, `test_gpu_roles_failover`, `test_model_weight_validator`, `test_multinode_orchestrator`, `test_pcie_topology`, `test_pin_image_digest`, `test_profile_regression`, `test_prometheus`, `test_resilience_check`, `test_soak_test`, `test_split_config`, `test_summarize_coherence`, `test_telemetry`, `test_thermal`, `test_validate_configs`, `test_vram_balancer`)
 - Container smoke test: 3/3 checks pass (engine placement, usable engine, libze_loader resolves)
 
 ## Benchmark automation
@@ -172,6 +172,11 @@ Baseline: `runs/baseline-2xb580.json` (not committed; regenerate with `--baselin
 ## Grafana provisioning
 
 - `grafana/provisioning/datasources.yml` and `grafana/provisioning/dashboards.yml`: auto-provision Prometheus datasource and Strata dashboard on Grafana startup.
+
+## Benchmark tracking
+
+- `bench/b580-tp2-bench.sh`: automated performance and VRAM tracking benchmark script for 2x B580 TP2.
+- `bench/` directory contains continuous performance monitoring tools.
 
 ## CI pipeline (`.github/workflows/strata-old-coherence.yml`)
 
