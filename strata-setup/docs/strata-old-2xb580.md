@@ -89,7 +89,7 @@ unit tests in `tests/test_coherence.py`.
 
 **Coherence verification:**
 - `bench-coherence-2xb580.py`: 4/4 prompts PASS (no `!!!!!!` loops)
-- Unit tests: 53/53 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`)
+- Unit tests: 54/54 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`, `test_prometheus`)
 - Container smoke test: 3/3 checks pass (engine placement, usable engine, libze_loader resolves)
 
 ## Benchmark automation
@@ -116,10 +116,10 @@ Latest automated run (completion-token throughput, 3 runs each):
 
 Baseline: `runs/baseline-2xb580.json` (not committed; regenerate with `--baseline`).
 
-## Hardware telemetry (`scripts/b580_telemetry.py`)
+## Hardware telemetry
 
-- Probes 2× Intel Arc B580 GPU presence via DRM (`/sys/class/drm/card*`), driver mapping, and `libze1` Level-Zero status.
-- Tested via `tests/test_telemetry.py`.
+- `scripts/b580_telemetry.py`: probes 2× Intel Arc B580 GPU presence via DRM (`/sys/class/drm/card*`), driver mapping, and `libze1` Level-Zero status; tested via `tests/test_telemetry.py`.
+- `scripts/b580_prometheus.py`: exports the same telemetry to Prometheus text format; tested via `tests/test_prometheus.py`.
 
 ## CI pipeline (`.github/workflows/strata-old-coherence.yml`)
 
