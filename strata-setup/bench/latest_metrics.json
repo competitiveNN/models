@@ -1,0 +1,172 @@
+{
+  "generated_by": "scripts/summarize-bench.py",
+  "generated_at": "2026-11-15",
+  "note": "Every value below is parsed from `strata serve:` request lines in runs/*.log. Regenerate with scripts/summarize-bench.py --json runs/<log>.",
+  "hardware": "2x Intel Arc B580 (12 GiB each), Level Zero",
+  "model": "Swift-Qwen3.8-Flash-Next IQ3_XXS",
+  "targets": {
+    "decode_tok_s": 40.0,
+    "prefill_tok_s": 1400.0
+  },
+  "verdict": {
+    "decode_target": "met by best 2-GPU config (42.1 median, miss108)",
+    "prefill_target": "NOT met (best 1247.4 peak / 960.5 median, miss108)",
+    "dual_gpu_operational": true,
+    "correction": "Earlier status docs claimed dual-GPU was blocked and cited 22.5 tok/s as a 1-GPU baseline. Both claims are wrong: 22.5 tok/s appears only in 2-GPU logs, and several 2-GPU configs ran 100% of requests with zero DEVICE_LOST.",
+    "cold_start_sensitivity": "miss108 achieves 42.1 tok/s median once warm (55 requests in historical log), but a cold start can trip verify window timeout (#267) on the first prompt before expert caches fill."
+  },
+  "runs": [
+    {
+      "log": "strata-swift-iq3_xxs-2gpu-miss108.log",
+      "requests_generating": 55,
+      "device_lost": 1,
+      "success_rate_pct": 98.2,
+      "decode_tps_median": 42.1,
+      "decode_tps_min": 15.1,
+      "decode_tps_max": 44.5,
+      "prefill_samples": 3,
+      "prefill_tps_median": 960.5,
+      "prefill_tps_max": 1247.4,
+      "longest_gen": {
+        "tokens": 3059,
+        "ms": 72626,
+        "tps": 42.1
+      },
+      "meets_decode_target": true,
+      "meets_prefill_target": false
+    },
+    {
+      "log": "strata-swift-iq3_xxs-2gpu-lstats.log",
+      "requests_generating": 63,
+      "device_lost": 0,
+      "success_rate_pct": 100.0,
+      "decode_tps_median": 39.5,
+      "decode_tps_min": 27.2,
+      "decode_tps_max": 44.6,
+      "prefill_samples": 0,
+      "prefill_tps_median": null,
+      "prefill_tps_max": null,
+      "longest_gen": {
+        "tokens": 210,
+        "ms": 5038,
+        "tps": 41.7
+      },
+      "meets_decode_target": false,
+      "meets_prefill_target": false
+    },
+    {
+      "log": "strata-swift-iq3_xxs-2gpu-ringtrack.log",
+      "requests_generating": 161,
+      "device_lost": 0,
+      "success_rate_pct": 100.0,
+      "decode_tps_median": 38.8,
+      "decode_tps_min": 12.7,
+      "decode_tps_max": 57.6,
+      "prefill_samples": 0,
+      "prefill_tps_median": null,
+      "prefill_tps_max": null,
+      "longest_gen": {
+        "tokens": 256,
+        "ms": 6837,
+        "tps": 37.4
+      },
+      "meets_decode_target": false,
+      "meets_prefill_target": false
+    },
+    {
+      "log": "strata-swift-iq3_xxs-2gpu-k26v512.log",
+      "requests_generating": 24,
+      "device_lost": 0,
+      "success_rate_pct": 100.0,
+      "decode_tps_median": 37.3,
+      "decode_tps_min": 19.8,
+      "decode_tps_max": 40.8,
+      "prefill_samples": 0,
+      "prefill_tps_median": null,
+      "prefill_tps_max": null,
+      "longest_gen": {
+        "tokens": 216,
+        "ms": 5554,
+        "tps": 38.9
+      },
+      "meets_decode_target": false,
+      "meets_prefill_target": false
+    },
+    {
+      "log": "strata-swift-iq3_xxs-2gpu-pipe2.log",
+      "requests_generating": 89,
+      "device_lost": 0,
+      "success_rate_pct": 100.0,
+      "decode_tps_median": 35.9,
+      "decode_tps_min": 13.8,
+      "decode_tps_max": 43.5,
+      "prefill_samples": 0,
+      "prefill_tps_median": null,
+      "prefill_tps_max": null,
+      "longest_gen": {
+        "tokens": 210,
+        "ms": 4980,
+        "tps": 42.2
+      },
+      "meets_decode_target": false,
+      "meets_prefill_target": false
+    },
+    {
+      "log": "strata-swift-iq3_xxs-1gpu.log",
+      "requests_generating": 284,
+      "device_lost": 10,
+      "success_rate_pct": 96.6,
+      "decode_tps_median": 35.2,
+      "decode_tps_min": 0.3,
+      "decode_tps_max": 124.0,
+      "prefill_samples": 50,
+      "prefill_tps_median": 643.9,
+      "prefill_tps_max": 1254.4,
+      "longest_gen": {
+        "tokens": 3409,
+        "ms": 105840,
+        "tps": 32.2
+      },
+      "meets_decode_target": false,
+      "meets_prefill_target": false
+    },
+    {
+      "log": "strata-swift-iq3_xxs-2gpu-autov512.log",
+      "requests_generating": 203,
+      "device_lost": 0,
+      "success_rate_pct": 100.0,
+      "decode_tps_median": 33.9,
+      "decode_tps_min": 10.3,
+      "decode_tps_max": 42.0,
+      "prefill_samples": 0,
+      "prefill_tps_median": null,
+      "prefill_tps_max": null,
+      "longest_gen": {
+        "tokens": 210,
+        "ms": 5230,
+        "tps": 40.2
+      },
+      "meets_decode_target": false,
+      "meets_prefill_target": false
+    },
+    {
+      "log": "strata-swift-iq3_xxs-2gpu.log",
+      "requests_generating": 61,
+      "device_lost": 0,
+      "success_rate_pct": 100.0,
+      "decode_tps_median": 30.0,
+      "decode_tps_min": 0.3,
+      "decode_tps_max": 38.3,
+      "prefill_samples": 0,
+      "prefill_tps_median": null,
+      "prefill_tps_max": null,
+      "longest_gen": {
+        "tokens": 208,
+        "ms": 5732,
+        "tps": 36.3
+      },
+      "meets_decode_target": false,
+      "meets_prefill_target": false
+    }
+  ]
+}

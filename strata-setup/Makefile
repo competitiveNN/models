@@ -37,6 +37,15 @@ docs:
 bench-run:
 	python3 scripts/bench-automation.py --run --url http://127.0.0.1:1235/v1/chat/completions
 
+bench-tp2:
+	./bench/b580-tp2-bench.sh run
+
+bench-trend:
+	./bench/b580-tp2-bench.sh trend
+
+bench-compare-tp2:
+	./bench/b580-tp2-bench.sh compare
+
 bench-baseline:
 	python3 scripts/bench-automation.py --baseline
 

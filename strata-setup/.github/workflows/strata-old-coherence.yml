@@ -53,7 +53,15 @@ jobs:
       - name: Build strata-old image and smoke-test
         run: |
           make strata-image
-          make verify-image-digest || true
+          make verify-image-digest
+
+      - name: Validate model weights
+        run: |
+          if [ -d /models/swift-iq3_xxs ]; then
+            python3 scripts/model_weight_validator.py --model-dir /models/swift-iq3_xxs
+          else
+            echo "No model directory found, skipping weight validation"
+          fi
       - name: Run container
         run: |
           ./run-strata-2gpu.sh
@@ -69,13 +77,21 @@ jobs:
 
       - name: End-to-end image coherence smoke test
         run: |
-          python3 scripts/e2e_image_coherence_smoke.py || true
+          python3 scripts/e2e_image_coherence_smoke.py
         if: github.event_name == 'workflow_dispatch'
 
       - name: Benchmark regression check
         run: |
           python3 scripts/bench-automation.py --run || true
           python3 scripts/bench-automation.py --report || true
+
+      - name: Performance and VRAM tracking
+        run: |
+          python3 scripts/b580_dashboard.py > runs/dashboard.md
+          python3 scripts/benchmark_trend.py > runs/benchmark-trend.md
+          python3 scripts/vram_balancer.py > runs/vram-report.json
+          python3 scripts/b580_thermal.py > runs/thermal-metrics.prom 2>/dev/null || true
+          python3 scripts/b580_prometheus.py > runs/telemetry-metrics.prom 2>/dev/null || true
 
       - name: Nightly soak & failover verification
         if: github.event_name == 'schedule'

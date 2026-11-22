@@ -1,0 +1,17 @@
+{
+  "tag": "miss108-quick2",
+  "config": "strata-swift-iq3_xxs-2gpu-miss108",
+  "provenance": {
+    "git_commit": "149e1d5",
+    "git_dirty_files": 40,
+    "binary_sha256": "f28d2e26a37e0a93f549cc29f22d59069b78a5c1911c0cb3700bca9b88517c48",
+    "config_sha256": "2367548d636bcc9d059c3b03c5d47e88fe93170228dbf2e05774ee73711dfb10"
+  },
+  "runs_completed": 0,
+  "per_run": [],
+  "median_of_runs": {
+    "decode_e2e_tok_s_median": null,
+    "prefill_tok_s_median": null
+  },
+  "note": "median_of_runs is the median across independent cold starts of the per-run median; it is the number to quote, not the best single run."
+}
