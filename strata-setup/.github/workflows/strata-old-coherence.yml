@@ -2,6 +2,8 @@ name: strata-old 2x B580 Coherence Gate
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
   push:
     branches: [ master, main ]
     paths:
@@ -62,6 +64,13 @@ jobs:
         run: |
           python3 scripts/bench-automation.py --run || true
           python3 scripts/bench-automation.py --report || true
+
+      - name: Nightly soak & failover verification
+        if: github.event_name == 'schedule'
+        run: |
+          python3 scripts/strata_soak_test.py || true
+          python3 scripts/failover_drill.py || true
+          python3 scripts/b580_prometheus.py > runs/metrics.prom
 
       - name: Cleanup
         if: always()

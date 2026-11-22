@@ -135,6 +135,8 @@ Baseline: `runs/baseline-2xb580.json` (not committed; regenerate with `--baselin
 - `integration-coherence` (self-hosted, manual dispatch only): runs `make strata-image`, which builds the
   image **and** runs `strata-old-smoke.sh` in one step; then starts the container with `run-strata-2gpu.sh`,
   waits for `/health`, runs `bench-coherence-2xb580.py` (4/4 gate), and reports `scripts/bench-automation.py`.
+- Nightly soak & failover workflow (`schedule: cron '0 2 * * *'`): runs the soak-test orchestration and failover
+  drill, and writes Prometheus metrics for the 2× B580 setup.
 
 ## Known limitations
 
