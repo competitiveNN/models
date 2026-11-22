@@ -89,7 +89,7 @@ unit tests in `tests/test_coherence.py`.
 
 **Coherence verification:**
 - `bench-coherence-2xb580.py`: 4/4 prompts PASS (no `!!!!!!` loops)
-- Unit tests: 83/83 green (including `test_adopt`, `test_anomaly_detection`, `test_benchmark_trend`, `test_bench_report`, `test_coherence`, `test_containerfile`, `test_dashboard`, `test_e2e_image_coherence`, `test_failover_drill`, `test_gpu_roles_failover`, `test_model_weight_validator`, `test_multinode_orchestrator`, `test_pcie_topology`, `test_pin_image_digest`, `test_profile_regression`, `test_prometheus`, `test_resilience_check`, `test_soak_test`, `test_split_config`, `test_summarize_coherence`, `test_telemetry`, `test_thermal`, `test_validate_configs`, `test_vram_balancer`)
+- Unit tests: 88/88 green (including `test_adopt`, `test_anomaly_detection`, `test_benchmark_trend`, `test_bench_report`, `test_coherence`, `test_containerfile`, `test_dashboard`, `test_e2e_image_coherence`, `test_failover_drill`, `test_gpu_roles_failover`, `test_model_weight_validator`, `test_multinode_orchestrator`, `test_pcie_topology`, `test_pin_image_digest`, `test_profile_regression`, `test_prometheus`, `test_resilience_check`, `test_soak_test`, `test_split_config`, `test_summarize_coherence`, `test_telemetry`, `test_thermal`, `test_validate_configs`, `test_vram_balancer`)
 - Container smoke test: 3/3 checks pass (engine placement, usable engine, libze_loader resolves)
 
 ## Benchmark automation
@@ -109,10 +109,10 @@ Latest automated run (completion-token throughput, 3 runs each):
 
 | Benchmark | Median latency | Median tokens | Throughput |
 |-----------|----------------|---------------|------------|
-| short_chat | 1.95 s | 36 | 17.4 tok/s |
-| code_gen | 18.14 s | 194 | 11.0 tok/s |
-| explanation | 7.07 s | 115 | 21.2 tok/s |
-| creative | 4.07 s | 67 | 17.5 tok/s |
+| short_chat | 4.68 s | 50 | 10.8 tok/s |
+| code_gen | 11.31 s | 200 | 18.0 tok/s |
+| explanation | 6.18 s | 150 | 18.1 tok/s |
+| creative | 4.58 s | 100 | 19.7 tok/s |
 
 Baseline: `runs/baseline-2xb580.json` (not committed; regenerate with `--baseline`).
 

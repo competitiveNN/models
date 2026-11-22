@@ -75,10 +75,15 @@ jobs:
         run: |
           python3 bench-coherence-2xb580.py
 
+      - name: Stop strata container before E2E smoke
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          podman rm -f strata 2>/dev/null || true
+
       - name: End-to-end image coherence smoke test
+        if: github.event_name == 'workflow_dispatch'
         run: |
           python3 scripts/e2e_image_coherence_smoke.py
-        if: github.event_name == 'workflow_dispatch'
 
       - name: Benchmark regression check
         run: |

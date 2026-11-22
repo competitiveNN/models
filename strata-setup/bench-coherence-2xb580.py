@@ -6,6 +6,7 @@ shows a repetitive artifact loop (`!!!!!!`) or otherwise degenerates.
 Stdlib only: it runs on the host without extra packages.
 """
 import argparse
+import os
 import json
 import sys
 import urllib.request
@@ -24,8 +25,8 @@ PROMPTS = [
 ]
 
 
-def ask(url, prompt, max_tokens, timeout):
-    payload = {"model": "swift", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}
+def ask(url, prompt, max_tokens, timeout, model):
+    payload = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url, data=data, method="POST",
@@ -33,12 +34,15 @@ def ask(url, prompt, max_tokens, timeout):
     )
     with urllib.request.urlopen(req, timeout=timeout) as res:
         body = json.loads(res.read().decode("utf-8"))
-    return body["choices"][0]["message"].get("content", "") or ""
+    msg = body["choices"][0]["message"]
+    content = msg.get("content", "") or msg.get("reasoning_content", "") or ""
+    return content
 
 
 def main():
     ap = argparse.ArgumentParser(description="strata-old 2x B580 coherence gate")
     ap.add_argument("--url", default=DEFAULT_URL)
+    ap.add_argument("--model", default=os.environ.get("COHERENCE_MODEL", "swift-1.5-iq3_xxs"))
     ap.add_argument("--max-tokens", type=int, default=150)
     ap.add_argument("--timeout", type=float, default=180.0, help="seconds per request (cold expert loads are slow)")
     args = ap.parse_args()
@@ -46,7 +50,7 @@ def main():
     failed = 0
     for name, prompt in PROMPTS:
         try:
-            content = ask(args.url, prompt, args.max_tokens, args.timeout)
+            content = ask(args.url, prompt, args.max_tokens, args.timeout, args.model)
         except Exception as e:
             print(f"[FAIL] {name}: request error: {e}")
             failed += 1
