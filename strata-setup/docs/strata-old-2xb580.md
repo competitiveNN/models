@@ -89,7 +89,7 @@ unit tests in `tests/test_coherence.py`.
 
 **Coherence verification:**
 - `bench-coherence-2xb580.py`: 4/4 prompts PASS (no `!!!!!!` loops)
-- Unit tests: 67/67 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`, `test_prometheus`, `test_vram_balancer`, `test_pcie_topology`, `test_soak_test`, `test_failover_drill`, `test_dashboard`, `test_resilience_check`, `test_thermal`, `test_benchmark_trend`, `test_anomaly_detection`)
+- Unit tests: 72/72 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`, `test_prometheus`, `test_vram_balancer`, `test_pcie_topology`, `test_soak_test`, `test_failover_drill`, `test_dashboard`, `test_resilience_check`, `test_thermal`, `test_benchmark_trend`, `test_anomaly_detection`, `test_multinode_orchestrator`, `test_model_weight_validator`)
 - Container smoke test: 3/3 checks pass (engine placement, usable engine, libze_loader resolves)
 
 ## Benchmark automation
@@ -144,6 +144,14 @@ Baseline: `runs/baseline-2xb580.json` (not committed; regenerate with `--baselin
 ## Anomaly detection
 
 - `scripts/anomaly_detection.py`: implements statistical anomaly detection (Z-score, IQR, rolling statistics) for GPU temperature, throughput, latency, and power metrics; tested via `tests/test_anomaly_detection.py`.
+
+## Multi-node scaling orchestration
+
+- `scripts/multinode_orchestrator.py`: orchestrates multiple Strata nodes for distributed inference across machines, each with 2× Intel Arc B580 GPUs; provides cluster status, health tracking, and load balancer endpoint management; tested via `tests/test_multinode_orchestrator.py`.
+
+## Model weight validation
+
+- `scripts/model_weight_validator.py`: validates GGUF shard completeness, PLE shard detection, and computes SHA256 checksums for model weight integrity verification; tested via `tests/test_model_weight_validator.py`.
 
 ## Grafana provisioning
 
