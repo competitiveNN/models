@@ -1,0 +1,247 @@
+{
+  "dashboard": {
+    "title": "Strata 2x B580 TP2 - Inference Monitoring",
+    "uid": "strata-b580-tp2",
+    "tags": ["strata", "b580", "tp2", "inference", "intel-arc"],
+    "timezone": "utc",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "GPU Temperature (°C)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "strata_gpu_temperature_celsius",
+            "legendFormat": "{{sensor}} ({{hwmon}})",
+            "interval": "30s"
+          }
+        ],
+        "yaxes": [
+          {"format": "celsius", "label": "Temperature (°C)"},
+          {"format": "short"}
+        ],
+        "thresholds": [
+          {"value": 85, "colorMode": "critical", "op": "gt", "fill": true, "line": true},
+          {"value": 75, "colorMode": "warning", "op": "gt", "fill": true, "line": true}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "GPU Power Draw (W)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "strata_gpu_power_watts",
+            "legendFormat": "{{sensor}} ({{hwmon}})",
+            "interval": "30s"
+          }
+        ],
+        "yaxes": [
+          {"format": "watts", "label": "Power (W)"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Inference Throughput (tok/s)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "strata_throughput_tok_s",
+            "legendFormat": "{{quantile}}",
+            "interval": "30s"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Tokens/sec"},
+          {"format": "short"}
+        ],
+        "thresholds": [
+          {"value": 8, "colorMode": "warning", "op": "lt", "fill": true, "line": true}
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Inference Latency (seconds)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "strata_latency_seconds",
+            "legendFormat": "{{quantile}}",
+            "interval": "30s"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Latency (s)"},
+          {"format": "short"}
+        ],
+        "thresholds": [
+          {"value": 60, "colorMode": "warning", "op": "gt", "fill": true, "line": true}
+        ]
+      },
+      {
+        "id": 5,
+        "title": "GPU Presence & Level-Zero",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 16, "w": 6, "h": 4},
+        "targets": [
+          {"expr": "strata_b580_device_present", "legendFormat": "GPU {{card}}"},
+          {"expr": "strata_level_zero_available", "legendFormat": "Level-Zero"}
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 0.5, "color": "yellow"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Coherence / Artifact Loops",
+        "type": "stat",
+        "gridPos": {"x": 6, "y": 16, "w": 6, "h": 4},
+        "targets": [
+          {"expr": "increase(strata_artifact_loops_total[5m])", "legendFormat": "Artifact Loops (5m)"}
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "range", "options": {"0": {"text": "CLEAN", "color": "green"}, "1": {"text": "ALERT", "color": "red"}}}
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 1, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Benchmark Regression",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 16, "w": 6, "h": 4},
+        "targets": [
+          {"expr": "strata_benchmark_regression_detected", "legendFormat": "Regression Detected"}
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "OK", "color": "green"}, "1": {"text": "REGRESSION", "color": "red"}}}
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 1, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Container Health",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 16, "w": 6, "h": 4},
+        "targets": [
+          {"expr": "up{job=\"strata\"}", "legendFormat": "Container"}
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "VRAM Usage %",
+        "type": "gauge",
+        "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "strata_vram_used_gb / strata_vram_total_gb * 100",
+            "legendFormat": "VRAM Usage %",
+            "interval": "30s"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 70, "color": "yellow"},
+                {"value": 90, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Benchmark Throughput by Test (tok/s)",
+        "type": "bargauge",
+        "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "strata_throughput_tok_s{quantile=\"p50\"}",
+            "legendFormat": "Median Throughput"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 5, "color": "yellow"},
+                {"value": 10, "color": "green"}
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": []
+    }
+  },
+  "overwrite": true
+}

@@ -89,7 +89,7 @@ unit tests in `tests/test_coherence.py`.
 
 **Coherence verification:**
 - `bench-coherence-2xb580.py`: 4/4 prompts PASS (no `!!!!!!` loops)
-- Unit tests: 64/64 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`, `test_prometheus`, `test_vram_balancer`, `test_pcie_topology`, `test_soak_test`, `test_failover_drill`, `test_dashboard`, `test_resilience_check`, `test_thermal`)
+- Unit tests: 65/65 green (including `test_reasoning_loop_recovery`, `test_coherence`, `test_containerfile`, `test_adopt`, `test_gpu_roles_failover`, `test_split_config`, `test_telemetry`, `test_prometheus`, `test_vram_balancer`, `test_pcie_topology`, `test_soak_test`, `test_failover_drill`, `test_dashboard`, `test_resilience_check`, `test_thermal`, `test_benchmark_trend`)
 - Container smoke test: 3/3 checks pass (engine placement, usable engine, libze_loader resolves)
 
 ## Benchmark automation
@@ -137,9 +137,13 @@ Baseline: `runs/baseline-2xb580.json` (not committed; regenerate with `--baselin
 
 - `prometheus/strata-b580-alerts.yml`: defines alerting rules for GPU availability, VRAM pressure, throughput degradation, latency spikes, thermal throttling, and artifact loop detection.
 
-## Dashboard generation
+## Grafana dashboard
 
-- `scripts/b580_dashboard.py`: summarizes benchmark throughput and Prometheus metrics into a static Markdown dashboard; tested via `tests/test_dashboard.py`.
+- `grafana/strata-b580-tp2-dashboard.json`: ready-to-import Grafana dashboard with panels for GPU temperature, power draw, inference throughput, latency, VRAM usage, coherence status, benchmark regression, and container health.
+
+## Benchmark trend tracking
+
+- `scripts/benchmark_trend.py`: tracks historical benchmark throughput over time, detects long-term regressions (>15% threshold), and generates trend reports; tested via `tests/test_benchmark_trend.py`.
 
 ## CI pipeline (`.github/workflows/strata-old-coherence.yml`)
 
