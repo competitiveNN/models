@@ -22,6 +22,7 @@ Usage:
 import argparse
 import json
 import random
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import statistics
 import sys
@@ -502,16 +503,52 @@ SEVERITY_ORDER = {"info": 0, "warning": 1, "critical": 2}
 def send_webhooks(targets, payload, dry_run=False, timeout=15, retries=3):
     """Send payload to multiple webhook targets. Returns list of (target, ok, msg)."""
     severity = payload.get("severity", "info")
-    results = []
-    for t in targets:
+    results = [None] * len(targets)
+
+    def _send_one(i, t):
         min_sev = t.get("min_severity", "info")
         if SEVERITY_ORDER.get(severity, 0) < SEVERITY_ORDER.get(min_sev, 0):
-            results.append((t, True, "skipped: below min severity"))
-            continue
+            return i, (t, True, "skipped: below min severity")
         ok, msg = send_webhook(t["url"], payload, dry_run=dry_run,
                                timeout=timeout, retries=retries)
-        results.append((t, ok, msg))
+        return i, (t, ok, msg)
+
+    with ThreadPoolExecutor(max_workers=min(8, len(targets) or 1)) as ex:
+        futures = [ex.submit(_send_one, i, t) for i, t in enumerate(targets)]
+        for fut in as_completed(futures):
+            i, res = fut.result()
+            results[i] = res
     return results
+
+
+def load_alert_state(path):
+    """Load alert deduplication state from JSON file."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_alert_state(path, state):
+    """Save alert deduplication state to JSON file."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, indent=2))
+
+
+def alert_signature(report, drift=None):
+    """Build a stable signature for deduplication."""
+    metrics = report.get("metrics", {})
+    return {
+        "alert": bool(report.get("alert", False)),
+        "drift_detected": bool(drift and drift.get("drift_detected")),
+        "severity": "critical" if report.get("alert") else ("warning" if (drift and drift.get("drift_detected")) else "info"),
+        "winner_decode": metrics.get("winner", {}).get("decode_median"),
+        "winner_prefill": metrics.get("winner", {}).get("prefill_median"),
+    }
 
 
 def main():
@@ -539,6 +576,12 @@ def main():
                     help="Trim history to the last N entries after appending")
     ap.add_argument("--validate-webhooks", action="store_true",
                     help="Validate webhook targets and exit")
+    ap.add_argument("--alert-state", default=str(ROOT / "runs" / "alert-state.json"),
+                    help="Path to alert deduplication state file")
+    ap.add_argument("--alert-cooldown", type=int, default=3600,
+                    help="Suppress duplicate alerts for this many seconds (default: 3600)")
+    ap.add_argument("--force-alert", action="store_true",
+                    help="Send alerts even if a duplicate was recently sent")
     ap.add_argument("--prometheus-out", default=None,
                     help="Write Prometheus metrics to this path")
     ap.add_argument("--drift-threshold", type=float, default=0.10,
@@ -604,7 +647,17 @@ def main():
         trim_history(args.history_file, args.history_max_entries)
 
     # Webhook notification
-    if targets:
+    suppressed = False
+    state_path = Path(args.alert_state) if args.alert_state else None
+    state = load_alert_state(state_path) if state_path else {}
+    sig = alert_signature(report, drift)
+    last = state.get("last", {}) if isinstance(state, dict) else {}
+    now = time.time()
+    if (not args.force_alert and targets and last.get("signature") == sig
+            and now - float(last.get("timestamp", 0)) < args.alert_cooldown):
+        suppressed = True
+
+    if targets and not suppressed:
         payload = build_webhook_payload(report, drift)
         results = send_webhooks(targets, payload, dry_run=args.dry_run,
                                timeout=args.webhook_timeout, retries=args.webhook_retries)
@@ -621,6 +674,11 @@ def main():
                 print(f"WARNING: {t['url']}: {msg}", file=sys.stderr)
             else:
                 print(f"{t['url']}: {msg}")
+        if state_path is not None:
+            save_alert_state(state_path, {"last": {"signature": sig, "timestamp": now}})
+    if suppressed:
+        report["webhook_suppressed"] = True
+        print("Alert suppressed: duplicate within cooldown window.")
 
     # Write Prometheus metrics if requested
     if args.prometheus_out:

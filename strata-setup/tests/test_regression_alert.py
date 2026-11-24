@@ -219,3 +219,34 @@ class TestWebhookValidationAndDeadLetter(unittest.TestCase):
         # ensure send_webhook retry path executes without error on failure
         ok, msg = ra.send_webhook("http://127.0.0.1:1/nope", {"x": 1}, dry_run=False, timeout=1, retries=1)
         self.assertFalse(ok)
+
+
+class TestAlertDeduplication(unittest.TestCase):
+    def test_alert_signature_stable(self):
+        report = ra.build_report(ra.load_entries())
+        drift = report.get("drift")
+        sig1 = ra.alert_signature(report, drift)
+        sig2 = ra.alert_signature(report, drift)
+        self.assertEqual(sig1, sig2)
+
+    def test_load_save_alert_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "state.json"
+            ra.save_alert_state(p, {"last": {"signature": {"a": 1}, "timestamp": 123.0}})
+            state = ra.load_alert_state(p)
+            self.assertEqual(state["last"]["timestamp"], 123.0)
+
+    def test_load_alert_state_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(ra.load_alert_state(Path(td) / "nope.json"), {})
+
+
+class TestConcurrentDispatch(unittest.TestCase):
+    def test_send_webhooks_preserves_order(self):
+        targets = [{"url": f"http://example.com/{i}", "min_severity": "info"} for i in range(5)]
+        # dry-run to avoid network
+        results = ra.send_webhooks(targets, {"severity": "info", "text": "x"}, dry_run=True)
+        self.assertEqual(len(results), 5)
+        for i, (t, ok, msg) in enumerate(results):
+            self.assertTrue(ok)
+            self.assertEqual(t["url"], f"http://example.com/{i}")

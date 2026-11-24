@@ -134,6 +134,8 @@ def main():
     ap.add_argument("--history", default=str(HISTORY_DEFAULT), help="Path to regression-alert history JSONL")
     ap.add_argument("--out", default=None, help="Write markdown to this path (default: stdout)")
     ap.add_argument("--json-out", default=None, help="Also write JSON summary to this path")
+    ap.add_argument("--fail-on-anomaly", action="store_true",
+                    help="Exit non-zero if an anomaly is detected")
     args = ap.parse_args()
 
     report = generate_report(args.history)
@@ -162,6 +164,8 @@ def main():
         }
         Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.json_out).write_text(json.dumps(summary, indent=2))
+    if args.fail_on_anomaly and (summary.get("decode_anomaly") or summary.get("prefill_anomaly")):
+        return 1
     return 0
 
 
