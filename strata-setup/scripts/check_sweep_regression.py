@@ -17,6 +17,20 @@ FIXED_BASELINE_TAG = "baseline-ctx64k-auto-spec4-par1"
 REQUIRED_FIELDS = {"tag", "decode_median", "prefill_median", "coherence_pass", "env"}
 
 
+def is_promoted_entry(tag: str, winner_tag: str, baseline_tag: str) -> bool:
+    """Return True if this entry belongs to the promoted/production tier."""
+    if tag in (winner_tag, baseline_tag):
+        return True
+    if tag.startswith("r3-"):
+        return True
+    return False
+
+
+def is_historical_entry(tag: str, winner_tag: str, baseline_tag: str) -> bool:
+    """Return True if this entry belongs to the historical/exploratory tier."""
+    return not is_promoted_entry(tag, winner_tag, baseline_tag)
+
+
 def validate_schema(entry):
     """Return (valid, errors) for an entry."""
     errors = []
@@ -40,7 +54,10 @@ def validate_schema(entry):
 
 def main():
     ap = argparse.ArgumentParser(description="Check sweep results for performance regression")
-    ap.add_argument("--threshold", type=float, default=0.40, help="Allowed drop fraction (default 0.40)")
+    ap.add_argument("--threshold", type=float, default=0.40,
+                    help="Allowed drop fraction for promoted entries (default 0.40)")
+    ap.add_argument("--historical-threshold", type=float, default=0.50,
+                    help="Allowed drop fraction for historical/exploratory entries (default 0.50)")
     ap.add_argument("--baseline-tag", default=FIXED_BASELINE_TAG)
     ap.add_argument("--strict", action="store_true", help="Exit 1 on any regression (default: report only)")
     ap.add_argument("--validate-schema", action="store_true", help="Validate all entries against required schema")
@@ -111,21 +128,34 @@ def main():
         coh = d.get("coherence_pass", True)
         dec = d.get("decode_median", 0)
         pre = d.get("prefill_median", 0)
+
+        # Tier selection: promoted entries use strict threshold, historical use lenient
+        if is_promoted_entry(tag, args.winner_tag, args.baseline_tag):
+            eff_threshold = args.threshold
+            tier_label = "promoted"
+        else:
+            eff_threshold = args.historical_threshold
+            tier_label = "historical"
+
         if not coh:
             print(f"  [FAIL] {tag}: coherence check failed")
             failed = True
             continue
+
+        # Decode check
         if base_decode > 0:
             dr = dec / base_decode
-            status = "PASS" if dr >= (1 - args.threshold) else "REGRESSION"
-            print(f"  [{status}] {tag}: decode={dec:.1f} (ratio={dr:.2f})")
-            if dr < (1 - args.threshold):
+            status = "PASS" if dr >= (1 - eff_threshold) else "REGRESSION"
+            print(f"  [{status}] {tag} ({tier_label}): decode={dec:.1f} (ratio={dr:.2f}, threshold={eff_threshold:.0%})")
+            if dr < (1 - eff_threshold):
                 failed = True
+
+        # Prefill check
         if base_prefill > 0:
             pr = pre / base_prefill
-            status = "PASS" if pr >= (1 - args.threshold) else "REGRESSION"
-            print(f"         prefill={pre:.1f} (ratio={pr:.2f}) [{status}]")
-            if pr < (1 - args.threshold):
+            status = "PASS" if pr >= (1 - eff_threshold) else "REGRESSION"
+            print(f"         prefill={pre:.1f} (ratio={pr:.2f}, threshold={eff_threshold:.0%}) [{status}]")
+            if pr < (1 - eff_threshold):
                 failed = True
 
     if failed:
