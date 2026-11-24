@@ -1,5 +1,5 @@
 {
   "image": "localhost/strata-old:latest",
-  "digest": "sha256:117551b5a2affc0520577c138118e9aee1bce6fd9b925f8d6493f9d8f5e1dcdc",
-  "pinned_at": "2026-11-22T08:03:55.950879+00:00"
+  "digest": "sha256:4dd4eeacb0e21bdf45cd9d833a9436f1cf489ff56b51e4355fa26df0274d6a84",
+  "pinned_at": "2026-11-22T12:41:47.889385+00:00"
 }

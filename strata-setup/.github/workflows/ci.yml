@@ -27,3 +27,60 @@ jobs:
           if [ -f scripts/deploy-checklist.sh ]; then
             bash scripts/deploy-checklist.sh --check-only || true
           fi
+
+      - name: Run Python Unit Tests
+        run: |
+          python3 -m unittest discover tests
+
+      - name: Verify Deployed Defaults Match Sweep Winner
+        run: |
+          python3 scripts/check_deployed_defaults.py --variance-aware
+
+      - name: Validate Sweep Summary Schema
+        run: |
+          python3 scripts/check_sweep_regression.py --validate-schema
+
+      - name: Strict Promoted Winner Regression
+        run: |
+          python3 scripts/check_sweep_regression.py --promoted-only --strict
+
+      - name: Compute Variance and Confidence Intervals
+        run: |
+          python3 scripts/compute_variance_ci.py
+
+      - name: Validate Provenance in Summary
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          
+          ROOT = Path(__file__).resolve().parents[1]
+          summary = ROOT / "runs" / "sweep-summary.jsonl"
+          
+          if not summary.exists():
+              print("Sweep summary not present; skipping provenance validation.")
+              raise SystemExit(0)
+          
+          required_provenance = {"provenance", "git_commit", "image_digest"}
+          ok = True
+          for i, line in enumerate(summary.read_text().splitlines()):
+              if not line.strip():
+                  continue
+              entry = json.loads(line)
+              missing = required_provenance - set(entry.keys())
+              if missing:
+                  print(f"Line {i+1} ({entry.get('tag', '?')}): missing provenance fields: {missing}")
+                  ok = False
+              if entry.get("git_commit") and not isinstance(entry["git_commit"], str):
+                  print(f"Line {i+1}: git_commit is not a string")
+                  ok = False
+              if entry.get("image_digest") and not str(entry["image_digest"]).startswith("sha256:"):
+                  print(f"Line {i+1}: image_digest does not start with sha256:")
+                  ok = False
+          if ok:
+              print("PASS: All sweep-summary.jsonl entries contain valid provenance fields.")
+          else:
+              print("FAIL: Provenance validation failed.")
+              raise SystemExit(1)
+          PY
+PY

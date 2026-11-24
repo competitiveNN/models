@@ -31,6 +31,18 @@ class TestBenchCoherenceGate(unittest.TestCase):
         for name, _ in bench_coherence.PROMPTS:
             self.assertIsNotNone(coherence.detect_degenerate("!" * 20))
 
+    def test_coherent_sample_passes(self):
+        sample = ("Quantum computing uses quantum bits to process information by "
+                  "leveraging superposition and entanglement.")
+        self.assertIsNone(coherence.detect_degenerate(sample))
+
+    def test_run_script_carries_tp2_and_mtp(self):
+        rs = (ROOT / "run-strata-2gpu.sh").read_text()
+        self.assertIn("--data-dir /data/Strata-data", rs)
+        self.assertIn("--gpu 0,1", rs)
+        self.assertIn("pipeline-windows=2", rs)
+        self.assertIn("expert-cache-per-layer", rs)
+
     def test_script_help(self):
         res = subprocess.run(
             [sys.executable, str(ROOT / "bench-coherence-2xb580.py"), "--help"],

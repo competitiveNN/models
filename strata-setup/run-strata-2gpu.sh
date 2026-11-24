@@ -34,6 +34,7 @@
 #     decode ~27 tok/s.
 # Usage: ./run-strata-2gpu.sh
 #   Tune the fit:  CTX=64k PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=256 CORES=8 ./run-strata-2gpu.sh
+#   Decode parallelism:  PARALLEL=4 ./run-strata-2gpu.sh   (1..8 requests decoding together)
 #   Pin to specific cores:  CORES=\"0,2,4,6\" ./run-strata-2gpu.sh   (or CORES=off to disable pinning)
 MODEL_DIR="${MODEL_DIR:-/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
 IMAGE="${IMAGE:-localhost/strata-old:latest}"
@@ -64,12 +65,19 @@ case "$CTX" in
     ;;
 esac
 PREFILL="${PREFILL:-8192}"
+# PEER_PREFILL_ROWS: prompt rows per layer the helper GPU computes (0 = primary-only, best for 2x B580).
+PEER_PREFILL_ROWS="${PEER_PREFILL_ROWS:-4}"
 KV_RESIDENT="${KV_RESIDENT:-65536}"
 VRAM_RESERVE="${VRAM_RESERVE:-256}"
 # Advanced tuning overrides (defaults: optimized for 2x B580).
-EXPERT_CACHE="${EXPERT_CACHE:-auto}"
+EXPERT_CACHE="${EXPERT_CACHE:-8192}"
 SPEC="${SPEC:-4}"
-POOL_WORKERS="${POOL_WORKERS:-12}"
+POOL_WORKERS="${POOL_WORKERS:-20}"
+# PARALLEL: how many requests decode together (1 = one at a time; 2..8 = batch slots).
+PARALLEL="${PARALLEL:-1}"
+PIPELINE_WINDOWS="${PIPELINE_WINDOWS:-2}"
+EXPERT_CACHE_PER_LAYER="${EXPERT_CACHE_PER_LAYER:-on}"
+GPU="${GPU:-0,1}"
 DRAFTING="${DRAFTING:-auto}"
 MTP="${MTP:-on}"
 KV="${KV:-int8}"
@@ -87,10 +95,16 @@ if ! find "$MODEL_DIR" -maxdepth 1 -type f -iname '*.gguf' | grep -q .; then
 fi
 
 # Both Battlemage cards: renderD128 (04:00.0) and renderD129 (86:00.0).
-GPU_DEVICES=(
-    --device=/dev/dri/renderD128
-    --device=/dev/dri/renderD129
-)
+if [ "$GPU" = "0" ]; then
+    GPU_DEVICES=( --device=/dev/dri/renderD128 )
+elif [ "$GPU" = "1" ]; then
+    GPU_DEVICES=( --device=/dev/dri/renderD129 )
+else
+    GPU_DEVICES=(
+        --device=/dev/dri/renderD128
+        --device=/dev/dri/renderD129
+    )
+fi
 
 # Host repo root (for Strata-data/packs/swift-iq3_xxs)
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -129,31 +143,40 @@ else
     CORES=$(printf '%s' "$_P_CORES" | tr ',' '\n' | grep -c .)
     _POOL_LIST=$(printf '%s\n%s\n' "$_P_CORES" "$_E_CORES" | tr ',' '\n' | grep -v '^$' | head -n "$CORES" | paste -sd, -)
 fi
+if [ -n "$_POOL_LIST" ]; then
+    POOL_CORES_ARG="--pool-cores ${_POOL_LIST}"
+else
+    POOL_CORES_ARG=""
+fi
 LAUNCH_CMD="mkdir -p /root/.local/share/strata/components/engine && cp -r /opt/strata/components/engine/0.1.59-linux-x86_64-sycl /root/.local/share/strata/components/engine/ 2>/dev/null; /opt/strata/terminal/bin/strata launch \
     --no-api-key \
     --no-tui \
     --family swift \
     --model IQ3_XXS \
     --model-path /model/ \
+    --data-dir /data/Strata-data \
     --context ${CTX} \
     --vision off \
     --access lan \
     --port 8080 \
-    --gpu 0,1 \
+    --gpu ${GPU} \
+    --parallel ${PARALLEL} \
+    ${POOL_CORES_ARG} \
     --mtp ${MTP} \
     --drafting ${DRAFTING} \
-    --set pipeline-windows=2 \
+    --set pipeline-windows=${PIPELINE_WINDOWS} \
     --set vram-reserve-mib=${VRAM_RESERVE} \
     --set expert-cache=${EXPERT_CACHE} \
     --set spec=${SPEC} \
     --set trim-stage-weights \
     --set kv=${KV} \
-    --set prefill=auto:8192 \
+    --set prefill=auto:${PREFILL} \
+    --set peer-prefill-rows=${PEER_PREFILL_ROWS} \
     --set spec-min-p=0.5 \
     --set pool-workers=${POOL_WORKERS} \
     --set pool-affinity=p-cores \
     --set host-core=first \
-    --set expert-cache-per-layer \
+    $( [ "$EXPERT_CACHE_PER_LAYER" = "on" ] && echo "--set expert-cache-per-layer" ) \
     --set stream-experts \
     --set mmap-experts"
 LAUNCH_CMD="${LAUNCH_CMD}; sleep infinity"
@@ -177,7 +200,7 @@ podman run -d \
     --env=STRATA_RING_TIMEOUT_S=600 \
     --env=STRATA_SPLIT_WAIT_MS=600000 \
     --env=STRATA_VERIFY_DRAIN_TIMEOUT_MS=120000 \
-    --env=STRATA_PREFILL_MMQ=auto \
+    --env=STRATA_PREFILL_MMQ=${STRATA_PREFILL_MMQ:-auto} \
     --env=STRATA_WINDOW_SYNC=0 \
     --env=IGC_EnableGEPSimplification=0 \
     --env=STRATA_MIRROR_MIB=16384 \

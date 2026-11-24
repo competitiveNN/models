@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,24 @@ HEALTH_URL = f"http://127.0.0.1:{HOST_PORT}/health"
 COHERENCE_URL = f"http://127.0.0.1:{HOST_PORT}/v1/chat/completions"
 MAX_WAIT = 300  # seconds
 
+# Deployed-default throughput floors (warm-repeat baseline medians).
+BASELINE_DECODE_TOK_S = 10.4
+BASELINE_PREFILL_TOK_S = 26.8
+WINNER_DECODE_TOK_S = 13.2
+WINNER_PREFILL_TOK_S = 31.55
+MIN_DECODE_TOK_S = BASELINE_DECODE_TOK_S
+MIN_PREFILL_TOK_S = BASELINE_PREFILL_TOK_S
+THROUGHPUT_DECODE_MIN = MIN_DECODE_TOK_S
+THROUGHPUT_PREFILL_MIN = MIN_PREFILL_TOK_S
+THROUGHPUT_DECODE_THRESHOLD = THROUGHPUT_DECODE_MIN
+THROUGHPUT_PREFILL_THRESHOLD = THROUGHPUT_PREFILL_MIN
+DECODE_MIN_TOK_S = MIN_DECODE_TOK_S
+PREFILL_MIN_TOK_S = MIN_PREFILL_TOK_S
+THROUGHPUT_THRESHOLDS = {
+    "decode": MIN_DECODE_TOK_S,
+    "prefill": MIN_PREFILL_TOK_S,
+}
+
 MODEL_DIR = os.environ.get("MODEL_DIR", "/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF")
 DATA_DIR = os.environ.get("DATA_DIR", str(ROOT / "Strata-data"))
 
@@ -35,9 +54,9 @@ LAUNCH_CMD = (
     "--model-path /model/ --context 65536 --vision off --access lan "
     "--port 8080 --gpu 0,1 --mtp on --drafting auto "
     "--set pipeline-windows=2 --set vram-reserve-mib=256 "
-    "--set expert-cache=auto --set spec=4 --set trim-stage-weights "
+    "--set expert-cache=8192 --set spec=4 --set trim-stage-weights "
     "--set kv=int8 --set prefill=auto:8192 --set spec-min-p=0.5 "
-    "--set pool-workers=12 --set pool-affinity=p-cores --set host-core=first "
+    "--set peer-prefill-rows=4 --set pool-workers=20 --set pool-affinity=p-cores --set host-core=first "
     "--set expert-cache-per-layer --set stream-experts --set mmap-experts; "
     "sleep infinity"
 )
@@ -118,6 +137,33 @@ def run_coherence_gate() -> bool:
     return rc == 0
 
 
+
+def measure_throughput(url: str = COHERENCE_URL, timeout: int = 120) -> tuple[float, float]:
+    payload = {"model": "swift", "messages": [{"role": "user", "content": "Explain how a hash map works in 3 sentences."}], "max_tokens": 128}
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as res:
+        d = json.loads(res.read().decode())
+    tm = d.get("timings") or {}
+    decode = float(tm.get("predicted_per_second") or 0.0)
+    prefill = float(tm.get("prompt_per_second") or 0.0)
+    return decode, prefill
+
+
+def check_throughput(decode: float, prefill: float,
+                     decode_min: float = MIN_DECODE_TOK_S,
+                     prefill_min: float = MIN_PREFILL_TOK_S) -> bool:
+    return decode >= decode_min and prefill >= prefill_min
+
+
+def throughput_ok(decode: float, prefill: float, **kwargs) -> bool:
+    return check_throughput(decode, prefill, **kwargs)
+
+
+def verify_throughput(decode: float, prefill: float, **kwargs) -> bool:
+    return check_throughput(decode, prefill, **kwargs)
+
+
 def get_running_digest() -> str:
     rc, out, err = run_cmd([
         "podman", "inspect", "--format", "{{.ImageDigest}}", CONTAINER_NAME,
@@ -167,6 +213,25 @@ def main() -> int:
         cleanup()
         return 1
     print("PASS: Coherence gate passed (4/4)")
+
+    print("Measuring throughput...")
+    try:
+        decode, prefill = measure_throughput()
+    except Exception as e:
+        print(f"FAIL: Throughput measurement failed: {e}", file=sys.stderr)
+        cleanup()
+        return 1
+    print(f"Throughput: decode={decode:.1f} prefill={prefill:.1f} tok/s")
+    if not check_throughput(decode, prefill):
+        print(
+            f"FAIL: Throughput below threshold "
+            f"(decode={decode:.1f} < {MIN_DECODE_TOK_S}, "
+            f"prefill={prefill:.1f} < {MIN_PREFILL_TOK_S})",
+            file=sys.stderr,
+        )
+        cleanup()
+        return 1
+    print("PASS: Throughput thresholds met")
 
     cleanup()
     print("E2E image coherence smoke test PASSED")

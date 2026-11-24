@@ -26,6 +26,10 @@ Defaults: context 65536, prefill `auto:8192`, `EXPERT_CACHE=auto`, `SPEC=4`, `SP
 12 pool workers, `VRAM_RESERVE=256`, pipeline-windows=2, expert-cache-per-layer, stream-experts, mmap-experts,
 `gpu=0,1`, `ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1`.
 
+Tune decode parallelism with `PARALLEL=N` (1..8): `PARALLEL=4 ./run-strata-2gpu.sh`.
+This maps to `strata launch --parallel N` / the engine batch slots (the saved profile override is `parallel: 1`
+by default, i.e. one request decodes at a time).
+
 Tune via env vars, e.g. `CTX=32k PREFILL=4096 VRAM_RESERVE=512 ./run-strata-2gpu.sh`.
 
 ## Coherence gate (end-to-end)

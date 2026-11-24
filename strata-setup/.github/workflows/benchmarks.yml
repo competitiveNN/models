@@ -27,6 +27,14 @@ jobs:
         run: |
           python3 scripts/validate_configs.py
 
+      - name: Verify Deployed Defaults Match Sweep Winner
+        run: |
+          python3 scripts/check_deployed_defaults.py --variance-aware
+
+      - name: Validate Sweep Summary Schema
+        run: |
+          python3 scripts/check_sweep_regression.py --validate-schema
+
       - name: Summarize Output Coherence (min 75%)
         run: |
           python3 scripts/summarize_coherence.py --min-rate 0.75
