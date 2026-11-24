@@ -1,5 +1,9 @@
 name: CI Validation
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [ master, main ]
@@ -9,9 +13,27 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-${{ matrix.python-version }}-
 
       - name: Run Mock Device Tests
         run: |
@@ -104,12 +126,25 @@ jobs:
         run: |
           python3 -c "import json; json.load(open('grafana/strata-regression-dashboard.json')); print('Grafana dashboard JSON valid')"
 
+      - name: Validate Sweep Plan Generation
+        run: |
+          python3 scripts/sweep_plan.py --max 5 --output runs/sweep-plan.json
+
+      - name: Export Winner Configuration
+        run: |
+          python3 scripts/export_winner_config.py --output runs/winner-config.json
+
+      - name: Collect Environment Profile
+        run: |
+          python3 scripts/collect_env_profile.py --output runs/env-profile.json
+
       - name: Upload Regression Alert Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: regression-alert
           path: runs/regression-alert.json
+          retention-days: 14
 
       - name: Upload Warm-Repeat Validation Artifact
         if: always()
@@ -117,3 +152,4 @@ jobs:
         with:
           name: warm-repeat-validation
           path: runs/warm-*.json
+          retention-days: 14
