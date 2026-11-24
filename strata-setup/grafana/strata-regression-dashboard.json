@@ -1,0 +1,240 @@
+{
+  "dashboard": {
+    "title": "Strata 2x B580 Regression & Performance",
+    "uid": "strata-regression-perf",
+    "tags": [
+      "strata",
+      "b580",
+      "regression"
+    ],
+    "timezone": "browser",
+    "refresh": "5m",
+    "time": {
+      "from": "now-7d",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "type": "stat",
+        "title": "Winner Decode (tok/s)",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "strata_winner_decode_median",
+            "legendFormat": "decode"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "type": "stat",
+        "title": "Winner Prefill (tok/s)",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "strata_winner_prefill_median",
+            "legendFormat": "prefill"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "type": "stat",
+        "title": "Baseline Decode (tok/s)",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "strata_baseline_decode_median",
+            "legendFormat": "decode"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "type": "stat",
+        "title": "Baseline Prefill (tok/s)",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "strata_baseline_prefill_median",
+            "legendFormat": "prefill"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "type": "gauge",
+        "title": "Decode Ratio",
+        "gridPos": {
+          "h": 6,
+          "w": 6,
+          "x": 0,
+          "y": 4
+        },
+        "targets": [
+          {
+            "expr": "strata_winner_decode_ratio",
+            "legendFormat": "ratio"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 2,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 0.9
+                },
+                {
+                  "color": "green",
+                  "value": 1
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "type": "gauge",
+        "title": "Prefill Ratio",
+        "gridPos": {
+          "h": 6,
+          "w": 6,
+          "x": 6,
+          "y": 4
+        },
+        "targets": [
+          {
+            "expr": "strata_winner_prefill_ratio",
+            "legendFormat": "ratio"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 2,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 0.9
+                },
+                {
+                  "color": "green",
+                  "value": 1
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "type": "stat",
+        "title": "Regression Alert",
+        "gridPos": {
+          "h": 6,
+          "w": 6,
+          "x": 12,
+          "y": 4
+        },
+        "targets": [
+          {
+            "expr": "strata_regression_alert",
+            "legendFormat": "alert"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "type": "stat",
+        "title": "Performance Drift",
+        "gridPos": {
+          "h": 6,
+          "w": 6,
+          "x": 18,
+          "y": 4
+        },
+        "targets": [
+          {
+            "expr": "strata_performance_drift",
+            "legendFormat": "drift"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "type": "timeseries",
+        "title": "Warm-Repeat Winner Decode",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 10
+        },
+        "targets": [
+          {
+            "expr": "strata_winner_warm_decode_median",
+            "legendFormat": "warm decode"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "type": "timeseries",
+        "title": "Warm-Repeat Winner Prefill",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 10
+        },
+        "targets": [
+          {
+            "expr": "strata_winner_warm_prefill_median",
+            "legendFormat": "warm prefill"
+          }
+        ]
+      }
+    ],
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": []
+    }
+  },
+  "overwrite": true
+}

@@ -421,6 +421,59 @@ def send_webhook(url, payload, dry_run=False, timeout=15, retries=3):
     return False, f"webhook failed after {retries} attempts: {last_err}"
 
 
+def parse_webhook_targets(raw):
+    """Parse webhook targets from a string or file path.
+
+    Accepts comma-separated URLs or a path to a JSON file containing a list
+    of URLs (or objects with 'url' and optional 'min_severity').
+    Returns list of dicts: [{'url':..., 'min_severity':...}].
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    p = Path(raw)
+    if p.exists() and p.suffix.lower() == ".json":
+        try:
+            data = json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError):
+            return []
+        targets = []
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, str):
+                    targets.append({"url": item, "min_severity": "info"})
+                elif isinstance(item, dict) and item.get("url"):
+                    targets.append({"url": item["url"],
+                                    "min_severity": item.get("min_severity", "info")})
+        return targets
+    # comma-separated
+    sev_order = {"info": 0, "warning": 1, "critical": 2}
+    out = []
+    for part in raw.split(","):
+        part = part.strip()
+        if part:
+            out.append({"url": part, "min_severity": "info"})
+    return out
+
+
+SEVERITY_ORDER = {"info": 0, "warning": 1, "critical": 2}
+
+
+def send_webhooks(targets, payload, dry_run=False, timeout=15, retries=3):
+    """Send payload to multiple webhook targets. Returns list of (target, ok, msg)."""
+    severity = payload.get("severity", "info")
+    results = []
+    for t in targets:
+        min_sev = t.get("min_severity", "info")
+        if SEVERITY_ORDER.get(severity, 0) < SEVERITY_ORDER.get(min_sev, 0):
+            results.append((t, True, "skipped: below min severity"))
+            continue
+        ok, msg = send_webhook(t["url"], payload, dry_run=dry_run,
+                               timeout=timeout, retries=retries)
+        results.append((t, ok, msg))
+    return results
+
+
 def main():
     ap = argparse.ArgumentParser(description="Emit performance regression alert metrics")
     ap.add_argument("--json-out", default="runs/regression-alert.json",
@@ -438,6 +491,8 @@ def main():
                     help="Number of webhook retry attempts (default: 3)")
     ap.add_argument("--webhook-timeout", type=int, default=15,
                     help="Webhook request timeout in seconds (default: 15)")
+    ap.add_argument("--webhook-targets", default=None,
+                    help="Comma-separated URLs or path to JSON file of webhook targets")
     ap.add_argument("--prometheus-out", default=None,
                     help="Write Prometheus metrics to this path")
     ap.add_argument("--drift-threshold", type=float, default=0.10,
@@ -489,15 +544,19 @@ def main():
             print(f"WARNING: could not append history: {e}", file=sys.stderr)
 
     # Webhook notification
+    targets = parse_webhook_targets(args.webhook_targets) if args.webhook_targets else []
     if args.webhook_url:
+        targets.append({"url": args.webhook_url, "min_severity": "info"})
+    if targets:
         payload = build_webhook_payload(report, drift)
-        ok, msg = send_webhook(args.webhook_url, payload, dry_run=args.dry_run,
-                              timeout=args.webhook_timeout, retries=args.webhook_retries)
-        report["webhook"] = {"ok": ok, "message": msg}
-        if not ok:
-            print(f"WARNING: {msg}", file=sys.stderr)
-        else:
-            print(msg)
+        results = send_webhooks(targets, payload, dry_run=args.dry_run,
+                               timeout=args.webhook_timeout, retries=args.webhook_retries)
+        report["webhooks"] = [{"url": t["url"], "ok": ok, "message": msg} for (t, ok, msg) in results]
+        for (t, ok, msg) in results:
+            if not ok:
+                print(f"WARNING: {t['url']}: {msg}", file=sys.stderr)
+            else:
+                print(f"{t['url']}: {msg}")
 
     # Write Prometheus metrics if requested
     if args.prometheus_out:

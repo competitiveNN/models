@@ -136,3 +136,37 @@ class TestRegressionAlertCLI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWebhookMultiTarget(unittest.TestCase):
+    def test_parse_comma_separated(self):
+        targets = ra.parse_webhook_targets("http://a.com,http://b.com")
+        self.assertEqual(len(targets), 2)
+        self.assertEqual(targets[0]["url"], "http://a.com")
+
+    def test_parse_json_file(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(["http://x.com", {"url": "http://y.com", "min_severity": "warning"}], f)
+            path = f.name
+        try:
+            targets = ra.parse_webhook_targets(path)
+            self.assertEqual(len(targets), 2)
+            self.assertEqual(targets[1]["min_severity"], "warning")
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+    def test_parse_empty(self):
+        self.assertEqual(ra.parse_webhook_targets(""), [])
+        self.assertEqual(ra.parse_webhook_targets(None), [])
+
+    def test_send_webhooks_severity_filter(self):
+        targets = [{"url": "http://a.com", "min_severity": "critical"}]
+        payload = {"severity": "info", "text": "hi"}
+        results = ra.send_webhooks(targets, payload, dry_run=True)
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0][1])  # skipped counts as ok
+        self.assertIn("skipped", results[0][2])
+
+    def test_severity_order(self):
+        self.assertLess(ra.SEVERITY_ORDER["info"], ra.SEVERITY_ORDER["critical"])

@@ -92,3 +92,21 @@ groups:
     annotations:
       summary: "Benchmark regression detected"
       description: "Automated benchmark detected >15% throughput regression"
+  # Performance regression alert (from regression_alert.py Prometheus export)
+  - alert: StrataPerformanceRegression
+    expr: strata_regression_alert == 1
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Strata performance regression detected"
+      description: "Winner no longer beats baseline on decode/prefill or coherence failed"
+
+  - alert: StrataPerformanceDrift
+    expr: strata_performance_drift == 1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Strata performance drift detected"
+      description: "Winner throughput drifted >10% vs recent history"
