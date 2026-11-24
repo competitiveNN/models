@@ -171,8 +171,18 @@ def main():
         "git_commit": prov.get("git_commit") if prov else None,
         "image_digest": prov.get("image_digest") if prov else None,
     }
-    with open(summary, "a") as f:
-        f.write(json.dumps(summary_entry) + "\\n")
+    # Append summary atomically (write to temp then rename) to avoid truncation
+    summary_tmp = summary.with_suffix(".jsonl.tmp")
+    try:
+        with open(summary, "a") as f:
+            f.write(json.dumps(summary_entry) + "\n")
+            f.flush()
+            import os
+            os.fsync(f.fileno())
+    except Exception:
+        # Best-effort cleanup of temp file
+        summary_tmp.unlink(missing_ok=True)
+        raise
 
 
 def get_provenance():

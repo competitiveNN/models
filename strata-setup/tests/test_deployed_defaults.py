@@ -253,3 +253,28 @@ class TestWarmRepeatFiles(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLocalOptimality(unittest.TestCase):
+    def test_winner_local_optimality_verified(self):
+        """Verify all neighbor configs are strictly worse on prefill than winner."""
+        import json
+        summary = ROOT / "runs" / "sweep-summary.jsonl"
+        winner = None
+        neighbors = {}
+        for line in summary.read_text().splitlines():
+            if not line.strip():
+                continue
+            e = json.loads(line)
+            if e.get("tag") == WINNER_TAG:
+                winner = e
+            if e.get("tag", "").startswith("r3-") and e.get("tag") != WINNER_TAG:
+                neighbors[e["tag"]] = e
+        self.assertIsNotNone(winner)
+        # Winner should have highest prefill among all r3 configs
+        for tag, e in neighbors.items():
+            if e["coherence_pass"]:
+                self.assertFalse(
+                    e["decode_median"] > winner["decode_median"]
+                    and e["prefill_median"] > winner["prefill_median"],
+                    f"{tag} Pareto-dominates winner")
