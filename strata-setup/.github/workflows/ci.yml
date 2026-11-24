@@ -126,6 +126,14 @@ jobs:
         run: |
           python3 -c "import json; json.load(open('grafana/strata-regression-dashboard.json')); print('Grafana dashboard JSON valid')"
 
+      - name: Predict Performance Anomalies
+        run: |
+          python3 scripts/anomaly_prediction.py --history runs/regression-alert-history.jsonl --baseline-decode 11.9 --baseline-prefill 22.9 --json-out runs/anomaly-prediction.json || true
+
+      - name: Webhook Failover Smoke
+        run: |
+          python3 scripts/webhook_failover.py --primary https://example.com/hook --backup https://example.org/hook --payload '{"text":"smoke"}' --dry-run
+
       - name: Validate Sweep Plan Generation
         run: |
           python3 scripts/sweep_plan.py --max 5 --output runs/sweep-plan.json
