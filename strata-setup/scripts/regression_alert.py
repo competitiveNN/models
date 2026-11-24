@@ -27,6 +27,7 @@ import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -328,6 +329,12 @@ def build_webhook_payload(report, drift=None):
     """Build a compact notification payload."""
     alert = report.get("alert", False)
     drift_detected = bool(drift and drift.get("drift_detected"))
+    if alert:
+        severity = "critical"
+    elif drift_detected:
+        severity = "warning"
+    else:
+        severity = "info"
     lines = []
     if alert:
         lines.append("ALERT: performance regression detected!")
@@ -347,21 +354,71 @@ def build_webhook_payload(report, drift=None):
         lines.append(f"Drift ratios: decode={drift.get('decode_ratio')} "
                      f"prefill={drift.get('prefill_ratio')} (threshold {drift.get('threshold')})")
     text = "\n".join(lines)
-    return {"text": text, "alert": alert, "drift": drift_detected, "report": report}
+    return {"text": text, "alert": alert, "drift": drift_detected, "severity": severity, "report": report}
 
 
-def send_webhook(url, payload, dry_run=False, timeout=15):
-    """Send a webhook notification. Returns (ok, message)."""
+def build_prometheus_metrics(report, drift=None):
+    """Build Prometheus-format metrics text from a report."""
+    lines = []
+    metrics = report.get("metrics", {})
+    if metrics:
+        w = metrics.get("winner", {})
+        b = metrics.get("baseline", {})
+        lines.append("# HELP strata_winner_decode_median Winner decode throughput (tok/s)")
+        lines.append("# TYPE strata_winner_decode_median gauge")
+        lines.append(f"strata_winner_decode_median {w.get('decode_median', 0)}")
+        lines.append("# HELP strata_winner_prefill_median Winner prefill throughput (tok/s)")
+        lines.append("# TYPE strata_winner_prefill_median gauge")
+        lines.append(f"strata_winner_prefill_median {w.get('prefill_median', 0)}")
+        lines.append("# HELP strata_baseline_decode_median Baseline decode throughput (tok/s)")
+        lines.append("# TYPE strata_baseline_decode_median gauge")
+        lines.append(f"strata_baseline_decode_median {b.get('decode_median', 0)}")
+        lines.append("# HELP strata_baseline_prefill_median Baseline prefill throughput (tok/s)")
+        lines.append("# TYPE strata_baseline_prefill_median gauge")
+        lines.append(f"strata_baseline_prefill_median {b.get('prefill_median', 0)}")
+        ratios = metrics.get("ratios", {})
+        lines.append("# HELP strata_winner_decode_ratio Winner/baseline decode ratio")
+        lines.append("# TYPE strata_winner_decode_ratio gauge")
+        lines.append(f"strata_winner_decode_ratio {ratios.get('decode', 0)}")
+        lines.append("# HELP strata_winner_prefill_ratio Winner/baseline prefill ratio")
+        lines.append("# TYPE strata_winner_prefill_ratio gauge")
+        lines.append(f"strata_winner_prefill_ratio {ratios.get('prefill', 0)}")
+    alert = 1 if report.get("alert") else 0
+    lines.append("# HELP strata_regression_alert Performance regression alert flag")
+    lines.append("# TYPE strata_regression_alert gauge")
+    lines.append(f"strata_regression_alert {alert}")
+    drift_flag = 1 if (drift and drift.get("drift_detected")) else 0
+    lines.append("# HELP strata_performance_drift Performance drift flag")
+    lines.append("# TYPE strata_performance_drift gauge")
+    lines.append(f"strata_performance_drift {drift_flag}")
+    warm = metrics.get("winner_warm") if metrics else None
+    if warm:
+        lines.append("# HELP strata_winner_warm_decode_median Warm-repeat winner decode median (tok/s)")
+        lines.append("# TYPE strata_winner_warm_decode_median gauge")
+        lines.append(f"strata_winner_warm_decode_median {warm.get('decode_median', 0)}")
+        lines.append("# HELP strata_winner_warm_prefill_median Warm-repeat winner prefill median (tok/s)")
+        lines.append("# TYPE strata_winner_warm_prefill_median gauge")
+        lines.append(f"strata_winner_warm_prefill_median {warm.get('prefill_median', 0)}")
+    return "\n".join(lines) + "\n"
+
+
+def send_webhook(url, payload, dry_run=False, timeout=15, retries=3):
+    """Send a webhook notification with retry/backoff. Returns (ok, message)."""
     data = json.dumps(payload).encode()
     if dry_run:
         return True, "dry-run: " + json.dumps(payload)
-    try:
-        req = urllib.request.Request(url, data=data, method="POST",
-                                    headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return True, f"webhook sent (HTTP {resp.status})"
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        return False, f"webhook failed: {e}"
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            req = urllib.request.Request(url, data=data, method="POST",
+                                        headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return True, f"webhook sent (HTTP {resp.status}) on attempt {attempt}"
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            last_err = e
+            if attempt < retries:
+                time.sleep(min(2 ** (attempt - 1), 8))
+    return False, f"webhook failed after {retries} attempts: {last_err}"
 
 
 def main():
@@ -377,6 +434,12 @@ def main():
     ap.add_argument("--webhook-url", default=os.environ.get("STRATA_ALERT_WEBHOOK_URL") or
                     os.environ.get("STRATA_ALERT_WEBHOOK"),
                     help="Webhook URL for notifications (env: STRATA_ALERT_WEBHOOK_URL)")
+    ap.add_argument("--webhook-retries", type=int, default=3,
+                    help="Number of webhook retry attempts (default: 3)")
+    ap.add_argument("--webhook-timeout", type=int, default=15,
+                    help="Webhook request timeout in seconds (default: 15)")
+    ap.add_argument("--prometheus-out", default=None,
+                    help="Write Prometheus metrics to this path")
     ap.add_argument("--drift-threshold", type=float, default=0.10,
                     help="Drift detection threshold (default: 0.10)")
     ap.add_argument("--drift-window", type=int, default=5,
@@ -428,12 +491,20 @@ def main():
     # Webhook notification
     if args.webhook_url:
         payload = build_webhook_payload(report, drift)
-        ok, msg = send_webhook(args.webhook_url, payload, dry_run=args.dry_run)
+        ok, msg = send_webhook(args.webhook_url, payload, dry_run=args.dry_run,
+                              timeout=args.webhook_timeout, retries=args.webhook_retries)
         report["webhook"] = {"ok": ok, "message": msg}
         if not ok:
             print(f"WARNING: {msg}", file=sys.stderr)
         else:
             print(msg)
+
+    # Write Prometheus metrics if requested
+    if args.prometheus_out:
+        prom_text = build_prometheus_metrics(report, drift)
+        prom_path = Path(args.prometheus_out)
+        prom_path.parent.mkdir(parents=True, exist_ok=True)
+        prom_path.write_text(prom_text)
 
     # Write JSON report
     out_path = Path(args.json_out)
