@@ -1,0 +1,36 @@
+name: Strata 2x B580 Continuous Winner Validation
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly, Sundays at 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  validate-winner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Python Unit Tests
+        run: |
+          python3 -m unittest discover tests
+
+      - name: Verify Deployed Defaults Match Sweep Winner
+        run: |
+          python3 scripts/check_deployed_defaults.py --variance-aware
+
+      - name: Strict Promoted Winner Regression
+        run: |
+          python3 scripts/check_sweep_regression.py --promoted-only --strict
+
+      - name: Emit Performance Regression Alert Metrics
+        run: |
+          python3 scripts/regression_alert.py --json-out runs/regression-alert.json
+
+      - name: Upload Regression Alert Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-alert
+          path: runs/regression-alert.json

@@ -53,14 +53,14 @@ jobs:
           python3 - <<'PY'
           import json
           from pathlib import Path
-          
+
           ROOT = Path(__file__).resolve().parents[1]
           summary = ROOT / "runs" / "sweep-summary.jsonl"
-          
+
           if not summary.exists():
               print("Sweep summary not present; skipping provenance validation.")
               raise SystemExit(0)
-          
+
           required_provenance = {"provenance", "git_commit", "image_digest"}
           ok = True
           for i, line in enumerate(summary.read_text().splitlines()):
@@ -83,4 +83,11 @@ jobs:
               print("FAIL: Provenance validation failed.")
               raise SystemExit(1)
           PY
-PY
+
+      - name: Validate Warm-Repeat Files
+        run: |
+          python3 scripts/validate_warm_repeats.py
+
+      - name: Emit Performance Regression Alert Metrics
+        run: |
+          python3 scripts/regression_alert.py --json-out runs/regression-alert.json
