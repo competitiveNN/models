@@ -134,6 +134,14 @@ jobs:
         run: |
           python3 scripts/webhook_failover.py --primary https://example.com/hook --backup https://example.org/hook --payload '{"text":"smoke"}' --dry-run
 
+      - name: Generate Predictive Self-Healing Plan
+        run: |
+          python3 scripts/predictive_sweep_planner.py --max 5 --output runs/predictive-sweep-plan.json
+
+      - name: Webhook Canary Smoke
+        run: |
+          python3 scripts/webhook_canary.py --primary https://example.com/p --canary https://example.com/c --payload '{"text":"smoke"}' --dry-run
+
       - name: Validate Sweep Plan Generation
         run: |
           python3 scripts/sweep_plan.py --max 5 --output runs/sweep-plan.json
