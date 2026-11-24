@@ -21,6 +21,7 @@ Usage:
 """
 import argparse
 import json
+import random
 import os
 import statistics
 import sys
@@ -141,6 +142,19 @@ def load_warm_median(tag, runs_dir=None, entries=None):
     return _warm_entry_to_median(data)
 
 
+def trim_history(history_path=None, max_entries=None):
+    """Trim history file to the last max_entries records."""
+    if max_entries is None:
+        return
+    path = Path(history_path) if history_path is not None else HISTORY_FILE_DEFAULT
+    if not path.exists():
+        return
+    lines = [ln for ln in path.read_text().splitlines() if ln.strip()]
+    if len(lines) <= max_entries:
+        return
+    path.write_text("\n".join(lines[-max_entries:]) + "\n")
+
+
 def load_history(history_path=None):
     """Load regression alert history (list of records)."""
     path = Path(history_path) if history_path is not None else HISTORY_FILE_DEFAULT
@@ -163,6 +177,17 @@ def append_history(record, history_path=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as f:
         f.write(json.dumps(record) + "\n")
+
+
+def write_dead_letter(failed, dead_letter_path=None):
+    """Write failed webhook deliveries to a dead-letter file (JSONL)."""
+    if not failed:
+        return
+    path = Path(dead_letter_path) if dead_letter_path is not None else (ROOT / "runs" / "webhook-dead-letter.jsonl")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        for item in failed:
+            f.write(json.dumps(item) + "\n")
 
 
 def detect_drift(history, current_winner_decode, current_winner_prefill,
@@ -402,6 +427,20 @@ def build_prometheus_metrics(report, drift=None):
     return "\n".join(lines) + "\n"
 
 
+def validate_webhook_targets(targets):
+    """Validate parsed webhook targets. Return list of error strings."""
+    errors = []
+    valid_sevs = set(SEVERITY_ORDER.keys())
+    for i, t in enumerate(targets):
+        url = t.get("url", "")
+        if not isinstance(url, str) or not (url.startswith("http://") or url.startswith("https://")):
+            errors.append(f"target {i}: invalid url '{url}'")
+        sev = t.get("min_severity", "info")
+        if sev not in valid_sevs:
+            errors.append(f"target {i}: invalid min_severity '{sev}'")
+    return errors
+
+
 def send_webhook(url, payload, dry_run=False, timeout=15, retries=3):
     """Send a webhook notification with retry/backoff. Returns (ok, message)."""
     data = json.dumps(payload).encode()
@@ -417,7 +456,8 @@ def send_webhook(url, payload, dry_run=False, timeout=15, retries=3):
         except (urllib.error.URLError, OSError, ValueError) as e:
             last_err = e
             if attempt < retries:
-                time.sleep(min(2 ** (attempt - 1), 8))
+                base = min(2 ** (attempt - 1), 8)
+                time.sleep(base * (0.5 + random.random() * 0.5))
     return False, f"webhook failed after {retries} attempts: {last_err}"
 
 
@@ -493,6 +533,12 @@ def main():
                     help="Webhook request timeout in seconds (default: 15)")
     ap.add_argument("--webhook-targets", default=None,
                     help="Comma-separated URLs or path to JSON file of webhook targets")
+    ap.add_argument("--dead-letter-out", default=None,
+                    help="Path to write failed webhook deliveries (JSONL)")
+    ap.add_argument("--history-max-entries", type=int, default=None,
+                    help="Trim history to the last N entries after appending")
+    ap.add_argument("--validate-webhooks", action="store_true",
+                    help="Validate webhook targets and exit")
     ap.add_argument("--prometheus-out", default=None,
                     help="Write Prometheus metrics to this path")
     ap.add_argument("--drift-threshold", type=float, default=0.10,
@@ -504,6 +550,19 @@ def main():
     ap.add_argument("--dry-run", action="store_true",
                     help="Print webhook payload without sending")
     args = ap.parse_args()
+
+    targets = parse_webhook_targets(args.webhook_targets) if args.webhook_targets else []
+    if args.webhook_url:
+        targets.append({"url": args.webhook_url, "min_severity": "info"})
+
+    if args.validate_webhooks:
+        errors = validate_webhook_targets(targets)
+        if errors:
+            for e in errors:
+                print(f"ERROR: {e}", file=sys.stderr)
+            raise SystemExit(1)
+        print(f"Validated {len(targets)} webhook target(s).")
+        raise SystemExit(0)
 
     entries = load_entries(args.summary)
     report = build_report(entries, winner_tag=args.winner_tag,
@@ -542,16 +601,21 @@ def main():
             append_history(record, args.history_file)
         except OSError as e:
             print(f"WARNING: could not append history: {e}", file=sys.stderr)
+        trim_history(args.history_file, args.history_max_entries)
 
     # Webhook notification
-    targets = parse_webhook_targets(args.webhook_targets) if args.webhook_targets else []
-    if args.webhook_url:
-        targets.append({"url": args.webhook_url, "min_severity": "info"})
     if targets:
         payload = build_webhook_payload(report, drift)
         results = send_webhooks(targets, payload, dry_run=args.dry_run,
                                timeout=args.webhook_timeout, retries=args.webhook_retries)
         report["webhooks"] = [{"url": t["url"], "ok": ok, "message": msg} for (t, ok, msg) in results]
+        failed = [{"url": t["url"], "payload": payload, "error": msg, "timestamp": report["timestamp"]}
+                  for (t, ok, msg) in results if not ok and not args.dry_run]
+        if failed:
+            try:
+                write_dead_letter(failed, args.dead_letter_out)
+            except OSError as e:
+                print(f"WARNING: could not write dead letter: {e}", file=sys.stderr)
         for (t, ok, msg) in results:
             if not ok:
                 print(f"WARNING: {t['url']}: {msg}", file=sys.stderr)

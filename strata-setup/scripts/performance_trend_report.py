@@ -33,6 +33,21 @@ def sparkline(values):
     return "".join(out)
 
 
+def detect_anomaly(values, z_threshold=2.5):
+    """Return (is_anomaly, z_score, mean, std) for the last value vs prior values."""
+    if len(values) < 5:
+        return False, 0.0, (sum(values)/len(values) if values else 0.0), 0.0
+    prior = values[:-1]
+    mean = sum(prior) / len(prior)
+    var = sum((v - mean) ** 2 for v in prior) / len(prior)
+    std = var ** 0.5
+    if std == 0:
+        z = float("inf") if values[-1] != mean else 0.0
+        return (values[-1] != mean), z, mean, std
+    z = abs(values[-1] - mean) / std
+    return z > z_threshold, z, mean, std
+
+
 def load_history(path):
     records = []
     p = Path(path)
@@ -82,6 +97,16 @@ def generate_report(history_path=None, warm_dir=None):
     lines.append(f"- prefill ratio: {sparkline(pre_ratios)}  (latest {pre_ratios[-1]:.3f})")
     lines.append("")
 
+    # Anomaly detection
+    dec_anom, dec_z, dec_mean, dec_std = detect_anomaly(decodes)
+    pre_anom, pre_z, pre_mean, pre_std = detect_anomaly(prefills)
+    lines.append("## Anomaly detection (z-score)")
+    lines.append(f"- decode:  z={dec_z:.2f} (mean={dec_mean:.2f}, std={dec_std:.2f}) "
+                 f"{'ANOMALY' if dec_anom else 'ok'}")
+    lines.append(f"- prefill: z={pre_z:.2f} (mean={pre_mean:.2f}, std={pre_std:.2f}) "
+                 f"{'ANOMALY' if pre_anom else 'ok'}")
+    lines.append("")
+
     # Alert/drift counts
     alerts = sum(1 for r in records if r.get("alert"))
     drifts = sum(1 for r in records if r.get("drift_detected"))
@@ -120,12 +145,20 @@ def main():
 
     if args.json_out:
         records = load_history(args.history)
+        decodes = [r.get("winner_decode", 0) for r in records]
+        prefills = [r.get("winner_prefill", 0) for r in records]
+        dec_anom, dec_z, _, _ = detect_anomaly(decodes)
+        pre_anom, pre_z, _, _ = detect_anomaly(prefills)
         summary = {
             "points": len(records),
             "winner_decode_latest": records[-1].get("winner_decode") if records else None,
             "winner_prefill_latest": records[-1].get("winner_prefill") if records else None,
             "alerts": sum(1 for r in records if r.get("alert")),
             "drifts": sum(1 for r in records if r.get("drift_detected")),
+            "decode_anomaly": dec_anom,
+            "decode_z": round(dec_z, 3),
+            "prefill_anomaly": pre_anom,
+            "prefill_z": round(pre_z, 3),
         }
         Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.json_out).write_text(json.dumps(summary, indent=2))

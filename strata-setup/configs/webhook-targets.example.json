@@ -1,0 +1,4 @@
+[
+  {"url": "https://example.com/webhook", "min_severity": "warning"},
+  "https://example.org/alerts"
+]

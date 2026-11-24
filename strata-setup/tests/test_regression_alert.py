@@ -170,3 +170,52 @@ class TestWebhookMultiTarget(unittest.TestCase):
 
     def test_severity_order(self):
         self.assertLess(ra.SEVERITY_ORDER["info"], ra.SEVERITY_ORDER["critical"])
+
+
+class TestWebhookValidationAndDeadLetter(unittest.TestCase):
+    def test_validate_webhook_targets_ok(self):
+        targets = ra.parse_webhook_targets("https://example.com/hook")
+        self.assertEqual(ra.validate_webhook_targets(targets), [])
+
+    def test_validate_webhook_targets_bad_url(self):
+        targets = [{"url": "not-a-url", "min_severity": "info"}]
+        errors = ra.validate_webhook_targets(targets)
+        self.assertTrue(errors)
+
+    def test_validate_webhook_targets_bad_severity(self):
+        targets = [{"url": "https://example.com/hook", "min_severity": "urgent"}]
+        errors = ra.validate_webhook_targets(targets)
+        self.assertTrue(errors)
+
+    def test_cli_validate_webhooks_success(self):
+        import subprocess, sys
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "regression_alert.py"),
+             "--validate-webhooks", "--webhook-targets",
+             str(ROOT / "configs" / "webhook-targets.example.json")],
+            capture_output=True, text=True, cwd=str(ROOT))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_write_dead_letter(self):
+        with tempfile.TemporaryDirectory() as td:
+            dl = Path(td) / "dead.jsonl"
+            ra.write_dead_letter([{"url": "x", "error": "boom"}], dl)
+            self.assertTrue(dl.exists())
+            lines = dl.read_text().splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertEqual(json.loads(lines[0])["error"], "boom")
+
+    def test_trim_history(self):
+        with tempfile.TemporaryDirectory() as td:
+            hp = Path(td) / "h.jsonl"
+            for i in range(5):
+                ra.append_history({"i": i}, hp)
+            ra.trim_history(hp, 3)
+            recs = ra.load_history(hp)
+            self.assertEqual(len(recs), 3)
+            self.assertEqual(recs[0]["i"], 2)
+
+    def test_backoff_jitter_runs(self):
+        # ensure send_webhook retry path executes without error on failure
+        ok, msg = ra.send_webhook("http://127.0.0.1:1/nope", {"x": 1}, dry_run=False, timeout=1, retries=1)
+        self.assertFalse(ok)

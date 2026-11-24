@@ -96,6 +96,14 @@ jobs:
         run: |
           python3 scripts/performance_trend_report.py --history runs/regression-alert-history.jsonl --out runs/performance-trend.md --json-out runs/performance-trend.json || true
 
+      - name: Validate Webhook Targets Config
+        run: |
+          python3 scripts/regression_alert.py --validate-webhooks --webhook-targets configs/webhook-targets.example.json
+
+      - name: Validate Grafana Dashboard JSON
+        run: |
+          python3 -c "import json; json.load(open('grafana/strata-regression-dashboard.json')); print('Grafana dashboard JSON valid')"
+
       - name: Upload Regression Alert Artifact
         if: always()
         uses: actions/upload-artifact@v4

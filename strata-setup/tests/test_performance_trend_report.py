@@ -86,3 +86,21 @@ class TestPerformanceTrendReport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDetectAnomaly(unittest.TestCase):
+    def test_detect_anomaly_insufficient_data(self):
+        is_anom, z, mean, std = ptr.detect_anomaly([1.0, 2.0, 3.0])
+        self.assertFalse(is_anom)
+        self.assertEqual(z, 0.0)
+
+    def test_detect_anomaly_flags_outlier(self):
+        vals = [10.0] * 10 + [100.0]
+        is_anom, z, mean, std = ptr.detect_anomaly(vals)
+        self.assertTrue(is_anom)
+        self.assertGreater(z, 2.5)
+
+    def test_detect_anomaly_no_outlier(self):
+        vals = [10.0, 10.2, 9.8, 10.1, 10.3, 9.9, 10.0, 10.2, 9.8, 10.1, 10.0]
+        is_anom, z, mean, std = ptr.detect_anomaly(vals)
+        self.assertFalse(is_anom)
