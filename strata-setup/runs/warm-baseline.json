@@ -1,0 +1,46 @@
+{
+  "tag": "baseline",
+  "env": {
+    "SPEC": "4",
+    "EXPERT_CACHE": "auto",
+    "PIPELINE_WINDOWS": "2",
+    "PEER_PREFILL_ROWS": "0",
+    "POOL_WORKERS": "12",
+    "KV": "int8"
+  },
+  "repeats": 5,
+  "warmup": 3,
+  "per_run": [
+    {
+      "run": 1,
+      "prefill": 16.5,
+      "decode": 5.7
+    },
+    {
+      "run": 2,
+      "prefill": 26.6,
+      "decode": 7.8
+    },
+    {
+      "run": 3,
+      "prefill": 27.3,
+      "decode": 10.6
+    },
+    {
+      "run": 4,
+      "prefill": 26.8,
+      "decode": 11.4
+    },
+    {
+      "run": 5,
+      "prefill": 27.4,
+      "decode": 10.4
+    }
+  ],
+  "decode_median": 10.4,
+  "decode_mean": 9.18,
+  "decode_stdev": 2.368966019173766,
+  "prefill_median": 26.8,
+  "prefill_mean": 24.92,
+  "prefill_stdev": 4.718792218354184
+}

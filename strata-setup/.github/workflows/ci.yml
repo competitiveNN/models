@@ -91,3 +91,17 @@ jobs:
       - name: Emit Performance Regression Alert Metrics
         run: |
           python3 scripts/regression_alert.py --json-out runs/regression-alert.json
+
+      - name: Upload Regression Alert Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-alert
+          path: runs/regression-alert.json
+
+      - name: Upload Warm-Repeat Validation Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: warm-repeat-validation
+          path: runs/warm-*.json

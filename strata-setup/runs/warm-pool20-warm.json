@@ -1,0 +1,71 @@
+{
+  "tag": "pool20-warm",
+  "env": {
+    "SPEC": "4",
+    "EXPERT_CACHE": "8192",
+    "PIPELINE_WINDOWS": "2",
+    "PEER_PREFILL_ROWS": "4",
+    "POOL_WORKERS": "20",
+    "KV": "int8"
+  },
+  "repeats": 10,
+  "warmup": 3,
+  "per_run": [
+    {
+      "run": 1,
+      "prefill": 18.2,
+      "decode": 5.6
+    },
+    {
+      "run": 2,
+      "prefill": 30.6,
+      "decode": 11.2
+    },
+    {
+      "run": 3,
+      "prefill": 31.6,
+      "decode": 12.4
+    },
+    {
+      "run": 4,
+      "prefill": 32.9,
+      "decode": 13.3
+    },
+    {
+      "run": 5,
+      "prefill": 31.8,
+      "decode": 13.8
+    },
+    {
+      "run": 6,
+      "prefill": 31.4,
+      "decode": 13.2
+    },
+    {
+      "run": 7,
+      "prefill": 31.7,
+      "decode": 13.2
+    },
+    {
+      "run": 8,
+      "prefill": 30.9,
+      "decode": 14.0
+    },
+    {
+      "run": 9,
+      "prefill": 32.9,
+      "decode": 14.1
+    },
+    {
+      "run": 10,
+      "prefill": 31.5,
+      "decode": 13.1
+    }
+  ],
+  "decode_median": 13.2,
+  "decode_mean": 12.39,
+  "decode_stdev": 2.531336932663581,
+  "prefill_median": 31.55,
+  "prefill_mean": 30.35,
+  "prefill_stdev": 4.332115213405828
+}

@@ -20,17 +20,35 @@ jobs:
         run: |
           python3 scripts/check_deployed_defaults.py --variance-aware
 
+      - name: Validate Sweep Summary Schema
+        run: |
+          python3 scripts/check_sweep_regression.py --validate-schema
+
       - name: Strict Promoted Winner Regression
         run: |
           python3 scripts/check_sweep_regression.py --promoted-only --strict
 
-      - name: Emit Performance Regression Alert Metrics
+      - name: Validate Warm-Repeat Files
         run: |
-          python3 scripts/regression_alert.py --json-out runs/regression-alert.json
+          python3 scripts/validate_warm_repeats.py --json-out runs/warm-validation.json
 
-      - name: Upload Regression Alert Artifact
+      - name: Compute Variance and Confidence Intervals
+        run: |
+          python3 scripts/compute_variance_ci.py --json-out runs/variance-ci.json
+
+      - name: Emit Performance Regression Alert Metrics
+        env:
+          STRATA_ALERT_WEBHOOK_URL: ${{ secrets.STRATA_ALERT_WEBHOOK_URL }}
+        run: |
+          python3 scripts/regression_alert.py --json-out runs/regression-alert.json --strict-drift
+
+      - name: Upload Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: regression-alert
-          path: runs/regression-alert.json
+          name: continuous-validation
+          path: |
+            runs/regression-alert.json
+            runs/regression-alert-history.jsonl
+            runs/warm-validation.json
+            runs/variance-ci.json

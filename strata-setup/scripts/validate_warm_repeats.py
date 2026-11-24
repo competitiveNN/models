@@ -28,10 +28,11 @@ REQUIRED_FIELDS = {
 PER_RUN_FIELDS = {"run", "decode", "prefill"}
 
 
-def load_warm_files():
+def load_warm_files(runs_dir=None):
     """Load all warm-*.json files. Return dict of tag->data."""
+    base = Path(runs_dir) if runs_dir is not None else (ROOT / "runs")
     warm = {}
-    for p in sorted(Path("runs").glob("warm-*.json")):
+    for p in sorted(base.glob("warm-*.json")):
         try:
             data = json.loads(p.read_text())
             tag = data.get("tag")
@@ -80,12 +81,17 @@ def main():
                     help="Tag of the promoted winner (default: %(default)s)")
     ap.add_argument("--baseline-tag", default=BASELINE_TAG,
                     help="Tag of the baseline (default: %(default)s)")
+    ap.add_argument("--runs-dir", default=None, help="Directory containing warm-*.json files")
+    ap.add_argument("--json-out", default=None, help="Write JSON report to this path")
     args = ap.parse_args()
 
-    warm = load_warm_files()
+    warm = load_warm_files(args.runs_dir)
 
     if not warm:
         print("FAIL: No warm-*.json files found in runs/")
+        if args.json_out:
+            Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.json_out).write_text(json.dumps({"passed": False, "count": 0, "results": []}, indent=2))
         return 1
 
     # Check uniqueness
@@ -96,8 +102,9 @@ def main():
         return 1
 
     failed = False
+    results = []
     for tag, data in sorted(warm.items()):
-        path = Path("runs") / f"warm-{tag}.json"
+        path = (ROOT / "runs") / f"warm-{tag}.json"
         errors = []
 
         # Schema validation
@@ -111,11 +118,24 @@ def main():
             print(f"FAIL: {path.name}:")
             for e in errors:
                 print(f"  - {e}")
+            results.append({"tag": tag, "passed": False, "errors": errors,
+                            "path": str(path)})
         else:
             print(f"PASS: {path.name} "
                   f"(decode={data['decode_median']:.2f}, "
                   f"prefill={data['prefill_median']:.2f}, "
                   f"repeats={data['repeats']})")
+            results.append({"tag": tag, "passed": True, "errors": [],
+                            "decode_median": data['decode_median'],
+                            "prefill_median": data['prefill_median'],
+                            "repeats": data['repeats'],
+                            "path": str(path)})
+
+    if args.json_out:
+        out_path = Path(args.json_out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps({"passed": not failed, "count": len(warm),
+                                       "results": results}, indent=2))
 
     if failed:
         print("\nWarm-repeat validation FAILED.")

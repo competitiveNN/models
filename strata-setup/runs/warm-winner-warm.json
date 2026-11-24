@@ -1,0 +1,71 @@
+{
+  "tag": "winner-warm",
+  "env": {
+    "SPEC": "4",
+    "EXPERT_CACHE": "8192",
+    "PIPELINE_WINDOWS": "2",
+    "PEER_PREFILL_ROWS": "4",
+    "POOL_WORKERS": "16",
+    "KV": "int8"
+  },
+  "repeats": 10,
+  "warmup": 3,
+  "per_run": [
+    {
+      "run": 1,
+      "prefill": 14.8,
+      "decode": 6.7
+    },
+    {
+      "run": 2,
+      "prefill": 27.2,
+      "decode": 11.9
+    },
+    {
+      "run": 3,
+      "prefill": 27.4,
+      "decode": 12.1
+    },
+    {
+      "run": 4,
+      "prefill": 28.0,
+      "decode": 11.3
+    },
+    {
+      "run": 5,
+      "prefill": 29.1,
+      "decode": 11.5
+    },
+    {
+      "run": 6,
+      "prefill": 28.7,
+      "decode": 12.6
+    },
+    {
+      "run": 7,
+      "prefill": 28.6,
+      "decode": 12.0
+    },
+    {
+      "run": 8,
+      "prefill": 28.6,
+      "decode": 12.5
+    },
+    {
+      "run": 9,
+      "prefill": 29.1,
+      "decode": 11.9
+    },
+    {
+      "run": 10,
+      "prefill": 28.9,
+      "decode": 12.4
+    }
+  ],
+  "decode_median": 11.95,
+  "decode_mean": 11.49,
+  "decode_stdev": 1.7329807333672875,
+  "prefill_median": 28.6,
+  "prefill_mean": 27.04,
+  "prefill_stdev": 4.352062091060334
+}
