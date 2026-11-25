@@ -32,22 +32,76 @@
 #   * 16384 regressed, 30000 would need ~20 GiB of prompt buffer on one card;
 #   * with PREFILL=8192 the run loads with ~430 MiB free and prefill ~970 tok/s,
 #     decode ~27 tok/s.
-# Usage: ./run-strata-2gpu.sh
+# Usage: ./run-strata-2gpu.sh [--strata-defaults | --fast-prefill]
+#   --strata-defaults: use verified winner config as baseline (SPEC=4, EXPERT_CACHE=8192, PEER_PREFILL_ROWS=4, POOL_WORKERS=20)
+#   --fast-prefill: use fast prefill tuning adapted for 2x B580 and strata-old (CTX=262144, prefill=30000, prefill-borrow=on, expert-cache=20000, kv-resident=32768, vram-reserve-mib=0)
 #   Tune the fit:  CTX=64k PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=256 CORES=8 ./run-strata-2gpu.sh
 #   Decode parallelism:  PARALLEL=4 ./run-strata-2gpu.sh   (1..8 requests decoding together)
 #   Pin to specific cores:  CORES=\"0,2,4,6\" ./run-strata-2gpu.sh   (or CORES=off to disable pinning)
+
+# Parse mode flags
+FAST_PREFILL="0"
+USE_STRATA_DEFAULTS="0"
+for arg in "$@"; do
+  case "$arg" in
+    --fast-prefill)
+      FAST_PREFILL="1"
+      shift
+      ;;
+    --strata-defaults)
+      USE_STRATA_DEFAULTS="1"
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ "$FAST_PREFILL" != "1" ] && [ "$USE_STRATA_DEFAULTS" != "1" ]; then
+    FAST_PREFILL="0"
+    USE_STRATA_DEFAULTS="0"
+fi
+
 MODEL_DIR="${MODEL_DIR:-/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
 IMAGE="${IMAGE:-localhost/strata-old:latest}"
 NAME="${NAME:-strata}"
 HOST_PORT="${HOST_PORT:-1235}"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
-# Context and prompt-chunk tuning.
-#   * CTX is the context window (64K default).
-#   * PREFILL is the prompt chunk (tokens): 8192 measured as the sweet spot.
-#   * KV_RESIDENT keeps that many KV cells on the cards and streams the rest;
-#     65536 (full) at 64K loads with ~430 MiB free.
-CTX="${CTX:-65536}"
-# Allow k/K suffixes (e.g. 4k, 16k, 64k, 128k) for convenience.
+
+if [ "$USE_STRATA_DEFAULTS" = "1" ]; then
+    CTX="${CTX:-65536}"
+    PREFILL="${PREFILL:-8192}"
+    PREFILL_BORROW="${PREFILL_BORROW:-off}"
+    PEER_PREFILL_ROWS="${PEER_PREFILL_ROWS:-4}"
+    KV_RESIDENT="${KV_RESIDENT:-65536}"
+    VRAM_RESERVE="${VRAM_RESERVE:-256}"
+    EXPERT_CACHE="${EXPERT_CACHE:-8192}"
+    SPEC="${SPEC:-4}"
+    POOL_WORKERS="${POOL_WORKERS:-20}"
+    FAMILY="${FAMILY:-swift}"
+elif [ "$FAST_PREFILL" = "1" ]; then
+    CTX="${CTX:-262144}"
+    PREFILL="${PREFILL:-30000}"
+    PREFILL_BORROW="${PREFILL_BORROW:-on}"
+    PEER_PREFILL_ROWS="${PEER_PREFILL_ROWS:-4}"
+    KV_RESIDENT="${KV_RESIDENT:-32768}"
+    VRAM_RESERVE="${VRAM_RESERVE:-0}"
+    EXPERT_CACHE="${EXPERT_CACHE:-20000}"
+    SPEC="${SPEC:-4}"
+    POOL_WORKERS="${POOL_WORKERS:-20}"
+    FAMILY="${FAMILY:-swift}"
+else
+    CTX="${CTX:-65536}"
+    PREFILL="${PREFILL:-8192}"
+    PEER_PREFILL_ROWS="${PEER_PREFILL_ROWS:-4}"
+    KV_RESIDENT="${KV_RESIDENT:-65536}"
+    VRAM_RESERVE="${VRAM_RESERVE:-256}"
+    EXPERT_CACHE="${EXPERT_CACHE:-8192}"
+    SPEC="${SPEC:-4}"
+    POOL_WORKERS="${POOL_WORKERS:-20}"
+    FAMILY="${FAMILY:-swift}"
+fi
+# Allow k/K suffixes (e.g. 4k, 16k, 64k, 128k, 256k) for convenience.
 case "$CTX" in
   *[kK])
     _ctx_n="${CTX%[kK]}"
@@ -64,20 +118,13 @@ case "$CTX" in
     fi
     ;;
 esac
-PREFILL="${PREFILL:-8192}"
-# PEER_PREFILL_ROWS: prompt rows per layer the helper GPU computes (0 = primary-only, best for 2x B580).
-PEER_PREFILL_ROWS="${PEER_PREFILL_ROWS:-4}"
-KV_RESIDENT="${KV_RESIDENT:-65536}"
-VRAM_RESERVE="${VRAM_RESERVE:-256}"
-# Advanced tuning overrides (defaults: optimized for 2x B580).
-EXPERT_CACHE="${EXPERT_CACHE:-8192}"
-SPEC="${SPEC:-4}"
-POOL_WORKERS="${POOL_WORKERS:-20}"
+
+FAMILY="${FAMILY:-swift}"
 # PARALLEL: how many requests decode together (1 = one at a time; 2..8 = batch slots).
 PARALLEL="${PARALLEL:-1}"
 PIPELINE_WINDOWS="${PIPELINE_WINDOWS:-2}"
 EXPERT_CACHE_PER_LAYER="${EXPERT_CACHE_PER_LAYER:-on}"
-GPU="${GPU:-0,1}"
+GPU="${GPU:-1,0}"
 DRAFTING="${DRAFTING:-auto}"
 MTP="${MTP:-on}"
 KV="${KV:-int8}"
@@ -171,6 +218,7 @@ LAUNCH_CMD="mkdir -p /root/.local/share/strata/components/engine && cp -r /opt/s
     --set trim-stage-weights \
     --set kv=${KV} \
     --set prefill=auto:${PREFILL} \
+    $( [ "$PREFILL_BORROW" = "on" ] && echo "--set prefill-borrow" ) \
     --set peer-prefill-rows=${PEER_PREFILL_ROWS} \
     --set spec-min-p=0.5 \
     --set pool-workers=${POOL_WORKERS} \
@@ -207,6 +255,9 @@ podman run -d \
     --env=STRATA_VERIFY_NO_HOST=0 \
     --env=STRATA_COPY_ENGINE=0 \
     --env=STRATA_SPLIT_MISS_MS=108 \
+    --env=STRATA_ADAPT_LAG=${STRATA_ADAPT_LAG:-2} \
+    --env=STRATA_PLE_AUTO_RAM=${STRATA_PLE_AUTO_RAM:-1} \
+    --env=STRATA_SPLIT_OVERLAP=${STRATA_SPLIT_OVERLAP:-0} \
     --rm \
     --entrypoint=/bin/bash \
     "$IMAGE" \
