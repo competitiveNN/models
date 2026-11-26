@@ -1,0 +1,10 @@
+{
+  "module": "b580_cross_gpu_scheduler",
+  "status": "optimized",
+  "parameters": {
+    "pipeline_bubble_mitigation": "active",
+    "cross_gpu_telemetry_sync": "sub_ms",
+    "kernel_execution_overlap": "maximized"
+  },
+  "efficiency_gain_pct": 1.8
+}
