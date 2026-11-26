@@ -1,0 +1,10 @@
+{
+  "module": "b580_memory_paging_scaler",
+  "status": "optimized",
+  "parameters": {
+    "paged_memory_migration": "dynamic",
+    "chunked_prefill_scaling": "maximized",
+    "prefill_throughput_tok_s": 2280.0
+  },
+  "efficiency_gain_pct": 2.5
+}
