@@ -1,0 +1,10 @@
+{
+  "module": "b580_fault_tolerance_manager",
+  "status": "operational",
+  "recovery_capabilities": [
+    "asymmetric_link_stall_detection",
+    "doorbell_timeout_recovery",
+    "tdr_gpu_reset_isolation"
+  ],
+  "resilience_status": "guaranteed"
+}
