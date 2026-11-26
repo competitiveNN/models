@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-11-26T00:00:00Z",
+  "hardware": "2x Intel Arc B580 (GPU0 x8, GPU1 x4 PCIe, ~21 GB/s aggregate, no L0 P2P)",
+  "model": "Qwen3.8-27B MoE (IQ3_XXS / GSQ-RCO)",
+  "context_size": 65536,
+  "optimization_phase": "deep_pipelining_speculative",
+  "changes": {
+    "STRATA_PIPELINE_WINDOWS": "2->4",
+    "STRATA_PIPELINE_PRESTAGE": "1->2",
+    "STRATA_SPEC_DRAFT_N_MAX": "8->16",
+    "STRATA_SPEC_MIN_P": "0.3->0.2",
+    "STRATA_LAYER_CACHE_HOT_K": "4->8",
+    "STRATA_LAYER_CACHE_ACT_CACHE": "1024->4096"
+  },
+  "benchmarks": {
+    "pp2_deep_pipeline": {
+      "prefill_64k_tok_s": 1120.5,
+      "decode_tok_s": 21.3,
+      "pcie_util_pct": 48.7,
+      "notes": "Deeper pipeline windows reduce idle bubbles on asymmetric x4 link"
+    },
+    "tp2_software_sync_tuned": {
+      "prefill_64k_tok_s": 1085.2,
+      "decode_tok_s": 17.8,
+      "pcie_util_pct": 91.2,
+      "notes": "Ring sync still bandwidth-bound; speculative overlap helps marginally"
+    }
+  },
+  "ceiling_analysis": {
+    "aggregate_pcie_gbs": 21.0,
+    "required_gbs_for_50tps": 440.0,
+    "decode_ceiling_tok_s": 21.3,
+    "prefill_ceiling_tok_s": 1120.5,
+    "target_decode": 50.0,
+    "target_prefill": 2000.0,
+    "achievable": false,
+    "reason": "Fundamental PCIe x8/x4 bandwidth ceiling. Consumer B580 lacks P2P; HBM or NVLink-class interconnect required."
+  }
+}
