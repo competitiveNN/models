@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-11-26T00:00:00Z",
+  "hardware": "2x Intel Arc B580 (GPU0 x8, GPU1 x4 PCIe, ~21 GB/s aggregate, no L0 P2P)",
+  "model": "Qwen3.8-27B MoE (IQ3_XXS / GSQ-RCO)",
+  "context_size": 65536,
+  "optimization_phase": "hybrid_tp_pp_zero_copy",
+  "changes": {
+    "STRATA_HYBRID_TP_PP": "1",
+    "STRATA_ZERO_COPY_STAGING": "1",
+    "STRATA_PINNED_STAGING_MIB": "4096",
+    "STRATA_RING_RECYCLING": "1",
+    "STRATA_COMPUTE_COMM_OVERLAP": "1"
+  },
+  "benchmarks": {
+    "hybrid_tp_pp_zero_copy": {
+      "prefill_64k_tok_s": 1185.4,
+      "decode_tok_s": 23.7,
+      "pcie_util_pct": 52.3,
+      "notes": "Zero-copy staging and ring recycling reduce host overhead; hybrid scheduling improves GPU utilization"
+    },
+    "pp2_deep_pipeline_baseline": {
+      "prefill_64k_tok_s": 1120.5,
+      "decode_tok_s": 21.3,
+      "pcie_util_pct": 48.7
+    }
+  },
+  "ceiling_analysis": {
+    "aggregate_pcie_gbs": 21.0,
+    "required_gbs_for_50tps": 440.0,
+    "achieved_decode_tok_s": 23.7,
+    "achieved_prefill_tok_s": 1185.4,
+    "target_decode": 50.0,
+    "target_prefill": 2000.0,
+    "achievable": false,
+    "reason": "Fundamental PCIe x8/x4 bandwidth ceiling; no native L0 P2P on B580"
+  }
+}
