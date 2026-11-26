@@ -1,0 +1,6 @@
+{
+  "project": "strata-setup-2gpu-b580",
+  "lifecycle_status": "immutable_closure",
+  "verification_seal": "verified_and_pushed",
+  "zero_drift": true
+}
