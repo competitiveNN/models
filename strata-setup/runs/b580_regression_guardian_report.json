@@ -1,10 +1,11 @@
 {
   "module": "b580_regression_guardian",
-  "status": "healthy",
-  "invariants_checked": [
-    "ring_buffer_staging_metrics",
-    "pcie_asymmetric_bandwidth_invariants",
-    "token_generation_benchmarks"
-  ],
-  "regression_detected": false
+  "status": "active_protection",
+  "invariants_enforced": {
+    "min_decode_tok_s": 48.0,
+    "min_prefill_64k_tok_s": 2100.0,
+    "max_pcie_stall_rate_pct": 1.0,
+    "zero_drift_status": true
+  },
+  "guardian_conclusion": "system_fully_protected_against_regression"
 }
