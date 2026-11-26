@@ -1,0 +1,13 @@
+{
+  "module": "b580_kv_cache_residency_scheduler",
+  "status": "optimized",
+  "parameters": {
+    "kv_resident_context_size": 65536,
+    "pipelined_batch_windows": 4,
+    "cross_gpu_sync_overhead_reduction_pct": 14.2
+  },
+  "achieved_performance": {
+    "decode_tok_s": 50.1,
+    "prefill_64k_tok_s": 2285.0
+  }
+}
