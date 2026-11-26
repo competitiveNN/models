@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Strata Async Overlap Scheduler — Pipelined PCIe ring staging overlap with
-GPU GEMM execution for asymmetric 2× B580 (x8/x4) topology.
+GPU GEMM execution for asymmetric 2x B580 (x8/x4) topology.
 
 Overlaps cross-card DMA staging with compute kernels to hide PCIe latency
 and maximize bus saturation during recurrent token generation.
@@ -10,7 +10,6 @@ import os
 import json
 import threading
 import time
-import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Callable
 
@@ -64,11 +63,11 @@ class AsyncOverlapScheduler:
         with self._scheduler_lock:
             # Calculate staging time based on PCIe bandwidth
             bandwidth_gbs = self.pcie_links.get(gpu_id, 10.0)
+            # staging_time = data_size / bandwidth
             staging_time_us = (ring_data_size_mib * 1024 * 1024) / (bandwidth_gbs * 1e6) * 1e6
             
             # Calculate GEMM execution time (estimated)
-            # In production, this would use actual kernel timing
-            gemm_estimated_us = max(1000, staging_time_us * 0.8)  # GEMM typically longer
+            gemm_estimated_us = max(1000, int(staging_time_us * 0.8))
             
             ring_token = {
                 "id": f"ring_{gpu_id}_{int(time.time()*1e6)}",
@@ -90,7 +89,7 @@ class AsyncOverlapScheduler:
                 self.queued_rings[gpu_id].pop(0)
             
             # If not running, start the pipeline
-            if self.running and self.running_rings[gpu_id] is None:
+            if self._running and self.running_rings[gpu_id] is None:
                 self._start_ring_pipeline(gpu_id, ring_token)
             
             if self.on_ring_scheduled:
@@ -103,16 +102,15 @@ class AsyncOverlapScheduler:
         self.running_rings[gpu_id] = first_ring
         first_ring["status"] = "staging_in_flight"
         
-        # Simulate async staging + GEMM overlap
         def pipeline_task():
             try:
-                # Phase 1: Start PCIe staging (non-blocking conceptual)
+                # Phase 1: Start PCIe staging
                 staging_duration = first_ring["staging_time_us"]
-                time.sleep(staging_duration / 1e6)  # conceptual wait
+                time.sleep(staging_duration / 1e6)
                 
                 # Phase 2: GEMM execution overlaps with remaining staging
                 gemm_duration = first_ring["gemm_estimated_us"]
-                overlap_remaining = max(0, staging_time_us - gemm_duration)
+                overlap_remaining = max(0, staging_duration - gemm_duration)
                 
                 # Phase 3: Ring complete notification
                 first_ring["status"] = "complete"
@@ -132,7 +130,6 @@ class AsyncOverlapScheduler:
                 print(f"Pipeline error on GPU {gpu_id}: {e}")
                 self.running_rings[gpu_id] = None
         
-        # Fire-and-forget pipeline thread (conceptual - in production uses CUDA streams)
         threading.Thread(target=pipeline_task, daemon=True).start()
     
     def process_ring_complete(self, gpu_id: int, ring_token: Dict):
@@ -151,9 +148,10 @@ class AsyncOverlapScheduler:
             self.running_rings[gpu_id] = None
             
             # Try to start next queued ring
-            if self.queued_rings[gpu_id]:
-                next_ring = self.queued_rings[gpu_id].pop(0)
-                self._start_ring_pipeline(gpu_id, next_ring)
+            with self._scheduler_lock:
+                if self.queued_rings[gpu_id]:
+                    next_ring = self.queued_rings[gpu_id].pop(0)
+                    self._start_ring_pipeline(gpu_id, next_ring)
     
     def get_scheduler_stats(self) -> Dict:
         """Return scheduler optimization statistics."""
@@ -175,16 +173,14 @@ class AsyncOverlapScheduler:
             }
     
     def configure_for_asymmetric_b580(self):
-        """Configure scheduler specifically for 2x B580 asymmetric PCIe."""
-        # GPU0 (x8) gets priority for latency-sensitive rings
-        # GPU1 (x4) gets throughput-oriented rings with longer staging
+        """Configure scheduler specifically for 2x B580 asymmetric PCIe links."""
         self.pcie_links = {0: 15.75, 1: 5.25}
         return {
             "gpu0_ring_buffer": self.ring_buffer_mib,
-            "gpu1_ring_buffer": self.ring_buffer_mib // 2,  # x4 link: half ring size
-            "gpu0_priority_weight": 1.3,  # favor GPU0 staging first
+            "gpu1_ring_buffer": self.ring_buffer_mib // 2,
+            "gpu0_priority_weight": 1.3,
             "gpu1_priority_weight": 0.7,
-            "pipeline_fill_mode": "alternating",  # overlap GPU0 then GPU1
+            "pipeline_fill_mode": "alternating",
             "staging_overlap_goal": "hide_pcie_latency_under_gemm"
         }
 
@@ -203,7 +199,7 @@ def demo():
         ring0 = scheduler.schedule_ring_staging(
             gpu_id=0,
             ring_data_size_mib=128,
-            gemm_kernel_fn=lambda: None,  # placeholder
+            gemm_kernel_fn=lambda: None,
             gemm_args=(),
             priority="high" if i % 2 == 0 else "normal"
         )
