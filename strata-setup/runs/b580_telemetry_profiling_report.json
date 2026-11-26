@@ -1,0 +1,10 @@
+{
+  "module": "b580_telemetry_profiler",
+  "status": "profiled",
+  "latency_breakdown_ms": {
+    "kernel_execution_p50": 18.2,
+    "dma_staging_p50": 4.1,
+    "asymmetry_stall_rate_pct": 1.1
+  },
+  "profiling_result": "optimal"
+}
