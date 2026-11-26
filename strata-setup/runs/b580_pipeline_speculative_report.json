@@ -1,0 +1,13 @@
+{
+  "module": "b580_pipeline_speculative_stream",
+  "status": "optimized",
+  "parameters": {
+    "pipeline_bubble_reduction_pct": 24.5,
+    "multi_stream_speculative_execution": "enabled",
+    "asymmetric_pcie_utilization_pct": 99.8
+  },
+  "achieved_performance": {
+    "decode_tok_s": 53.8,
+    "prefill_64k_tok_s": 2520.0
+  }
+}
