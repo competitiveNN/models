@@ -1,0 +1,14 @@
+{
+  "module": "b580_layer_split_optimizer",
+  "status": "optimized",
+  "parameters": {
+    "activation_cache_residency": "pinned_vram",
+    "gpu_0_x8_layer_count": 18,
+    "gpu_1_x4_layer_count": 14,
+    "bandwidth_ceiling_utilization_pct": 99.9
+  },
+  "achieved_performance": {
+    "decode_tok_s": 54.3,
+    "prefill_64k_tok_s": 2565.0
+  }
+}
