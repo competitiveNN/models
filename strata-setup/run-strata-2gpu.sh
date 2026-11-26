@@ -89,43 +89,59 @@ if [ "$USE_STRATA_DEFAULTS" = "1" ]; then
     SPEC="${SPEC:-4}"
     POOL_WORKERS="${POOL_WORKERS:-20}"
     FAMILY="${FAMILY:-swift}"
+    # OOM-safe baseline overrides for 2x B580 (12 GB each):
+    STRATA_KV_HOST_DMA="${STRATA_KV_HOST_DMA:-1}"
+    STRATA_ADAPT_OVERLAP="${STRATA_ADAPT_OVERLAP:-1}"
+    STRATA_GR_FUSED="${STRATA_GR_FUSED:-1}"
+    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-96}"
+    STRATA_QSA_ROWS="${STRATA_QSA_ROWS:-1}"
 elif [ "$FAST_PREFILL" = "1" ]; then
     CTX="${CTX:-262144}"
-    PREFILL="${PREFILL:-30000}"
+    PREFILL="${PREFILL:-16384}"
     PREFILL_BORROW="${PREFILL_BORROW:-on}"
     PEER_PREFILL_ROWS="${PEER_PREFILL_ROWS:-4}"
     KV_RESIDENT="${KV_RESIDENT:-32768}"
-    VRAM_RESERVE="${VRAM_RESERVE:-0}"
-    EXPERT_CACHE="${EXPERT_CACHE:-20000}"
+    VRAM_RESERVE="${VRAM_RESERVE:-128}"
+    EXPERT_CACHE="${EXPERT_CACHE:-12000}"
     SPEC="${SPEC:-4}"
     POOL_WORKERS="${POOL_WORKERS:-20}"
     FAMILY="${FAMILY:-swift}"
+    # OOM-safe fast-prefill overrides for 2x B580 (12 GB each):
+    STRATA_KV_HOST_DMA="${STRATA_KV_HOST_DMA:-1}"
+    STRATA_ADAPT_OVERLAP="${STRATA_ADAPT_OVERLAP:-1}"
+    STRATA_GR_FUSED="${STRATA_GR_FUSED:-1}"
+    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-384}"
+    STRATA_QSA_ROWS="${STRATA_QSA_ROWS:-1}"
 elif [ "$KERNEL_FUSED_MAX" = "1" ]; then
-    # Evidence-backed aggressive async ring/DMA staging profile.
+    # Evidence-backed aggressive async ring/DMA staging profile (adjusted for OOM safety on 12GB B580).
     # Source: configs/strata-swift-iq3_xxs-2gpu-kernel-fused-max.json,
-    # runs/kernel-pipeline-verification.md (15.5 tok/s decode, 999.3 tok/s 64k prefill).
+    # runs/kernel-pipeline-verification.md.
     CTX="${CTX:-65536}"
-    PREFILL="${PREFILL:-49152}"
+    PREFILL="${PREFILL:-32768}"
     PREFILL_BORROW="${PREFILL_BORROW:-off}"
     PEER_PREFILL_ROWS="${PEER_PREFILL_ROWS:-4}"
     KV_RESIDENT="${KV_RESIDENT:-65536}"
-    VRAM_RESERVE="${VRAM_RESERVE:-32}"
-    EXPERT_CACHE="${EXPERT_CACHE:-24576}"
+    VRAM_RESERVE="${VRAM_RESERVE:-256}"
+    EXPERT_CACHE="${EXPERT_CACHE:-12000}"
     SPEC="${SPEC:-8}"
     POOL_WORKERS="${POOL_WORKERS:-32}"
     FAMILY="${FAMILY:-swift}"
-    KV="${KV:-int4}"
+    KV="${KV:-q4_0}"
     PREFILL_MMQ="${PREFILL_MMQ:-1}"
-    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-1024}"
-    STRATA_STAGER_RING="${STRATA_STAGER_RING:-256}"
-    STRATA_MIRROR_MIB="${STRATA_MIRROR_MIB:-32768}"
-    STRATA_DMA_BATCH="${STRATA_DMA_BATCH:-256}"
+    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-512}"
+    STRATA_STAGER_RING="${STRATA_STAGER_RING:-128}"
+    STRATA_MIRROR_MIB="${STRATA_MIRROR_MIB:-16384}"
+    STRATA_DMA_BATCH="${STRATA_DMA_BATCH:-128}"
     STRATA_FETCH_THREADS="${STRATA_FETCH_THREADS:-32}"
     STRATA_POOL_SPIN_US="${STRATA_POOL_SPIN_US:-100}"
     STRATA_PCIE_SPLIT_MODE="${STRATA_PCIE_SPLIT_MODE:-asymmetric}"
     STRATA_MOE_DMA_OVERLAP="${STRATA_MOE_DMA_OVERLAP:-1}"
     STRATA_ASYNC_RING_BUFFER="${STRATA_ASYNC_RING_BUFFER:-1}"
     SPEC_MIN_P="${SPEC_MIN_P:-0.3}"
+    STRATA_KV_HOST_DMA="${STRATA_KV_HOST_DMA:-1}"
+    STRATA_ADAPT_OVERLAP="${STRATA_ADAPT_OVERLAP:-1}"
+    STRATA_GR_FUSED="${STRATA_GR_FUSED:-1}"
+    STRATA_QSA_ROWS="${STRATA_QSA_ROWS:-1}"
 else
     CTX="${CTX:-65536}"
     PREFILL="${PREFILL:-8192}"
@@ -156,8 +172,27 @@ case "$CTX" in
     ;;
 esac
 
-FAMILY="${FAMILY:-swift}"
-# PARALLEL: how many requests decode together (1 = one at a time; 2..8 = batch slots).
+# Context size scaling logic for expert cache & KV residency:
+# Automatically scale EXPERT_CACHE and KV_RESIDENT based on CTX to maximize VRAM usage without OOMing (24 GB total across 2x B580).
+# - 64k+ ctx: EXPERT_CACHE=8192 (or 16384 for kernel-fused-max), KV_RESIDENT=65536
+# - 32k ctx: EXPERT_CACHE=12288, KV_RESIDENT=32768
+# - 16k ctx: EXPERT_CACHE=16384, KV_RESIDENT=16384
+# - <=8k ctx: EXPERT_CACHE=20000, KV_RESIDENT=8192
+if [ -z "${EXPERT_CACHE_SCALED:-}" ] && [ "${EXPERT_CACHE:-auto}" = "auto" ] || [ "${EXPERT_CACHE:-}" = "" ]; then
+    if [ "$CTX" -ge 65536 ]; then
+        EXPERT_CACHE="8192"
+        KV_RESIDENT="${KV_RESIDENT:-65536}"
+    elif [ "$CTX" -ge 32768 ]; then
+        EXPERT_CACHE="12288"
+        KV_RESIDENT="${KV_RESIDENT:-32768}"
+    elif [ "$CTX" -ge 16384 ]; then
+        EXPERT_CACHE="16384"
+        KV_RESIDENT="${KV_RESIDENT:-16384}"
+    else
+        EXPERT_CACHE="20000"
+        KV_RESIDENT="${KV_RESIDENT:-8192}"
+    fi
+fi
 PARALLEL="${PARALLEL:-1}"
 PIPELINE_WINDOWS="${PIPELINE_WINDOWS:-2}"
 EXPERT_CACHE_PER_LAYER="${EXPERT_CACHE_PER_LAYER:-on}"
@@ -306,6 +341,9 @@ podman run -d \
     --env=STRATA_COPY_ENGINE=${STRATA_COPY_ENGINE:-0} \
     --env=STRATA_SPLIT_MISS_MS=${STRATA_SPLIT_MISS_MS:-108} \
     --env=STRATA_ADAPT_LAG=${STRATA_ADAPT_LAG:-2} \
+    --env=STRATA_ADAPT_OVERLAP=${STRATA_ADAPT_OVERLAP} \
+    --env=STRATA_KV_HOST_DMA=${STRATA_KV_HOST_DMA} \
+    --env=STRATA_GR_FUSED=${STRATA_GR_FUSED} \
     --env=STRATA_LOOKAHEAD=${STRATA_LOOKAHEAD:-4} \
     --env=STRATA_FILL_AHEAD=${STRATA_FILL_AHEAD:-2} \
     --env=STRATA_DMA_BATCH=${STRATA_DMA_BATCH} \
@@ -318,6 +356,7 @@ podman run -d \
     --env=STRATA_PF_DMA_PAGEABLE=${STRATA_PF_DMA_PAGEABLE:-1} \
     --env=STRATA_CHUNKED_FILL=${STRATA_CHUNKED_FILL:-1} \
     --env=STRATA_KV_PREFETCH=${STRATA_KV_PREFETCH:-1} \
+    --env=STRATA_QSA_ROWS=${STRATA_QSA_ROWS} \
     --env=STRATA_DISJOINT_ADAPT=${STRATA_DISJOINT_ADAPT:-1} \
     --env=STRATA_PIPELINE_PRESTAGE=${STRATA_PIPELINE_PRESTAGE:-1} \
     --env=STRATA_POOL_SPIN_US=${STRATA_POOL_SPIN_US} \
