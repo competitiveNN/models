@@ -1,0 +1,15 @@
+{
+  "module": "b580_async_ring_buffer_tuning",
+  "status": "tuned_optimal",
+  "parameters": {
+    "dma_batch_size": 256,
+    "prefill_ring_entries": 1024,
+    "stager_ring_entries": 256,
+    "mirror_mib": 32768,
+    "sycl_queue_priority": "high_throughput"
+  },
+  "target_throughput": {
+    "decode_tok_s": 49.8,
+    "prefill_64k_tok_s": 2260.0
+  }
+}
