@@ -28,7 +28,7 @@ done
 echo "SHELL_OK=$SHELL_OK"
 
 PY_OK=1
-for f in scripts/b580_advanced_telemetry.py scripts/strata_regression_audit.py scripts/audit_env_flags.py scripts/nightly_stress_drill.py scripts/b580_telemetry.py scripts/measure-quick.py scripts/run_64k_final.py scripts/measure-prefill-decode.py scripts/advanced/speculative_kv_bypass.py scripts/advanced/thermal_governor.py scripts/advanced/regression_benchmark_pipeline.py scripts/advanced/cluster_scalability_coordinator.py scripts/advanced/observability_dashboard.py scripts/advanced/ci_stress_test.py scripts/advanced/regression_alert_system.py scripts/advanced/project_closure_export.py; do
+for f in scripts/b580_advanced_telemetry.py scripts/strata_regression_audit.py scripts/audit_env_flags.py scripts/nightly_stress_drill.py scripts/b580_telemetry.py scripts/measure-quick.py scripts/run_64k_final.py scripts/measure-prefill-decode.py scripts/advanced/speculative_kv_bypass.py scripts/advanced/thermal_governor.py scripts/advanced/regression_benchmark_pipeline.py scripts/advanced/cluster_scalability_coordinator.py scripts/advanced/observability_dashboard.py scripts/advanced/ci_stress_test.py scripts/advanced/regression_alert_system.py scripts/advanced/project_closure_export.py scripts/advanced/performance_regression_monitor.py scripts/advanced/profiling_telemetry.py; do
     if [ -f "$ROOT/$f" ]; then
         if ! python3 -m py_compile "$ROOT/$f"; then
             echo "PY_COMPILE_FAIL: $f"
@@ -131,17 +131,35 @@ if [ "$AUDIT_RC" -gt 2 ]; then
     AUDIT_OK=0
 fi
 
+REGRESSION_MONITOR_OK=0
+python3 "$ROOT/scripts/advanced/performance_regression_monitor.py" --output "$ROOT/runs/regression_monitor_report.json" >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+    REGRESSION_MONITOR_OK=1
+fi
+if [ "$REGRESSION_MONITOR_OK" != "1" ]; then
+    echo "REGRESSION_MONITOR_FAIL"
+fi
+
+PROFILING_TELEMETRY_OK=0
+python3 "$ROOT/scripts/advanced/profiling_telemetry.py" --duration 5 --interval 1.0 --output "$ROOT/runs/profiling_telemetry_report.json" >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+    PROFILING_TELEMETRY_OK=1
+fi
+if [ "$PROFILING_TELEMETRY_OK" != "1" ]; then
+    echo "PROFILING_TELEMETRY_FAIL"
+fi
+
 OVERALL=1
-if [ "$SHELL_OK" != "1" ] || [ "$PY_OK" != "1" ] || [ "$TESTS_OK" != "1" ] || [ "$STRESS_OK" != "1" ] || [ "$TELEMETRY_OK" != "1" ] || [ "$AUDIT_OK" != "1" ] || [ "$SPEC_OK" != "1" ] || [ "$TG_OVERALL" != "1" ] || [ "$CLUSTER_OK" != "1" ] || [ "$DASH_OK" != "1" ] || [ "$STRESS_CI_OK" != "1" ] || [ "$ALERT_OK" != "1" ] || [ "$CLOSURE_OK" != "1" ]; then
+if [ "$SHELL_OK" != "1" ] || [ "$PY_OK" != "1" ] || [ "$TESTS_OK" != "1" ] || [ "$STRESS_OK" != "1" ] || [ "$TELEMETRY_OK" != "1" ] || [ "$AUDIT_OK" != "1" ] || [ "$SPEC_OK" != "1" ] || [ "$TG_OVERALL" != "1" ] || [ "$CLUSTER_OK" != "1" ] || [ "$DASH_OK" != "1" ] || [ "$STRESS_CI_OK" != "1" ] || [ "$ALERT_OK" != "1" ] || [ "$CLOSURE_OK" != "1" ] || [ "$REGRESSION_MONITOR_OK" != "1" ] || [ "$PROFILING_TELEMETRY_OK" != "1" ]; then
     OVERALL=0
 fi
 
-python3 - "$OUT" "$TS" "$SHELL_OK" "$PY_OK" "$TESTS_OK" "$STRESS_OK" "$TELEMETRY_OK" "$AUDIT_OK" "$AUDIT_RC" "$OVERALL" "$SPEC_OK" "$TG_OVERALL" "$CLUSTER_OK" "$DASH_OK" "$STRESS_CI_OK" "$ALERT_OK" "$CLOSURE_OK" << 'PYEOF'
+python3 - "$OUT" "$TS" "$SHELL_OK" "$PY_OK" "$TESTS_OK" "$STRESS_OK" "$TELEMETRY_OK" "$AUDIT_OK" "$AUDIT_RC" "$OVERALL" "$SPEC_OK" "$TG_OVERALL" "$CLUSTER_OK" "$DASH_OK" "$STRESS_CI_OK" "$ALERT_OK" "$CLOSURE_OK" "$REGRESSION_MONITOR_OK" "$PROFILING_TELEMETRY_OK" << 'PYEOF'
 import json
 import sys
 import time
 
-out, ts, shell_ok, py_ok, tests_ok, stress_ok, telem_ok, audit_ok, audit_rc, overall, spec_ok, tg_overall, cluster_ok, dash_ok, stress_ci_ok, alert_ok, closure_ok = sys.argv[1:]
+out, ts, shell_ok, py_ok, tests_ok, stress_ok, telem_ok, audit_ok, audit_rc, overall, spec_ok, tg_overall, cluster_ok, dash_ok, stress_ci_ok, alert_ok, closure_ok, regression_monitor_ok, profiling_telemetry_ok = sys.argv[1:]
 report = {
     "timestamp": time.time(),
     "timestamp_iso": ts,
@@ -162,6 +180,8 @@ report = {
         "ci_stress_test": {"ok": stress_ci_ok == "1"},
         "regression_alert_system": {"ok": alert_ok == "1"},
         "project_closure_export": {"ok": closure_ok == "1"},
+        "performance_regression_monitor": {"ok": regression_monitor_ok == "1"},
+        "profiling_telemetry": {"ok": profiling_telemetry_ok == "1"},
     },
 }
 with open(out, "w") as f:
