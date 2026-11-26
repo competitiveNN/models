@@ -1,0 +1,10 @@
+{
+  "module": "b580_regression_suite",
+  "status": "passed",
+  "regression_checks": [
+    "automated_failover_recovery_test",
+    "prefill_throughput_regression_guard",
+    "decode_latency_tail_guard"
+  ],
+  "regression_status": "zero_regressions"
+}
