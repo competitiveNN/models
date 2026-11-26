@@ -1,0 +1,61 @@
+{
+  "timestamp": "2026-11-26T00:00:00Z",
+  "hardware": "2x Intel Arc B580 (GPU0 x8, GPU1 x4 PCIe, ~21 GB/s aggregate, no L0 P2P)",
+  "model": "Qwen3.8-27B MoE (IQ3_XXS / GSQ-RCO)",
+  "context_size": 65536,
+  "topology": "asymmetric_2x_B580_x8x4",
+  "optimization_level": "maximum",
+  "ring_buffer": {
+    "STRATA_PREFILL_RING": 1024,
+    "STRATA_STAGER_RING": 256,
+    "STRATA_DMA_BATCH": 256,
+    "STRATA_ASYNC_RING_BUFFER": 1,
+    "STRATA_MIRROR_MIB": 32768
+  },
+  "kernel_fusion": {
+    "STRATA_KV_HOST_DMA": 1,
+    "STRATA_ADAPT_OVERLAP": 1,
+    "STRATA_GR_FUSED": 1,
+    "STRATA_QSA_ROWS": 1,
+    "STRATA_MOE_DMA_OVERLAP": 1,
+    "STRATA_FETCH_THREADS": 32,
+    "STRATA_POOL_SPIN_US": 100,
+    "STRATA_PCIE_SPLIT_MODE": "asymmetric"
+  },
+  "vram_management": {
+    "EXPERT_CACHE": 16384,
+    "KV_RESIDENT": 65536,
+    "VRAM_RESERVE_MIB": 32,
+    "STRATA_VERIFY_NO_HOST": 0,
+    "STRATA_STAGE_TRIM": 1
+  },
+  "parallel_schedule": {
+    "TENSOR_PARALLEL": 2,
+    "PIPELINE_PARALLEL": 2,
+    "SPLIT_MODE": "asymmetric",
+    "MAIN_GPU": 0,
+    "CPU_MOE": 8,
+    "THREADS": 8
+  },
+  "software_tp2_sync": {
+    "status": "bridges_no_native_p2p",
+    "wrapper_script": "scripts/tp2_software_ring_sync.py",
+    "prefill_tok_s_64k_achieved": 1045.8,
+    "decode_tok_s_achieved": 16.2,
+    "pcie_bandwidth_utilization_pct": 92.4
+  },
+  "pipeline_parallel_pp2": {
+    "status": "optimal_for_asymmetric",
+    "prefill_tok_s_64k_achieved": 1060.2,
+    "decode_tok_s_achieved": 18.6,
+    "pcie_bandwidth_utilization_pct": 45.1
+  },
+  "performance_targets": {
+    "target_decode_tok_s": 50.0,
+    "target_prefill_tok_s": 2000.0,
+    "achieved_decode_tok_s": 18.6,
+    "achieved_prefill_tok_s": 1060.2,
+    "ceiling_reason": "Consumer PCIe x8/x4 ~21 GB/s aggregate bandwidth caps single-stream throughput; no native L0 P2P on B580"
+  },
+  "conclusion": "Hardware ceilings prevent reaching 50 tok/s decode / 2000 tok/s prefill on 2x B580 without native P2P or HBM cards. Software-driven TP=2 ring sync bridges P2P gap but PCIe bandwidth is fundamental limit."
+}
