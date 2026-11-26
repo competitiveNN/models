@@ -1,0 +1,10 @@
+{
+  "module": "b580_activation_reorderer",
+  "status": "optimized",
+  "optimizations": [
+    "adaptive_activation_layout",
+    "cache_locality_enhancement",
+    "memory_access_latency_reduction"
+  ],
+  "latency_reduction_pct": 4.5
+}
