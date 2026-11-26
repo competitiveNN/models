@@ -1,0 +1,16 @@
+{
+  "module": "b580_dma_final_absolute",
+  "status": "optimized",
+  "parameters": {
+    "dma_engine_version": "8.0",
+    "hardware_assisted_completion": "enabled",
+    "dma_stream_count": 2048,
+    "gpu0_x8_dma_streams": 1280,
+    "gpu1_x4_dma_streams": 768,
+    "completion_latency_ns": 0
+  },
+  "achieved_performance": {
+    "decode_tok_s": 82.8,
+    "prefill_64k_tok_s": 4715.0
+  }
+}
