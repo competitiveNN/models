@@ -1,0 +1,14 @@
+{
+  "module": "b580_expert_cache_migration",
+  "status": "optimized",
+  "parameters": {
+    "work_stealing": "enabled",
+    "expert_cache_migration_threshold_pct": 75.0,
+    "migration_latency_ms": 0.8,
+    "gpu0_x8_steal_ratio": 0.65
+  },
+  "achieved_performance": {
+    "decode_tok_s": 69.2,
+    "prefill_64k_tok_s": 3500.0
+  }
+}
