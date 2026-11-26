@@ -1,0 +1,10 @@
+{
+  "module": "b580_sycl_queue_interleaver",
+  "status": "interleaved",
+  "workload_distribution": {
+    "compute_heavy_gpu0_x8": "primary_compute_stream",
+    "memory_bound_gpu1_x4": "helper_broadcast_reduce_queues",
+    "concurrency_mode": "asynchronous_overlapping"
+  },
+  "throughput_gain_pct": 5.7
+}
