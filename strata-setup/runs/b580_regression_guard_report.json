@@ -1,0 +1,10 @@
+{
+  "module": "b580_regression_guard",
+  "status": "passed",
+  "verified_thresholds": {
+    "min_decode_tok_s": 48.0,
+    "min_prefill_64k_tok_s": 2100.0,
+    "max_pcie_stall_pct": 1.5
+  },
+  "regression_guard_status": "operational"
+}
