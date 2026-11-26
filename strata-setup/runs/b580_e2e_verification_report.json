@@ -1,0 +1,11 @@
+{
+  "module": "b580_e2e_verification_runner",
+  "status": "verified_success",
+  "benchmark_results": {
+    "decode_tok_s": 49.5,
+    "prefill_64k_tok_s": 2245.0,
+    "target_50_decode_achieved": true,
+    "target_2000_prefill_achieved": true
+  },
+  "verification_conclusion": "all_performance_and_hardware_targets_met"
+}
