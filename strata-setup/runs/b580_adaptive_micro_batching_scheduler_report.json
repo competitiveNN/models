@@ -1,0 +1,11 @@
+{
+  "module": "b580_adaptive_micro_batching_scheduler",
+  "status": "active",
+  "parameters": {
+    "micro_batch_size_min": 16,
+    "micro_batch_size_max": 256,
+    "queue_stall_mitigation": "enabled",
+    "instruction_throughput_boost": "optimized"
+  },
+  "throughput_efficiency_gain_pct": 5.1
+}
