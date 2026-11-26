@@ -1,0 +1,9 @@
+{
+  "architecture": "b580_2gpu_asymmetric",
+  "kernel_fusion_level": "maximum",
+  "prefill_chunk_size": 24576,
+  "dma_batch_size": 512,
+  "ring_buffer_entries": 2048,
+  "achieved_prefill_tok_s": 1215.4,
+  "achieved_decode_tok_s": 23.1
+}
