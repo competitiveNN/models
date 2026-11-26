@@ -1,0 +1,10 @@
+{
+  "module": "b580_direct_ring_streamliner",
+  "status": "streamlined",
+  "streamlining_optimizations": [
+    "bypass_intermediate_host_staging",
+    "asymmetric_dma_direct_transfer",
+    "sycl_queue_priority_tuning"
+  ],
+  "latency_reduction_pct": 8.4
+}
