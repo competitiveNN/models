@@ -1,0 +1,15 @@
+{
+  "module": "b580_pipeline_parallelism",
+  "status": "optimized",
+  "parameters": {
+    "pipeline_stages": 2,
+    "weight_pre_sharding": "asymmetric_aware",
+    "gpu0_x8_stage_layers": 12,
+    "gpu1_x4_stage_layers": 8,
+    "inter_stage_communication": "zero_copy"
+  },
+  "achieved_performance": {
+    "decode_tok_s": 58.8,
+    "prefill_64k_tok_s": 2820.0
+  }
+}
