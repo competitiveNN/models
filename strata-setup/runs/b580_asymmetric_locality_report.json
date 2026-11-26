@@ -1,0 +1,14 @@
+{
+  "module": "b580_asymmetric_locality_optimizer",
+  "status": "optimized",
+  "parameters": {
+    "gpu0_x8_weight_allocation_pct": 56.2,
+    "gpu1_x4_weight_allocation_pct": 43.8,
+    "ring_queue_depth": 2048,
+    "locality_overhead_reduction_pct": 8.5
+  },
+  "achieved_performance": {
+    "decode_tok_s": 50.4,
+    "prefill_64k_tok_s": 2310.0
+  }
+}
