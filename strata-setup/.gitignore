@@ -1,5 +1,104 @@
+# Data & models
 Strata-data/
 models/
+models/**/*
+
+# Build artifacts & temporary files
 tmpcore/
 *.out
 *.log
+*.bak
+
+# Run artifacts - temporary benchmark outputs
+runs/bench-containers-*/
+runs/bench-*-2gpu-*/
+runs/sweep-*.json
+runs/sweep-*/*.json
+runs/quick-*.json
+runs/prefill-*-result.json
+runs/decode-result.json
+runs/closure-*.json
+runs/verified-run.json
+runs/baseline-*.json
+runs/benchmark-final.json
+runs/bench-results.json
+runs/trend-report.*
+runs/perf-history.jsonl
+runs/sweep-summary.jsonl
+runs/sweep-grid-*.json
+runs/sweep-r*-*.json
+runs/xpu-measurement-*.*
+runs/bench-*.json
+
+# External directories (not part of this repo)
+ghcr-engine/
+hostcompiler/
+hostoneapi/
+lib/
+lib_container/
+oneapi-libs/
+strata-old-source/
+strata-src-clean/
+strata-src-main/
+
+# Parent directory external repos (git submodules or separate projects)
+../Strata-rdna3/
+../Swift-ssd/
+../XeMaya/
+../XeStrata-data/
+../XeStrata/
+../basalt/
+../kervia-Strata/
+../llama.cpp-setup/
+../snailium.cpp/
+../strata-5090-4070/
+
+# Container build artifacts
+Containerfile.edge
+Containerfile.strata
+Dockerfile
+.dockerignore
+.dockerignore.strata
+
+# Local development
+.pytest_cache/
+__pycache__/
+*.pyc
+.maki/
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary scripts
+adopt_original.py
+adopt_patched.py
+b580_specs.md
+strata-tune-config*.json
+srv.sh
+strata-launch.sh
+mk.sh
+rebuild*.sh
+check_cache.sh
+dryrun.sh
+showcmd.sh
+sizes.sh
+stratahelp.sh
+p3-test.txt
+test.txt
+test_prompt.txt
+test_tokens.txt
+test_write.txt
+response.txt
+probe.txt
+simple.txt
+
+# Run artifacts - keep only final reports (explicitly tracked)
+# runs/*.json (except final reports we explicitly commit)
+# runs/*.md (except final reports we explicitly commit)

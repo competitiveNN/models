@@ -177,7 +177,6 @@ def main():
         with open(summary, "a") as f:
             f.write(json.dumps(summary_entry) + "\n")
             f.flush()
-            import os
             os.fsync(f.fileno())
     except Exception:
         # Best-effort cleanup of temp file
