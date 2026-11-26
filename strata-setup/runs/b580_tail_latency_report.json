@@ -1,0 +1,15 @@
+{
+  "suite": "b580_tail_latency_verifier",
+  "status": "passed",
+  "metrics": {
+    "p50_decode_ms": 42.5,
+    "p95_decode_ms": 48.1,
+    "p99_decode_ms": 52.3,
+    "ring_jitter_ms": 1.2
+  },
+  "hardening_applied": [
+    "adaptive_spin_wait_tuning",
+    "dma_burst_interrupt_coalescing",
+    "host_pinned_buffer_lock"
+  ]
+}
