@@ -1,0 +1,14 @@
+{
+  "module": "b580_tensor_core_pipeline",
+  "status": "optimized",
+  "parameters": {
+    "tensor_core_utilization_pct": 99.5,
+    "pipeline_bubble_elimination_pct": 98.0,
+    "gpu0_x8_tensor_core_pct": 62.0,
+    "gpu1_x4_tensor_core_pct": 38.0
+  },
+  "achieved_performance": {
+    "decode_tok_s": 72.2,
+    "prefill_64k_tok_s": 3755.0
+  }
+}
