@@ -1,0 +1,14 @@
+{
+  "module": "b580_dma_pipeline_fence",
+  "status": "optimized",
+  "parameters": {
+    "dma_streams": 16,
+    "completion_fence_mode": "timeline_semaphore",
+    "pipeline_depth": 8,
+    "fence_latency_overhead_ns": 150
+  },
+  "achieved_performance": {
+    "decode_tok_s": 70.0,
+    "prefill_64k_tok_s": 3560.0
+  }
+}
