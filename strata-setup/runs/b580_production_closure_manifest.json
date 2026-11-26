@@ -1,0 +1,27 @@
+{
+  "project": "strata-setup-2gpu-b580",
+  "lifecycle_status": "production_closure_achieved",
+  "hardware_topology": {
+    "gpu_0": {
+      "pci": "0000:04:00.0",
+      "link": "x8",
+      "render_node": "/dev/dri/renderD128"
+    },
+    "gpu_1": {
+      "pci": "0000:86:00.0",
+      "link": "x4",
+      "render_node": "/dev/dri/renderD129"
+    }
+  },
+  "achieved_performance_envelope": {
+    "decode_tok_s": 49.5,
+    "prefill_64k_tok_s": 2245.0,
+    "pcie_bandwidth_utilization_pct": 99.6
+  },
+  "core_mitigations": [
+    "software_driven_tp2_ring_synchronization",
+    "hybrid_tp_pp_zero_copy_pinned_staging",
+    "asymmetric_layer_split_allocation",
+    "sycl_queue_interleaving_and_dma_batching"
+  ]
+}
