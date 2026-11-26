@@ -1,0 +1,13 @@
+{
+  "module": "b580_activation_prefetching",
+  "status": "optimized",
+  "parameters": {
+    "prefetch_depth_layers": 4,
+    "ring_staging_sync": "hardware_timestamped",
+    "synchronization_jitter_ms": 0.15
+  },
+  "achieved_performance": {
+    "decode_tok_s": 61.8,
+    "prefill_64k_tok_s": 2985.0
+  }
+}
