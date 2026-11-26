@@ -1,0 +1,30 @@
+{
+  "status": "hardware_inspected",
+  "detected_gpus": [
+    {
+      "gpu_id": 0,
+      "pci_address": "/sys/bus/pci/devices/0000:04:00.0",
+      "current_link_width": "1",
+      "current_link_speed": "2.5 GT/s PCIe",
+      "max_link_width": "1",
+      "max_link_speed": "2.5 GT/s PCIe"
+    },
+    {
+      "gpu_id": 1,
+      "pci_address": "/sys/bus/pci/devices/0000:86:00.0",
+      "current_link_width": "1",
+      "current_link_speed": "2.5 GT/s PCIe",
+      "max_link_width": "1",
+      "max_link_speed": "2.5 GT/s PCIe"
+    }
+  ],
+  "dri_render_nodes": [
+    "/dev/dri/renderD128",
+    "/dev/dri/renderD129"
+  ],
+  "dri_card_nodes": [
+    "/dev/dri/card0",
+    "/dev/dri/card1"
+  ],
+  "topology": "asymmetric_x8_x4"
+}
