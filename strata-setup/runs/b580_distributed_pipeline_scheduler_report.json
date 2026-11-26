@@ -1,0 +1,11 @@
+{
+  "module": "b580_distributed_pipeline_scheduler",
+  "status": "active",
+  "parameters": {
+    "pipeline_stages": 2,
+    "gpu0_x8_weight": 0.65,
+    "gpu1_x4_weight": 0.35,
+    "inter_gpu_staging": "zero_copy_pinned"
+  },
+  "distributed_efficiency_gain_pct": 3.1
+}
