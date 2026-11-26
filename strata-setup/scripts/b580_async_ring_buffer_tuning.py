@@ -23,6 +23,7 @@ def tune_ring_buffer():
         }
     }
 
+    os.makedirs("runs", exist_ok=True)
     out_path = "runs/b580_async_ring_buffer_tuning_report.json"
     with open(out_path, "w") as f:
         json.dump(tuning_params, f, indent=2)
