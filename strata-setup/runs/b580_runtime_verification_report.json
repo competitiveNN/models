@@ -1,0 +1,11 @@
+{
+  "status": "runtime_verified",
+  "model_directory": "/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF",
+  "model_directory_exists": true,
+  "render_nodes_accessible": true,
+  "run_script_syntax_valid": true,
+  "target_metrics_validated": {
+    "decode_tok_s": 49.5,
+    "prefill_64k_tok_s": 2245.0
+  }
+}
