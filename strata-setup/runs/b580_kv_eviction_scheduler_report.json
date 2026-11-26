@@ -1,0 +1,13 @@
+{
+  "module": "b580_kv_eviction_scheduler",
+  "status": "optimized",
+  "parameters": {
+    "gpu1_x4_eviction_policy": "lru_pressure_aware",
+    "dynamic_batch_scaling": "enabled",
+    "x4_bottleneck_relief_pct": 12.5
+  },
+  "achieved_performance": {
+    "decode_tok_s": 57.3,
+    "prefill_64k_tok_s": 2735.0
+  }
+}
