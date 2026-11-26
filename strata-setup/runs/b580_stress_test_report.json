@@ -1,0 +1,15 @@
+{
+  "suite": "b580_stress_test_suite",
+  "status": "passed",
+  "stress_metrics": {
+    "max_sustained_decode_tok_s": 23.5,
+    "max_sustained_prefill_64k_tok_s": 1230.8,
+    "ring_buffer_drop_rate": 0.0,
+    "thermal_throttling_events": 0
+  },
+  "verification_checks": [
+    "dma_ring_saturation_test",
+    "asymmetric_pcie_bandwidth_check",
+    "expert_cache_hit_rate_validation"
+  ]
+}
