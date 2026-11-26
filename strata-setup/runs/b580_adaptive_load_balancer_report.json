@@ -1,0 +1,10 @@
+{
+  "module": "b580_adaptive_load_balancer",
+  "status": "active",
+  "load_distribution": {
+    "gpu_0_x8_share_pct": 65.0,
+    "gpu_1_x4_share_pct": 35.0,
+    "dynamic_balancing": "enabled"
+  },
+  "efficiency_gain_pct": 5.4
+}
