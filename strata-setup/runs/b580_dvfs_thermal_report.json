@@ -1,0 +1,14 @@
+{
+  "module": "b580_dvfs_thermal_optimizer",
+  "status": "optimized",
+  "parameters": {
+    "gpu0_x8_performance_mode": "max_performance",
+    "gpu1_x4_power_efficiency_mode": "balanced",
+    "thermal_throttling_prevention": "active",
+    "sustained_boost_duration_min": 120
+  },
+  "achieved_performance": {
+    "decode_tok_s": 66.2,
+    "prefill_64k_tok_s": 3270.0
+  }
+}
