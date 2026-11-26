@@ -1,0 +1,10 @@
+{
+  "module": "b580_runtime_adaptive_profiler",
+  "status": "active_monitoring",
+  "adaptive_parameters": {
+    "thermal_threshold_celsius": 85.0,
+    "sycl_queue_stride_tuning": "dynamic",
+    "ring_buffer_prefetch_scaling": "optimal"
+  },
+  "runtime_efficiency_gain_pct": 2.9
+}
