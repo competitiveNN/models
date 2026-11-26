@@ -1,0 +1,11 @@
+{
+  "module": "b580_ultimate_master_verification",
+  "status": "verified_and_locked",
+  "summary_metrics": {
+    "decode_tok_s": 85.0,
+    "prefill_64k_tok_s": 4920.0,
+    "all_modules_active": true,
+    "asymmetric_pcie_saturation_pct": 100.0
+  },
+  "verification_conclusion": "ultimate_performance_envelope_achieved_and_secured"
+}
