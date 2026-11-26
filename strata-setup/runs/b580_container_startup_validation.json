@@ -1,0 +1,16 @@
+{
+  "container_engine": "podman",
+  "render_nodes": [
+    "/dev/dri/renderD128",
+    "/dev/dri/renderD129"
+  ],
+  "oneapi_device_selector": "level_zero:0,level_zero:1",
+  "asymmetric_pcie_split": "asymmetric",
+  "dma_batch_size": 256,
+  "prefill_ring_entries": 1024,
+  "stager_ring_entries": 256,
+  "mirror_mib": 32768,
+  "kv_resident": 65536,
+  "expert_cache": 16384,
+  "status": "validated_for_execution"
+}
