@@ -1,0 +1,14 @@
+{
+  "module": "b580_prefill_chunking_kv_pinning",
+  "status": "optimized",
+  "parameters": {
+    "prefill_chunk_size": 32768,
+    "kv_cache_pinning": "vram_locked",
+    "chunk_overlap_pct": 15.0,
+    "prefill_borrow_mode": "off"
+  },
+  "achieved_performance": {
+    "decode_tok_s": 67.8,
+    "prefill_64k_tok_s": 3380.0
+  }
+}
