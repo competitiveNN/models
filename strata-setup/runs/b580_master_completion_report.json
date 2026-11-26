@@ -1,0 +1,6 @@
+{
+  "project": "strata-setup-2gpu-b580",
+  "master_status": "complete_and_verified",
+  "all_suites_passed": true,
+  "git_state": "clean_and_pushed"
+}
