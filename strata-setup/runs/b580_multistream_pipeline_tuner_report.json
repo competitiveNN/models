@@ -1,0 +1,11 @@
+{
+  "module": "b580_multistream_pipeline_tuner",
+  "status": "tuned",
+  "pipeline_parameters": {
+    "stream_count_gpu0": 8,
+    "stream_count_gpu1": 4,
+    "ring_buffer_depth": 2048,
+    "chunk_alignment_bytes": 4096
+  },
+  "prefill_efficiency_gain_pct": 4.2
+}
