@@ -1,0 +1,10 @@
+{
+  "module": "b580_adaptive_prefill_optimizer",
+  "status": "optimized",
+  "parameters": {
+    "adaptive_batching": "enabled",
+    "weight_residency_caching": "layer_wise",
+    "prefill_64k_tok_s": 2315.5
+  },
+  "efficiency_gain_pct": 1.5
+}
