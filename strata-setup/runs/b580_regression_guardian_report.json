@@ -1,0 +1,10 @@
+{
+  "module": "b580_regression_guardian",
+  "status": "healthy",
+  "invariants_checked": [
+    "ring_buffer_staging_metrics",
+    "pcie_asymmetric_bandwidth_invariants",
+    "token_generation_benchmarks"
+  ],
+  "regression_detected": false
+}
