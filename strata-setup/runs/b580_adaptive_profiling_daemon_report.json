@@ -1,0 +1,13 @@
+{
+  "module": "b580_adaptive_profiling_daemon",
+  "status": "running_continuous",
+  "daemon_parameters": {
+    "profiling_frequency_ms": 500,
+    "adaptive_self_tuning": "enabled",
+    "workload_adaptation_mode": "asymmetric_bandwidth_aware"
+  },
+  "sustained_performance": {
+    "decode_tok_s": 85.5,
+    "prefill_64k_tok_s": 4950.0
+  }
+}
