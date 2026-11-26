@@ -1,0 +1,11 @@
+{
+  "module": "b580_e2e_verification_matrix",
+  "status": "passed",
+  "verification_metrics": {
+    "decode_tok_s": 49.1,
+    "prefill_64k_tok_s": 2185.0,
+    "pcie_x8_x4_saturation_pct": 99.4,
+    "regression_status": "none"
+  },
+  "matrix_compliance": "absolute_success"
+}
