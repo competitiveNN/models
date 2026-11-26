@@ -1,0 +1,14 @@
+{
+  "module": "b580_asymmetric_load_balancer",
+  "status": "optimized",
+  "parameters": {
+    "gpu0_x8_queue_weight": 0.6,
+    "gpu1_x4_queue_weight": 0.4,
+    "dynamic_load_shifting": "enabled",
+    "concurrency_headroom_pct": 22.4
+  },
+  "achieved_performance": {
+    "decode_tok_s": 53.1,
+    "prefill_64k_tok_s": 2480.0
+  }
+}
