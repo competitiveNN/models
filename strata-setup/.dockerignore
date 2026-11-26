@@ -1,7 +1,10 @@
 # Build context
 *
 !Containerfile.strata
+!Containerfile.edge
 !oneapi-libs/
 !oneapi-libs/**
 !strata-old-source/
 !strata-old-source/**
+!strata-src-clean/
+!strata-src-clean/**
