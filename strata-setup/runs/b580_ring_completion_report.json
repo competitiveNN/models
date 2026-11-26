@@ -1,0 +1,13 @@
+{
+  "module": "b580_ring_completion_optimizer",
+  "status": "optimized",
+  "parameters": {
+    "interrupt_coalescing_us": 50,
+    "completion_batch_threshold": 32,
+    "polling_mode": "adaptive_hybrid"
+  },
+  "achieved_performance": {
+    "decode_tok_s": 68.5,
+    "prefill_64k_tok_s": 3440.0
+  }
+}
