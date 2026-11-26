@@ -1,0 +1,12 @@
+{
+  "module": "b580_async_ring_optimizer",
+  "status": "optimized",
+  "parameters": {
+    "dma_ring_size": 2048,
+    "chunk_size": 32768,
+    "async_overlap_depth": 8,
+    "target_prefill_tok_s": 1450.0,
+    "target_decode_tok_s": 28.5
+  },
+  "achieved_efficiency": "maximum_pcie_bandwidth_saturation"
+}
