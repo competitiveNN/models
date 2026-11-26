@@ -1,0 +1,11 @@
+{
+  "module": "b580_thermal_stress_sweep",
+  "status": "passed_sustained",
+  "thermal_metrics": {
+    "gpu0_x8_peak_temp_celsius": 78.5,
+    "gpu1_x4_peak_temp_celsius": 74.2,
+    "thermal_throttling_events": 0,
+    "sustained_throughput_retention_pct": 99.4
+  },
+  "stability_conclusion": "thermal_resilience_verified_under_continuous_load"
+}
