@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "launch_script_help_verified": true,
+  "dry_run_checks": [
+    "help_flag_functional",
+    "environment_defaults_loaded",
+    "asymmetric_pcie_topology_configured"
+  ]
+}
