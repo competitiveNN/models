@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-11-26T00:00:00Z",
+  "hardware": "2x Intel Arc B580 (GPU0 x8, GPU1 x4 PCIe, ~21 GB/s aggregate, no L0 P2P)",
+  "model": "Qwen3.8-27B MoE (IQ3_XXS / GSQ-RCO)",
+  "context_size": 65536,
+  "final_optimization_state": {
+    "kernel_fusion": {
+      "STRATA_DMA_BATCH": 256,
+      "STRATA_PREFILL_RING": 1024,
+      "STRATA_STAGER_RING": 256,
+      "STRATA_MIRROR_MIB": 32768,
+      "STRATA_ASYNC_RING_BUFFER": 1,
+      "STRATA_MOE_DMA_OVERLAP": 1
+    },
+    "pipeline_parallelism": {
+      "STRATA_PIPELINE_WINDOWS": 4,
+      "STRATA_PIPELINE_PRESTAGE": 2,
+      "STRATA_MULTI_STREAM": 1,
+      "STRATA_STREAM_BATCH_SIZE": 4
+    },
+    "speculative_decoding": {
+      "STRATA_SPEC_DECODE": 1,
+      "STRATA_SPEC_DRAFT_N_MAX": 16,
+      "STRATA_SPEC_MIN_P": 0.2
+    },
+    "layer_cache": {
+      "STRATA_LAYER_CACHE": 1,
+      "STRATA_LAYER_CACHE_HOT_K": 8,
+      "STRATA_LAYER_CACHE_ACT_CACHE": 4096,
+      "STRATA_PCIE_STAGE_PRIORITY": "gpu1_first"
+    }
+  },
+  "achieved_performance": {
+    "pp2_deep_pipeline_decode_tok_s": 21.3,
+    "pp2_deep_pipeline_prefill_64k_tok_s": 1120.5,
+    "tp2_software_sync_decode_tok_s": 17.8,
+    "tp2_software_sync_prefill_64k_tok_s": 1085.2
+  },
+  "targets": {
+    "decode_tok_s": 50.0,
+    "prefill_64k_tok_s": 2000.0
+  },
+  "achievable": false,
+  "ceiling_reason": "Consumer PCIe x8/x4 ~21 GB/s aggregate bandwidth; no native L0 P2P; 440 GB/s required for 50 tok/s decode target"
+}
