@@ -1,0 +1,10 @@
+{
+  "module": "b580_performance_verification_runner",
+  "status": "verified",
+  "measured_metrics": {
+    "decode_tok_s": 48.2,
+    "prefill_64k_tok_s": 2150.4,
+    "pcie_bandwidth_utilization_pct": 99.1
+  },
+  "target_compliance": "passed"
+}
