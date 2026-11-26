@@ -1,0 +1,8 @@
+{
+  "module": "b580_multi_stream_scheduler",
+  "status": "deployed",
+  "topology": "asymmetric_x8_x4",
+  "gpu_0_stream_weight": 0.67,
+  "gpu_1_stream_weight": 0.33,
+  "throughput_boost_pct": 8.5
+}
