@@ -1,0 +1,10 @@
+{
+  "module": "b580_fallback_telemetry",
+  "status": "hardened",
+  "fallback_modes": [
+    "pcie_bandwidth_degradation_fallback",
+    "vram_overflow_dynamic_offload",
+    "ring_buffer_stall_auto_recovery"
+  ],
+  "integration_status": "operational"
+}
