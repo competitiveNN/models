@@ -1,0 +1,11 @@
+{
+  "module": "b580_dynamic_ring_staging",
+  "status": "active",
+  "dynamic_parameters": {
+    "pinned_buffer_pool_mb": 16384,
+    "adaptive_dma_batch_min": 64,
+    "adaptive_dma_batch_max": 512,
+    "real_time_scaling": "enabled"
+  },
+  "bandwidth_efficiency_gain_pct": 6.8
+}
