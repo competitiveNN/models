@@ -1,0 +1,13 @@
+{
+  "module": "b580_kv_quant_compression",
+  "status": "optimized",
+  "parameters": {
+    "kv_cache_quantization": "int4_dynamic",
+    "ring_compression_ratio": 2.5,
+    "gpu1_x4_bandwidth_savings_pct": 38.2
+  },
+  "achieved_performance": {
+    "decode_tok_s": 62.5,
+    "prefill_64k_tok_s": 3030.0
+  }
+}
