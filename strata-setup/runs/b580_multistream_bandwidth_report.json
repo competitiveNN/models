@@ -1,0 +1,10 @@
+{
+  "module": "b580_multistream_bandwidth_optimizer",
+  "status": "optimized",
+  "parameters": {
+    "interleaving_streams": 4,
+    "prefetch_window_size": 1024,
+    "bus_saturation_target_pct": 99.8
+  },
+  "bandwidth_efficiency_gain_pct": 2.7
+}
