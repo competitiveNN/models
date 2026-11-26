@@ -1,0 +1,6 @@
+{
+  "project": "strata-setup-2gpu-b580",
+  "release_status": "anchored",
+  "version": "1.0.0-final",
+  "certified": true
+}
