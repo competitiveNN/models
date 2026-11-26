@@ -1,0 +1,10 @@
+{
+  "module": "b580_paged_ring_tuner",
+  "status": "tuned",
+  "parameters": {
+    "paged_ring_allocation": "dynamic",
+    "zero_copy_pinning": "enabled",
+    "asymmetric_bus_sync": "optimized"
+  },
+  "bandwidth_efficiency_gain_pct": 3.8
+}
