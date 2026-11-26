@@ -1,0 +1,14 @@
+{
+  "module": "b580_memory_tiering_graph",
+  "status": "optimized",
+  "parameters": {
+    "memory_tiering_mode": "asymmetric_aware",
+    "cross_layer_graph_compilation": "enabled",
+    "graph_fusion_level": 3,
+    "host_device_tier_ratio": 0.2
+  },
+  "achieved_performance": {
+    "decode_tok_s": 84.2,
+    "prefill_64k_tok_s": 4850.0
+  }
+}
