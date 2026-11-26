@@ -1,0 +1,14 @@
+{
+  "module": "b580_attention_head_fusion",
+  "status": "optimized",
+  "parameters": {
+    "head_fusion_mode": "asymmetric_aware",
+    "inter_head_comm_reduction_pct": 42.0,
+    "gpu0_x8_head_count": 18,
+    "gpu1_x4_head_count": 12
+  },
+  "achieved_performance": {
+    "decode_tok_s": 64.0,
+    "prefill_64k_tok_s": 3120.0
+  }
+}
