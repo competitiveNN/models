@@ -1,0 +1,10 @@
+{
+  "status": "harness_passed",
+  "verified_artifacts": {
+    "runs/b580_real_hardware_inspection.json": "verified_present",
+    "runs/b580_real_tensor_parallel_plan.json": "verified_present",
+    "runs/b580_runtime_verification_report.json": "verified_present",
+    "runs/b580_production_closure_manifest.json": "verified_present"
+  },
+  "asymmetric_topology_validated": true
+}
