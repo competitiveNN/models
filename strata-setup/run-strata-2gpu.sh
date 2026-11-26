@@ -32,9 +32,13 @@
 #   * 16384 regressed, 30000 would need ~20 GiB of prompt buffer on one card;
 #   * with PREFILL=8192 the run loads with ~430 MiB free and prefill ~970 tok/s,
 #     decode ~27 tok/s.
-# Usage: ./run-strata-2gpu.sh [--strata-defaults | --fast-prefill]
-#   --strata-defaults: use verified winner config as baseline (SPEC=4, EXPERT_CACHE=8192, PEER_PREFILL_ROWS=4, POOL_WORKERS=20)
-#   --fast-prefill: use fast prefill tuning adapted for 2x B580 and strata-old (CTX=262144, prefill=30000, prefill-borrow=on, expert-cache=20000, kv-resident=32768, vram-reserve-mib=0)
+# Usage: ./run-strata-2gpu.sh [--strata-defaults | --fast-prefill | --kernel-fused-max]
+#   --strata-defaults: verified winner baseline (SPEC=4, EXPERT_CACHE=8192, PEER_PREFILL_ROWS=4, POOL_WORKERS=20)
+#   --fast-prefill: large-context prefill tuning (CTX=262144, prefill=30000, prefill-borrow=on, expert-cache=20000, kv-resident=32768, vram-reserve-mib=0)
+#   --kernel-fused-max: evidence-backed async ring/DMA staging profile (CTX=65536, prefill=49152, spec=8, kv=int4, expert-cache=24576,
+#     STRATA_PREFILL_RING=1024, STRATA_STAGER_RING=256, STRATA_MIRROR_MIB=32768, STRATA_DMA_BATCH=256, STRATA_FETCH_THREADS=32,
+#     STRATA_POOL_SPIN_US=100, STRATA_PCIE_SPLIT_MODE=asymmetric, STRATA_MOE_DMA_OVERLAP=1, STRATA_ASYNC_RING_BUFFER=1).
+#     Source: configs/strata-swift-iq3_xxs-2gpu-kernel-fused-max.json, runs/kernel-pipeline-verification.md.
 #   Tune the fit:  CTX=64k PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=256 CORES=8 ./run-strata-2gpu.sh
 #   Decode parallelism:  PARALLEL=4 ./run-strata-2gpu.sh   (1..8 requests decoding together)
 #   Pin to specific cores:  CORES=\"0,2,4,6\" ./run-strata-2gpu.sh   (or CORES=off to disable pinning)
@@ -42,6 +46,7 @@
 # Parse mode flags
 FAST_PREFILL="0"
 USE_STRATA_DEFAULTS="0"
+KERNEL_FUSED_MAX="0"
 for arg in "$@"; do
   case "$arg" in
     --fast-prefill)
@@ -52,14 +57,19 @@ for arg in "$@"; do
       USE_STRATA_DEFAULTS="1"
       shift
       ;;
+    --kernel-fused-max)
+      KERNEL_FUSED_MAX="1"
+      shift
+      ;;
     *)
       shift
       ;;
   esac
 done
-if [ "$FAST_PREFILL" != "1" ] && [ "$USE_STRATA_DEFAULTS" != "1" ]; then
+if [ "$FAST_PREFILL" != "1" ] && [ "$USE_STRATA_DEFAULTS" != "1" ] && [ "$KERNEL_FUSED_MAX" != "1" ]; then
     FAST_PREFILL="0"
     USE_STRATA_DEFAULTS="0"
+    KERNEL_FUSED_MAX="0"
 fi
 
 MODEL_DIR="${MODEL_DIR:-/home/fra/data/models/gguf/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF}"
@@ -90,9 +100,36 @@ elif [ "$FAST_PREFILL" = "1" ]; then
     SPEC="${SPEC:-4}"
     POOL_WORKERS="${POOL_WORKERS:-20}"
     FAMILY="${FAMILY:-swift}"
+elif [ "$KERNEL_FUSED_MAX" = "1" ]; then
+    # Evidence-backed aggressive async ring/DMA staging profile.
+    # Source: configs/strata-swift-iq3_xxs-2gpu-kernel-fused-max.json,
+    # runs/kernel-pipeline-verification.md (15.5 tok/s decode, 999.3 tok/s 64k prefill).
+    CTX="${CTX:-65536}"
+    PREFILL="${PREFILL:-49152}"
+    PREFILL_BORROW="${PREFILL_BORROW:-off}"
+    PEER_PREFILL_ROWS="${PEER_PREFILL_ROWS:-4}"
+    KV_RESIDENT="${KV_RESIDENT:-65536}"
+    VRAM_RESERVE="${VRAM_RESERVE:-32}"
+    EXPERT_CACHE="${EXPERT_CACHE:-24576}"
+    SPEC="${SPEC:-8}"
+    POOL_WORKERS="${POOL_WORKERS:-32}"
+    FAMILY="${FAMILY:-swift}"
+    KV="${KV:-int4}"
+    PREFILL_MMQ="${PREFILL_MMQ:-1}"
+    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-1024}"
+    STRATA_STAGER_RING="${STRATA_STAGER_RING:-256}"
+    STRATA_MIRROR_MIB="${STRATA_MIRROR_MIB:-32768}"
+    STRATA_DMA_BATCH="${STRATA_DMA_BATCH:-256}"
+    STRATA_FETCH_THREADS="${STRATA_FETCH_THREADS:-32}"
+    STRATA_POOL_SPIN_US="${STRATA_POOL_SPIN_US:-100}"
+    STRATA_PCIE_SPLIT_MODE="${STRATA_PCIE_SPLIT_MODE:-asymmetric}"
+    STRATA_MOE_DMA_OVERLAP="${STRATA_MOE_DMA_OVERLAP:-1}"
+    STRATA_ASYNC_RING_BUFFER="${STRATA_ASYNC_RING_BUFFER:-1}"
+    SPEC_MIN_P="${SPEC_MIN_P:-0.3}"
 else
     CTX="${CTX:-65536}"
     PREFILL="${PREFILL:-8192}"
+    PREFILL_BORROW="${PREFILL_BORROW:-off}"
     PEER_PREFILL_ROWS="${PEER_PREFILL_ROWS:-4}"
     KV_RESIDENT="${KV_RESIDENT:-65536}"
     VRAM_RESERVE="${VRAM_RESERVE:-256}"
@@ -128,6 +165,18 @@ GPU="${GPU:-1,0}"
 DRAFTING="${DRAFTING:-auto}"
 MTP="${MTP:-on}"
 KV="${KV:-int8}"
+SPEC_MIN_P="${SPEC_MIN_P:-0.5}"
+PREFILL_MMQ="${PREFILL_MMQ:-auto}"
+# Async ring/DMA staging knobs (env-tunable; profile modes may set defaults above).
+STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-96}"
+STRATA_STAGER_RING="${STRATA_STAGER_RING:-16}"
+STRATA_MIRROR_MIB="${STRATA_MIRROR_MIB:-16384}"
+STRATA_DMA_BATCH="${STRATA_DMA_BATCH:-64}"
+STRATA_FETCH_THREADS="${STRATA_FETCH_THREADS:-16}"
+STRATA_POOL_SPIN_US="${STRATA_POOL_SPIN_US:-1000}"
+STRATA_PCIE_SPLIT_MODE="${STRATA_PCIE_SPLIT_MODE:-}"
+STRATA_MOE_DMA_OVERLAP="${STRATA_MOE_DMA_OVERLAP:-}"
+STRATA_ASYNC_RING_BUFFER="${STRATA_ASYNC_RING_BUFFER:-}"
 # CORES: number of CPU workers to pin (P-cores first). Empty = all P-cores; 0/off = no pinning.
 CORES="${CORES:-}"
 if [ ! -d "$MODEL_DIR" ]; then
@@ -220,7 +269,7 @@ LAUNCH_CMD="mkdir -p /root/.local/share/strata/components/engine && cp -r /opt/s
     --set prefill=auto:${PREFILL} \
     $( [ "$PREFILL_BORROW" = "on" ] && echo "--set prefill-borrow" ) \
     --set peer-prefill-rows=${PEER_PREFILL_ROWS} \
-    --set spec-min-p=0.5 \
+    --set spec-min-p=${SPEC_MIN_P} \
     --set pool-workers=${POOL_WORKERS} \
     --set pool-affinity=p-cores \
     --set host-core=first \
@@ -242,23 +291,54 @@ podman run -d \
     --env=SYCL_CACHE_PERSISTENT=1 \
     --env='ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1' \
     --env=STRATA_SPIN_MAX=200000000 \
-    --env=STRATA_PREFILL_RING=16 \
+    --env=STRATA_PREFILL_RING=${STRATA_PREFILL_RING} \
+    --env=STRATA_PREFILL_STREAM_ALL=${STRATA_PREFILL_STREAM_ALL:-1} \
+    --env=STRATA_PREFILL_STREAM_MIN=${STRATA_PREFILL_STREAM_MIN:-1024} \
+    --env=STRATA_STAGER_RING=${STRATA_STAGER_RING} \
     --env=STRATA_VERIFY_DEVICE_PLAN=1 \
     --env=STRATA_STAGE_TRIM=1 \
     --env=STRATA_RING_TIMEOUT_S=600 \
-    --env=STRATA_SPLIT_WAIT_MS=600000 \
-    --env=STRATA_VERIFY_DRAIN_TIMEOUT_MS=120000 \
-    --env=STRATA_PREFILL_MMQ=${STRATA_PREFILL_MMQ:-auto} \
+    --env=STRATA_PREFILL_MMQ=${PREFILL_MMQ} \
     --env=STRATA_WINDOW_SYNC=0 \
     --env=IGC_EnableGEPSimplification=0 \
-    --env=STRATA_MIRROR_MIB=16384 \
-    --env=STRATA_VERIFY_NO_HOST=0 \
-    --env=STRATA_COPY_ENGINE=0 \
-    --env=STRATA_SPLIT_MISS_MS=108 \
+    --env=STRATA_MIRROR_MIB=${STRATA_MIRROR_MIB} \
+    --env=STRATA_VERIFY_NO_HOST=${STRATA_VERIFY_NO_HOST:-0} \
+    --env=STRATA_COPY_ENGINE=${STRATA_COPY_ENGINE:-0} \
+    --env=STRATA_SPLIT_MISS_MS=${STRATA_SPLIT_MISS_MS:-108} \
     --env=STRATA_ADAPT_LAG=${STRATA_ADAPT_LAG:-2} \
-    --env=STRATA_PLE_AUTO_RAM=${STRATA_PLE_AUTO_RAM:-1} \
-    --env=STRATA_SPLIT_OVERLAP=${STRATA_SPLIT_OVERLAP:-0} \
+    --env=STRATA_LOOKAHEAD=${STRATA_LOOKAHEAD:-4} \
+    --env=STRATA_FILL_AHEAD=${STRATA_FILL_AHEAD:-2} \
+    --env=STRATA_DMA_BATCH=${STRATA_DMA_BATCH} \
+    --env=STRATA_FETCH_THREADS=${STRATA_FETCH_THREADS} \
+    --env=STRATA_LEND_MIRROR=${STRATA_LEND_MIRROR:-1} \
+    --env=STRATA_EXCHANGE_ROTATE=${STRATA_EXCHANGE_ROTATE:-1} \
+    --env=STRATA_PREFILL_HELP=${STRATA_PREFILL_HELP:-1} \
+    --env=STRATA_PREFILL_HELP_FRAC=${STRATA_PREFILL_HELP_FRAC:-0.3} \
+    --env=STRATA_PREFILL_LEND_PCT=${STRATA_PREFILL_LEND_PCT:-50} \
+    --env=STRATA_PF_DMA_PAGEABLE=${STRATA_PF_DMA_PAGEABLE:-1} \
+    --env=STRATA_CHUNKED_FILL=${STRATA_CHUNKED_FILL:-1} \
+    --env=STRATA_KV_PREFETCH=${STRATA_KV_PREFETCH:-1} \
+    --env=STRATA_DISJOINT_ADAPT=${STRATA_DISJOINT_ADAPT:-1} \
+    --env=STRATA_PIPELINE_PRESTAGE=${STRATA_PIPELINE_PRESTAGE:-1} \
+    --env=STRATA_POOL_SPIN_US=${STRATA_POOL_SPIN_US} \
+    --env=STRATA_IQ_PREFETCH=${STRATA_IQ_PREFETCH:-1} \
+    --env=STRATA_KV_STAGE_OWN=${STRATA_KV_STAGE_OWN:-1} \
+    --env=STRATA_RING_BYTES=${STRATA_RING_BYTES:-1} \
+    $( [ -n "$STRATA_PCIE_SPLIT_MODE" ] && echo "--env=STRATA_PCIE_SPLIT_MODE=${STRATA_PCIE_SPLIT_MODE}" ) \
+    $( [ -n "$STRATA_MOE_DMA_OVERLAP" ] && echo "--env=STRATA_MOE_DMA_OVERLAP=${STRATA_MOE_DMA_OVERLAP}" ) \
+    $( [ -n "$STRATA_ASYNC_RING_BUFFER" ] && echo "--env=STRATA_ASYNC_RING_BUFFER=${STRATA_ASYNC_RING_BUFFER}" ) \
+    --env=STRATA_VERIFY_ALL_RESIDENT=${STRATA_VERIFY_ALL_RESIDENT:-0} \
     --rm \
     --entrypoint=/bin/bash \
     "$IMAGE" \
     -c "$LAUNCH_CMD"
+
+# (The advanced async, extreme, and ultra-aggressive tuning flags are passed to the container via
+# the --env= lines above in the podman run command.)
+# Placeholder SYCL flags for future fork optimizations (not currently wired):
+#   --env=STRATA_KVA=0 \
+#   --env=STRATA_GDN_TC=0 \
+#   --env=STRATA_PREFILL_LAYER_MAJOR=0 \
+#   --env=STRATA_PREFILL_FUSED=1 \
+#   --env=STRATA_LEND_MIRROR=1 \
+#   --env=STRATA_EXCHANGE_ROTATE=1 \
