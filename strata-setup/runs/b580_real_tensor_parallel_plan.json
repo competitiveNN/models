@@ -1,0 +1,25 @@
+{
+  "model_layers": 32,
+  "gpu_0": {
+    "render_node": "/dev/dri/renderD128",
+    "allocated_layers": 17,
+    "vram_budget_mib": 11776,
+    "pcie_link": "x8"
+  },
+  "gpu_1": {
+    "render_node": "/dev/dri/renderD129",
+    "allocated_layers": 15,
+    "vram_budget_mib": 11776,
+    "pcie_link": "x4"
+  },
+  "ring_synchronization": {
+    "dma_batch_size": 256,
+    "prefill_ring_entries": 1024,
+    "stager_ring_entries": 256,
+    "mirror_mib": 32768
+  },
+  "target_metrics": {
+    "decode_tok_s": 49.1,
+    "prefill_64k_tok_s": 2220.5
+  }
+}
