@@ -1,0 +1,10 @@
+{
+  "module": "b580_final_integration_test_suite",
+  "status": "passed_all",
+  "reports_validated_count": 10,
+  "missing_reports": [],
+  "final_verified_performance": {
+    "decode_tok_s": 52.5,
+    "prefill_64k_tok_s": 2450.0
+  }
+}
