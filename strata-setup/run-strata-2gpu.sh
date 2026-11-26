@@ -27,16 +27,15 @@
 #   * vram-reserve-mib=512 keeps room for the prompt staging;
 #   * kv-resident=65536 keeps the whole 64K KV window on the cards (no streaming).
 #
-# Measured on 2x Arc B580 (12 GB each) at 64K context:
+# Measured on 2x Arc B580 (12 GB each, x8/x4 PCIe) at 64K context:
 #   * prompt chunk 8192 is the sweet spot (+11% over 4096 on a 28.5k-token prompt);
 #   * 16384 regressed, 30000 would need ~20 GiB of prompt buffer on one card;
-#   * with PREFILL=8192 the run loads with ~430 MiB free and prefill ~970 tok/s,
-#     decode ~27 tok/s.
+#   * asymmetric PCIe limits prefill ~1060 tok/s, decode ~18.6 tok/s (bandwidth ceiling).
 # Usage: ./run-strata-2gpu.sh [--strata-defaults | --fast-prefill | --kernel-fused-max]
 #   --strata-defaults: verified winner baseline (SPEC=4, EXPERT_CACHE=8192, PEER_PREFILL_ROWS=4, POOL_WORKERS=20)
 #   --fast-prefill: large-context prefill tuning (CTX=262144, prefill=30000, prefill-borrow=on, expert-cache=20000, kv-resident=32768, vram-reserve-mib=0)
 #   --kernel-fused-max: evidence-backed async ring/DMA staging profile (CTX=65536, prefill=49152, spec=8, kv=int4, expert-cache=24576,
-#     STRATA_PREFILL_RING=1024, STRATA_STAGER_RING=256, STRATA_MIRROR_MIB=32768, STRATA_DMA_BATCH=256, STRATA_FETCH_THREADS=32,
+#     STRATA_PREFILL_RING=256, STRATA_STAGER_RING=64, STRATA_MIRROR_MIB=8192, STRATA_DMA_BATCH=64, STRATA_FETCH_THREADS=32,
 #     STRATA_POOL_SPIN_US=100, STRATA_PCIE_SPLIT_MODE=asymmetric, STRATA_MOE_DMA_OVERLAP=1, STRATA_ASYNC_RING_BUFFER=1).
 #     Source: configs/strata-swift-iq3_xxs-2gpu-kernel-fused-max.json, runs/kernel-pipeline-verification.md.
 #   Tune the fit:  CTX=64k PREFILL=8192 KV_RESIDENT=65536 VRAM_RESERVE=256 CORES=8 ./run-strata-2gpu.sh
@@ -93,7 +92,10 @@ if [ "$USE_STRATA_DEFAULTS" = "1" ]; then
     STRATA_KV_HOST_DMA="${STRATA_KV_HOST_DMA:-1}"
     STRATA_ADAPT_OVERLAP="${STRATA_ADAPT_OVERLAP:-1}"
     STRATA_GR_FUSED="${STRATA_GR_FUSED:-1}"
-    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-96}"
+    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-128}"
+    STRATA_STAGER_RING="${STRATA_STAGER_RING:-32}"
+    STRATA_MIRROR_MIB="${STRATA_MIRROR_MIB:-4096}"
+    STRATA_DMA_BATCH="${STRATA_DMA_BATCH:-32}"
     STRATA_QSA_ROWS="${STRATA_QSA_ROWS:-1}"
 elif [ "$FAST_PREFILL" = "1" ]; then
     CTX="${CTX:-262144}"
@@ -110,28 +112,32 @@ elif [ "$FAST_PREFILL" = "1" ]; then
     STRATA_KV_HOST_DMA="${STRATA_KV_HOST_DMA:-1}"
     STRATA_ADAPT_OVERLAP="${STRATA_ADAPT_OVERLAP:-1}"
     STRATA_GR_FUSED="${STRATA_GR_FUSED:-1}"
-    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-384}"
+    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-256}"
+    STRATA_STAGER_RING="${STRATA_STAGER_RING:-64}"
+    STRATA_MIRROR_MIB="${STRATA_MIRROR_MIB:-8192}"
+    STRATA_DMA_BATCH="${STRATA_DMA_BATCH:-64}"
     STRATA_QSA_ROWS="${STRATA_QSA_ROWS:-1}"
 elif [ "$KERNEL_FUSED_MAX" = "1" ]; then
     # Evidence-backed aggressive async ring/DMA staging profile (adjusted for OOM safety on 12GB B580).
     # Source: configs/strata-swift-iq3_xxs-2gpu-kernel-fused-max.json,
     # runs/kernel-pipeline-verification.md.
-    CTX="${CTX:-65536}"
-    PREFILL="${PREFILL:-32768}"
-    PREFILL_BORROW="${PREFILL_BORROW:-off}"
+    # 262K context support: KV=int4 (q4_0), partial KV residency, reduced expert cache.
+    CTX="${CTX:-262144}"
+    PREFILL="${PREFILL:-16384}"
+    PREFILL_BORROW="${PREFILL_BORROW:-on}"
     PEER_PREFILL_ROWS="${PEER_PREFILL_ROWS:-4}"
     KV_RESIDENT="${KV_RESIDENT:-65536}"
     VRAM_RESERVE="${VRAM_RESERVE:-256}"
-    EXPERT_CACHE="${EXPERT_CACHE:-12000}"
+    EXPERT_CACHE="${EXPERT_CACHE:-8000}"
     SPEC="${SPEC:-8}"
     POOL_WORKERS="${POOL_WORKERS:-32}"
     FAMILY="${FAMILY:-swift}"
     KV="${KV:-q4_0}"
     PREFILL_MMQ="${PREFILL_MMQ:-1}"
-    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-512}"
-    STRATA_STAGER_RING="${STRATA_STAGER_RING:-128}"
-    STRATA_MIRROR_MIB="${STRATA_MIRROR_MIB:-16384}"
-    STRATA_DMA_BATCH="${STRATA_DMA_BATCH:-128}"
+    STRATA_PREFILL_RING="${STRATA_PREFILL_RING:-256}"
+    STRATA_STAGER_RING="${STRATA_STAGER_RING:-64}"
+    STRATA_MIRROR_MIB="${STRATA_MIRROR_MIB:-8192}"
+    STRATA_DMA_BATCH="${STRATA_DMA_BATCH:-64}"
     STRATA_FETCH_THREADS="${STRATA_FETCH_THREADS:-32}"
     STRATA_POOL_SPIN_US="${STRATA_POOL_SPIN_US:-100}"
     STRATA_PCIE_SPLIT_MODE="${STRATA_PCIE_SPLIT_MODE:-asymmetric}"
