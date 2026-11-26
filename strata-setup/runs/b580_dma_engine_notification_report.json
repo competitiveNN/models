@@ -1,0 +1,15 @@
+{
+  "module": "b580_dma_engine_notification",
+  "status": "optimized",
+  "parameters": {
+    "dma_notification_mode": "event_based",
+    "dma_stream_count": 16,
+    "notification_latency_ns": 80,
+    "gpu0_x8_dma_streams": 10,
+    "gpu1_x4_dma_streams": 6
+  },
+  "achieved_performance": {
+    "decode_tok_s": 73.0,
+    "prefill_64k_tok_s": 3820.0
+  }
+}
