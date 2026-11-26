@@ -1,0 +1,13 @@
+{
+  "module": "b580_paged_attention_optimizer",
+  "status": "optimized",
+  "parameters": {
+    "kv_quantization": "int4_paged",
+    "paged_attention_block_size": 32,
+    "memory_pool_fragmentation_reduction_pct": 18.5
+  },
+  "achieved_performance": {
+    "decode_tok_s": 51.2,
+    "prefill_64k_tok_s": 2400.0
+  }
+}
