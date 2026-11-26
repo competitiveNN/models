@@ -1,0 +1,10 @@
+{
+  "module": "b580_persistent_weight_repacker",
+  "status": "active",
+  "optimizations": [
+    "persistent_vram_weight_layout",
+    "zero_copy_tensor_staging",
+    "asymmetric_pcie_burst_alignment"
+  ],
+  "estimated_speedup_pct": 12.5
+}
