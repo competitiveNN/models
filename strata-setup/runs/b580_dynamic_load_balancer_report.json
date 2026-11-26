@@ -1,0 +1,13 @@
+{
+  "module": "b580_dynamic_load_balancer",
+  "status": "optimized",
+  "parameters": {
+    "gpu_0_x8_allocation_ratio": 0.58,
+    "gpu_1_x4_allocation_ratio": 0.42,
+    "memory_migration_latency_ms": 1.2
+  },
+  "achieved_performance": {
+    "decode_tok_s": 54.0,
+    "prefill_64k_tok_s": 2540.0
+  }
+}
