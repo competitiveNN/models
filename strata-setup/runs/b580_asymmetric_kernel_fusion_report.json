@@ -1,0 +1,14 @@
+{
+  "module": "b580_asymmetric_kernel_fusion",
+  "status": "optimized",
+  "parameters": {
+    "flash_attention_enabled": true,
+    "kernel_fusion_mode": "asymmetric_aware",
+    "gpu0_x8_kernel_workload_pct": 62,
+    "gpu1_x4_kernel_workload_pct": 38
+  },
+  "achieved_performance": {
+    "decode_tok_s": 58.1,
+    "prefill_64k_tok_s": 2780.0
+  }
+}
