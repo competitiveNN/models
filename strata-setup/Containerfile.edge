@@ -1,0 +1,183 @@
+# =============================================================================
+# Strata SYCL Engine — Production Docker Image for 2× Intel Arc B580 (Battlemage)
+# =============================================================================
+# Base: Intel Deep Learning Essentials (Ubuntu 24.04, oneAPI 2025.3)
+# Layers: oneAPI 2026.2 compiler/MKL/Level-Zero/UMF libs, source tree, Python deps
+# Build:  docker build -f Dockerfile -t strata-server:latest .
+# Run:    docker run -d --privileged --device /dev/dri --network host \
+#           -v /path/to/models:/models:ro strata-server:latest
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Stage 1: Builder — compile the SYCL AOT engine with bmg-g21 target
+# ---------------------------------------------------------------------------
+FROM docker.io/intel/deep-learning-essentials:2025.3.3-0-devel-ubuntu24.04 AS builder
+
+# --- Security & hygiene -------------------------------------------------------
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=UTC \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# --- System build dependencies ------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        ninja-build \
+        git \
+        python3 \
+        python3-pip \
+        python3-venv \
+        pkg-config \
+        libdrm-dev \
+        libze-dev \
+        libze1 \
+        level-zero \
+        intel-level-zero-gpu \
+        intel-opencl-icd \
+        libigc2 \
+        intel-igc-core-2 \
+        intel-igc-opencl-2 \
+        ca-certificates \
+        curl \
+        wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# --- Copy oneAPI 2026.2 libraries from build context -------------------------
+COPY oneapi-libs/compiler/2026.2/lib/ /opt/intel/oneapi/compiler/2026.2/lib/
+COPY oneapi-libs/mkl/2026.2/lib/       /opt/intel/oneapi/mkl/2026.2/lib/
+COPY oneapi-libs/redist/lib/           /opt/intel/oneapi/redist/lib/
+COPY oneapi-libs/level-zero/lib64/     /opt/intel/oneapi/level-zero/lib64/
+COPY oneapi-libs/umf/1.2/lib/          /opt/intel/oneapi/umf/1.2/lib/
+
+# --- Environment for oneAPI 2026.2 ------------------------------------------
+ENV ONEAPI_ROOT=/opt/intel/oneapi \
+    LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.2/lib:/opt/intel/oneapi/mkl/2026.2/lib:/opt/intel/oneapi/redist/lib:/opt/intel/oneapi/level-zero/lib64:/opt/intel/oneapi/umf/1.2/lib:${LD_LIBRARY_PATH} \
+    SYCL_CACHE_PERSISTENT=1 \
+    IGC_EnableGEPSimplification=0 \
+    ZES_ENABLE_SYSMAN=1
+
+# --- Copy source tree ---------------------------------------------------------
+COPY strata-src-clean /work/strata-src
+
+# --- Build engine with SYCL AOT for bmg-g21 ----------------------------------
+WORKDIR /work/strata-src
+RUN source /opt/intel/oneapi/setvars.sh 2>/dev/null || true && \
+    mkdir -p build-sycl-aot && cd build-sycl-aot && \
+    cmake -G Ninja .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DSTRATA_ENABLE_SYCL=ON \
+        -DSTRATA_SYCL_AOT=bmg-g21 \
+        -DSTRATA_XMX_SG16=ON \
+        -DCMAKE_C_COMPILER=icx \
+        -DCMAKE_CXX_COMPILER=icpx \
+    && ninja -j$(nproc) strata strata_engine 2>&1 | tail -30
+
+# Verify build succeeded
+RUN test -f /work/strata-src/build-sycl-aot/strata && \
+    echo "Build OK: $(ls -lh /work/strata-src/build-sycl-aot/strata)" || \
+    (echo "BUILD FAILED" && exit 1)
+
+# ---------------------------------------------------------------------------
+# Stage 2: Runtime — minimal image with only what's needed to serve
+# ---------------------------------------------------------------------------
+FROM docker.io/intel/deep-learning-essentials:2025.3.3-0-devel-ubuntu24.04 AS runtime
+
+# --- Security & hygiene -------------------------------------------------------
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=UTC \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# --- Runtime system packages (minimal) ---------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+        libdrm2 \
+        libze1 \
+        level-zero \
+        intel-level-zero-gpu \
+        intel-opencl-icd \
+        libigc2 \
+        intel-igc-core-2 \
+        intel-igc-opencl-2 \
+        ca-certificates \
+        curl \
+        tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# --- Copy oneAPI 2026.2 runtime libraries ------------------------------------
+COPY --from=builder /opt/intel/oneapi/compiler/2026.2/lib/ /opt/intel/oneapi/compiler/2026.2/lib/
+COPY --from=builder /opt/intel/oneapi/mkl/2026.2/lib/       /opt/intel/oneapi/mkl/2026.2/lib/
+COPY --from=builder /opt/intel/oneapi/redist/lib/           /opt/intel/oneapi/redist/lib/
+COPY --from=builder /opt/intel/oneapi/level-zero/lib64/     /opt/intel/oneapi/level-zero/lib64/
+COPY --from=builder /opt/intel/oneapi/umf/1.2/lib/          /opt/intel/oneapi/umf/1.2/lib/
+
+# --- Copy built engine from builder ------------------------------------------
+COPY --from=builder /work/strata-src /work/strata-src
+
+# --- Python dependencies -----------------------------------------------------
+RUN pip install --break-system-packages --no-cache-dir --quiet \
+        jinja2>=3.1 \
+        regex>=2024.0 \
+        fastapi>=0.110 \
+        uvicorn[standard]>=0.29 \
+        httpx>=0.27 \
+        pydantic>=2.0
+
+# --- Environment -------------------------------------------------------------
+# Verified 2xB580 serving profile (configs/strata-swift-iq3_xxs-2gpu-kernel-fused-max.json,
+# run-strata-2gpu.sh --kernel-fused-max, runs/kernel-pipeline-verification.md).
+ENV ONEAPI_ROOT=/opt/intel/oneapi \
+    LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2026.2/lib:/opt/intel/oneapi/mkl/2026.2/lib:/opt/intel/oneapi/redist/lib:/opt/intel/oneapi/level-zero/lib64:/opt/intel/oneapi/umf/1.2/lib:${LD_LIBRARY_PATH} \
+    SYCL_CACHE_PERSISTENT=1 \
+    IGC_EnableGEPSimplification=0 \
+    ZES_ENABLE_SYSMAN=1 \
+    STRATA_VERIFY_DEVICE_PLAN=1 \
+    STRATA_VERIFY_NO_HOST=0 \
+    STRATA_WINDOW_SYNC=0 \
+    STRATA_PREFILL_MMQ=1 \
+    STRATA_RING_TIMEOUT_S=600 \
+    STRATA_SPLIT_WAIT_MS=600000 \
+    STRATA_VERIFY_DRAIN_TIMEOUT_MS=120000 \
+    STRATA_SPIN_MAX=200000000 \
+    STRATA_PREFILL_RING=1024 \
+    STRATA_STAGER_RING=256 \
+    STRATA_MIRROR_MIB=32768 \
+    STRATA_DMA_BATCH=256 \
+    STRATA_FETCH_THREADS=32 \
+    STRATA_POOL_SPIN_US=100 \
+    STRATA_PCIE_SPLIT_MODE=asymmetric \
+    STRATA_MOE_DMA_OVERLAP=1 \
+    STRATA_ASYNC_RING_BUFFER=1 \
+    STRATA_PREFILL_STREAM_ALL=1 \
+    STRATA_PREFILL_STREAM_MIN=1024 \
+    STRATA_CHUNKED_FILL=1 \
+    STRATA_KV_PREFETCH=1 \
+    STRATA_IQ_PREFETCH=1 \
+    STRATA_DISJOINT_ADAPT=1 \
+    STRATA_PIPELINE_PRESTAGE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# --- Create non-root user for runtime security --------------------------------
+RUN groupadd -r strata && useradd -r -g strata -d /work -s /bin/bash strata && \
+    chown -R strata:strata /work/strata-src /opt/intel/oneapi 2>/dev/null || true
+
+# --- Working directory -------------------------------------------------------
+WORKDIR /work/strata-src
+
+# --- Health check ------------------------------------------------------------
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -sf http://localhost:8081/health || exit 1
+
+# --- Expose port -------------------------------------------------------------
+EXPOSE 8081
+
+# --- Entrypoint (tini for proper signal handling) ----------------------------
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/bin/bash", "-c", "source /opt/intel/oneapi/setvars.sh 2>/dev/null; exec python3 sycl/serve/server_intel.py --engine strata --config ${STRATA_CONFIG:-/work/strata-src/strata-swift-iq3_xxs-2gpu-clean.json} --port ${STRATA_PORT:-8081}"]
+
