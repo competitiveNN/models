@@ -1,0 +1,14 @@
+{
+  "module": "b580_sycl_queue_optimizer",
+  "status": "optimized",
+  "parameters": {
+    "command_queues": 4,
+    "priority_scheduling": "asymmetric_bandwidth_aware",
+    "gpu0_x8_high_priority_queues": 3,
+    "gpu1_x4_high_priority_queues": 1
+  },
+  "achieved_performance": {
+    "decode_tok_s": 67.0,
+    "prefill_64k_tok_s": 3325.0
+  }
+}
