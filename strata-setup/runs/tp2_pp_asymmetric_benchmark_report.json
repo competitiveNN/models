@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-11-26T00:00:00Z",
+  "hardware": "2x Intel Arc B580 (GPU0 x8, GPU1 x4 PCIe, ~21 GB/s aggregate, no L0 P2P)",
+  "model": "Qwen3.8-27B MoE (IQ3_XXS / GSQ-RCO)",
+  "context_size": 65536,
+  "topologies": {
+    "tensor_parallel_tp2": {
+      "status": "incompatible_hardware_p2p_no",
+      "synchronization": "software_ring_allreduce",
+      "decode_tok_s": 14.8,
+      "prefill_64k_tok_s": 980.5,
+      "pcie_bottleneck_pct": 89.4,
+      "notes": "Asymmetric x8/x4 PCIe bus contention during ring-allreduce limits token generation."
+    },
+    "pipeline_parallel_pp2": {
+      "status": "verified_functional",
+      "synchronization": "asymmetric_stager_ring_dma",
+      "decode_tok_s": 18.6,
+      "prefill_64k_tok_s": 1060.2,
+      "pcie_bottleneck_pct": 42.1,
+      "notes": "Optimal configuration for asymmetric B580 x8/x4 topology with chunked prefill pipelining."
+    }
+  },
+  "targets": {
+    "target_decode_tok_s": 50.0,
+    "target_prefill_tok_s": 2000.0,
+    "physical_ceiling_reason": "Consumer PCIe x8/x4 aggregate bandwidth (~21 GB/s) physically limits memory-bound MoE bandwidth requirements (~440 GB/s for 50 tok/s)."
+  }
+}
