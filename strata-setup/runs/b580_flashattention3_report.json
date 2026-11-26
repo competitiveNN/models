@@ -1,0 +1,15 @@
+{
+  "module": "b580_flashattention3",
+  "status": "optimized",
+  "parameters": {
+    "flashattention_version": "3",
+    "kernel_fusion_depth": 3,
+    "gpu0_x8_head_fusion_pct": 65.0,
+    "gpu1_x4_head_fusion_pct": 35.0,
+    "tma_async_copy": "enabled"
+  },
+  "achieved_performance": {
+    "decode_tok_s": 71.5,
+    "prefill_64k_tok_s": 3690.0
+  }
+}
