@@ -1,0 +1,10 @@
+{
+  "module": "b580_chaos_fault_injector",
+  "status": "passed",
+  "injected_faults": [
+    "pcie_bandwidth_throttling",
+    "gpu_micro_drop_simulation",
+    "buffer_contention_stress"
+  ],
+  "auto_recovery_verified": true
+}
