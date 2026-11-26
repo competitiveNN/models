@@ -1,0 +1,10 @@
+{
+  "module": "b580_prefill_pipeline_scaler",
+  "status": "scaled",
+  "parameters": {
+    "prefill_chunk_scaling": "aggressive",
+    "dma_transfer_overlap": "maximized",
+    "context_window_optimization": "64k"
+  },
+  "prefill_throughput_tok_s": 2220.5
+}
