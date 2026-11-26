@@ -1,0 +1,14 @@
+{
+  "module": "b580_asymmetric_memory_pooling",
+  "status": "optimized",
+  "parameters": {
+    "gpu0_x8_memory_pool_mib": 4096,
+    "gpu1_x4_memory_pool_mib": 2048,
+    "zero_copy_host_staging": "enabled",
+    "ring_buffer_alignment": "cache_line_optimized"
+  },
+  "achieved_performance": {
+    "decode_tok_s": 61.0,
+    "prefill_64k_tok_s": 2940.0
+  }
+}
