@@ -1,0 +1,11 @@
+{
+  "service": "b580_telemetry_daemon",
+  "status": "active",
+  "monitored_metrics": [
+    "gpu_vram_allocation_mb",
+    "pcie_ring_buffer_occupancy",
+    "expert_cache_hit_ratio",
+    "thermal_headroom_celsius"
+  ],
+  "health_status": "healthy"
+}
