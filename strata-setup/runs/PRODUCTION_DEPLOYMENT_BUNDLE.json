@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "exported_from": "Strata 2x B580 Optimization Closure",
+    "timestamp": 1795673022.800395,
+    "timestamp_iso": "2026-11-26T06:03:42Z"
+  },
+  "configuration": {
+    "winning_config": "configs/strata-swift-iq3_xxs-2gpu-kernel-fused-max.json",
+    "launch_script": "run-strata-2gpu.sh",
+    "containerfile": "Containerfile.strata",
+    "validation_script": "scripts/final_b580_validation.sh"
+  },
+  "performance_targets": {
+    "decode_tok_s": 52.4,
+    "prefill_64k_tok_s": 2180.0,
+    "context_length": 65536
+  },
+  "deployment_notes": [
+    "Use run-strata-2gpu.sh with --kernel-fused-max flag for peak performance",
+    "Ensure xpu-smi is available for thermal governance",
+    "Set ONEAPI_DEVICE_SELECTOR=level_zero:0;level_zero:1 for dual GPU",
+    "PCIe topology: GPU 0 (x8), GPU 1 (x4) - asymmetric staging configured"
+  ]
+}

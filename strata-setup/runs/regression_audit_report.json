@@ -1,0 +1,30 @@
+{
+  "timestamp": 1795654666.6888888,
+  "targets": {
+    "decode_tok_s": 50.0,
+    "prefill64k_tok_s": 2000.0
+  },
+  "measured": {
+    "decode": {
+      "success": true,
+      "wall_s": 4.466614286007825,
+      "prompt_tokens": 67,
+      "prompt_tok_s": 36.7,
+      "decode_tok_s": 24.3
+    },
+    "prefill64k": {
+      "success": true,
+      "wall_s": 15.153354938986013,
+      "prompt_tokens": 14615,
+      "prompt_tok_s": 1000.4,
+      "prompt_ms": 14609.6,
+      "decode_tok_s": 14.8
+    }
+  },
+  "gates": {
+    "decode_passed": false,
+    "prefill64k_passed": false
+  },
+  "sla_passed": false,
+  "hardware_ceiling_note": "2xB580: no Level-Zero P2P, asymmetric PCIe x8/x4, 12GB/GPU, ~35.4% expert residency, TDR constraints; TP=2 not viable in SYCL engine."
+}

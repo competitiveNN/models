@@ -1,0 +1,30 @@
+{
+  "timestamp": 1795673022.4839034,
+  "timestamp_iso": "2026-11-26T06:03:42Z",
+  "status": "HEALTHY",
+  "cluster_summary": {
+    "total_configured_nodes": 2,
+    "healthy_nodes": 2,
+    "total_gpus": 4,
+    "total_concurrent_slots": 16,
+    "aggregate_forecast_decode_tok_s": 838.4
+  },
+  "nodes": [
+    {
+      "node_id": "b580-node-01",
+      "host": "192.168.1.10",
+      "port": 8080,
+      "gpus": 2,
+      "slots": 8,
+      "enabled": true
+    },
+    {
+      "node_id": "b580-node-02",
+      "host": "192.168.1.11",
+      "port": 8080,
+      "gpus": 2,
+      "slots": 8,
+      "enabled": true
+    }
+  ]
+}

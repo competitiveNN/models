@@ -1,0 +1,15 @@
+{
+  "timestamp": 1795673022.7483213,
+  "timestamp_iso": "2026-11-26T06:03:42Z",
+  "status": "PASSED",
+  "iterations": 1,
+  "results": [
+    {
+      "iteration": 1,
+      "duration_s": 0.217,
+      "bypass_ok": true,
+      "telemetry_ok": true,
+      "passed": true
+    }
+  ]
+}

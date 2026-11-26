@@ -1,0 +1,460 @@
+{
+  "timestamp": 1795673023.425375,
+  "timestamp_iso": "2026-11-26T06:03:43Z",
+  "glob": "configs/strata-swift-iq3_xxs-2gpu*.json",
+  "total": 21,
+  "valid": 21,
+  "invalid": 0,
+  "configs_checked": [
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-autov512.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-clean.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-clean.json.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-forkopt.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-hyper-max.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-k26v512.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-kernel-fused-max.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [
+        "STRATA_PREFILL_RING=1024: large host ring; watch host RAM",
+        "STRATA_STAGER_RING=256: large stager ring; watch host RAM",
+        "STRATA_MIRROR_MIB=32768: large mirror; watch host RAM"
+      ],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-lstats.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-miss108.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "max-context",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-old-clean.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-old-fixed.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-optimized.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-parallel-bridge.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-pipe1.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-pipe2.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-quantum-leap.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [
+        "STRATA_MIRROR_MIB=32768: large mirror; watch host RAM"
+      ],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-ringtrack.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-streamdirect.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-ultimate.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu-ultra-overclock.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "path": "configs/strata-swift-iq3_xxs-2gpu.json",
+      "exists": true,
+      "valid_json": true,
+      "keys": [
+        "args",
+        "backend",
+        "cwd",
+        "env",
+        "exe",
+        "gpu",
+        "gpus_asked",
+        "log",
+        "model_name",
+        "port",
+        "tokenizer"
+      ],
+      "has_profile_keys": true,
+      "warnings": [],
+      "errors": []
+    }
+  ],
+  "stress_drill_passed": true,
+  "residency_note": "Kernel-fused-max profile: expert-cache 24576, ring 1024/stager 256/mirror 32768MiB - watch host RAM; 2xB580 ceiling remains hardware-bounded."
+}

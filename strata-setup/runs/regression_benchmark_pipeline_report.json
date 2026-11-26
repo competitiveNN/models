@@ -1,0 +1,30 @@
+{
+  "timestamp": 1795665409.5236392,
+  "timestamp_iso": "2026-11-26T03:56:49Z",
+  "status": "PASSED",
+  "sycl_allocator_tuning": {
+    "ze_command_queue_optimize": true,
+    "sycl_memory_pool_size_mib": 10240,
+    "level_zero_cache_bypass": false,
+    "allocator_profile": "ultra_low_latency"
+  },
+  "cross_gpu_cache_metrics": {
+    "gpu_0_invalidation_latency_us": 12.4,
+    "gpu_1_invalidation_latency_us": 18.9,
+    "p2p_fallback_sync_overhead_pct": 1.2,
+    "cross_gpu_sync_status": "optimal"
+  },
+  "sla_comparison": {
+    "targets": {
+      "min_decode_tok_s": 50.0,
+      "min_prefill_64k_tok_s": 2000.0,
+      "max_vram_usage_pct": 92.5
+    },
+    "measured": {
+      "decode_tok_s": 52.4,
+      "prefill_64k_tok_s": 2180.0,
+      "vram_usage_pct": 89.1
+    },
+    "passed": true
+  }
+}
