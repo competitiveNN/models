@@ -8,6 +8,7 @@ Minimizes redundant PCIe staging during recurrent token generation by:
 - Caching activation outputs for repeat-routed experts
 - Managing host-VRAM mirror with LRU eviction under VRAM pressure
 - Coordinating with STRATA_ASYNC_RING_BUFFER and STRATA_MOE_DMA_OVERLAP
+Provides fault-tolerant cache management with validation and recovery.
 """
 import os
 import json
@@ -17,10 +18,31 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class CacheManagementError(Exception):
+    """Base exception for cache management failures."""
+    pass
+
+
+class VRAMBudgetError(CacheManagementError):
+    """Raised when VRAM budget would be exceeded."""
+    pass
+
+
+class EvictionError(CacheManagementError):
+    """Raised when expert eviction fails."""
+    pass
+
+
 class LayerCacheManager:
     """
     Manages layer-wise weight residency and activation caching for Strata
     on asymmetric dual-GPU (x8/x4 PCIe) B580 topology.
+    Provides fault-tolerant cache management with validation and recovery.
     """
     
     def __init__(self, 
@@ -30,6 +52,10 @@ class LayerCacheManager:
                  pcie_mode: str = "asymmetric"):
         self.n_layers = n_layers
         self.n_experts = n_experts
+        
+        if vram_budget_mib <= 0:
+            raise VRAMBudgetError(f"vram_budget_mib must be positive, got {vram_budget_mib}")
+        
         self.vram_budget_bytes = vram_budget_mib * 1024 * 1024
         self.pcie_mode = pcie_mode
         
@@ -38,7 +64,7 @@ class LayerCacheManager:
         
         # Activation cache: (layer, expert, token_hash) -> activation_ptr
         self.activation_cache: OrderedDict = OrderedDict()
-        self.max_activation_cache_size = 1024
+        self.max_activation_cache_size = max(1, min(1024, vram_budget_mib // 256))
         
         # Hot experts per layer (routing frequency)
         self.expert_hotness: Dict[int, Dict[int, int]] = {}
@@ -56,6 +82,9 @@ class LayerCacheManager:
     
     def record_expert_access(self, layer: int, expert_id: int, token_count: int = 1):
         """Record expert routing to build hotness profile."""
+        if token_count < 0:
+            logger.warning("Negative token_count %s recorded for layer=%d expert=%d; treating as 0", token_count, layer, expert_id)
+            token_count = 0
         with self._lock:
             if layer not in self.expert_hotness:
                 self.expert_hotness[layer] = {}
@@ -71,27 +100,52 @@ class LayerCacheManager:
     def pin_hot_experts(self, layer: int, hot_experts: List[int]) -> List[int]:
         """
         Pin hot experts to VRAM slots. Returns list of newly pinned expert IDs.
+
+        Raises:
+            CacheManagementError: If layer is invalid or VRAM budget would be exceeded.
         """
         with self._lock:
+            if layer < 0:
+                raise CacheManagementError(f"Invalid layer {layer}; must be >= 0")
             if layer not in self.expert_residency:
                 self.expert_residency[layer] = {}
             
             pinned = []
             for expert_id in hot_experts:
+                if expert_id < 0:
+                    logger.warning("Skipping negative expert_id %s for layer %d", expert_id, layer)
+                    continue
                 if expert_id not in self.expert_residency[layer]:
                     # Simulate VRAM slot allocation
                     slot = len(self.expert_residency[layer])
+                    # Check VRAM budget before pinning
+                    estimated_expert_bytes = 256 * 1024  # ~256 KiB per expert slot
+                    projected_usage = (sum(len(v) for v in self.expert_residency.values()) + 1) * estimated_expert_bytes
+                    if projected_usage > self.vram_budget_bytes:
+                        raise VRAMBudgetError(
+                            f"VRAM budget would be exceeded pinning expert {expert_id} to layer {layer}; "
+                            f"projected {projected_usage // (1024*1024)} MiB > budget {self.vram_budget_bytes // (1024*1024)} MiB"
+                        )
                     self.expert_residency[layer][expert_id] = slot
                     pinned.append(expert_id)
                     
                     if self.on_stage_callback:
-                        self.on_stage_callback(layer, expert_id, slot, "pin")
+                        try:
+                            self.on_stage_callback(layer, expert_id, slot, "pin")
+                        except Exception as cb_err:
+                            logger.error("Stage callback failed: %s", str(cb_err))
             
             return pinned
     
     def evict_cold_experts(self, layer: int, keep_experts: List[int]) -> List[int]:
-        """Evict experts not in keep list to free VRAM."""
+        """Evict experts not in keep list to free VRAM.
+
+        Raises:
+            CacheManagementError: If layer is invalid.
+        """
         with self._lock:
+            if layer < 0:
+                raise CacheManagementError(f"Invalid layer {layer}; must be >= 0")
             if layer not in self.expert_residency:
                 return []
             
@@ -102,13 +156,22 @@ class LayerCacheManager:
                     evicted.append(expert_id)
                     
                     if self.on_evict_callback:
-                        self.on_evict_callback(layer, expert_id, slot)
+                        try:
+                            self.on_evict_callback(layer, expert_id, slot)
+                        except Exception as cb_err:
+                            logger.error("Eviction callback failed: %s", str(cb_err))
             
             return evicted
     
     def cache_activation(self, layer: int, expert_id: int, 
                          token_hash: int, activation_ptr: int):
-        """Cache activation output for recurrent routing."""
+        """Cache activation output for recurrent routing.
+
+        Raises:
+            CacheManagementError: If layer/expert_id are negative.
+        """
+        if layer < 0 or expert_id < 0:
+            raise CacheManagementError(f"Invalid layer={layer} expert_id={expert_id}; must be non-negative")
         with self._lock:
             key = (layer, expert_id, token_hash)
             self.activation_cache[key] = activation_ptr
@@ -119,7 +182,11 @@ class LayerCacheManager:
     
     def get_cached_activation(self, layer: int, expert_id: int, 
                                token_hash: int) -> Optional[int]:
-        """Retrieve cached activation if available."""
+        """Retrieve cached activation if available.
+
+        Returns:
+            activation_ptr if found, None otherwise.
+        """
         with self._lock:
             key = (layer, expert_id, token_hash)
             if key in self.activation_cache:
@@ -130,8 +197,14 @@ class LayerCacheManager:
             return None
     
     def record_pcie_staging(self, bytes_count: int):
-        """Track PCIe bandwidth usage for monitoring."""
+        """Track PCIe bandwidth usage for monitoring.
+
+        Raises:
+            CacheManagementError: If bytes_count is negative.
+        """
         with self._lock:
+            if bytes_count < 0:
+                raise CacheManagementError(f"bytes_count must be non-negative, got {bytes_count}")
             self.pcie_bytes_staged += bytes_count
             self.pcie_staging_events += 1
     
@@ -144,12 +217,22 @@ class LayerCacheManager:
                 "activation_cache_size": len(self.activation_cache),
                 "pcie_bytes_staged": self.pcie_bytes_staged,
                 "pcie_staging_events": self.pcie_staging_events,
-                "vram_budget_mib": self.vram_budget_bytes // (1024*1024)
+                "vram_budget_mib": self.vram_budget_bytes // (1024 * 1024),
+                "pcie_mode": self.pcie_mode,
+                "n_layers": self.n_layers,
+                "n_experts": self.n_experts,
             }
     
     def configure_for_asymmetric_pcie(self, gpu0_bandwidth_gbs: float = 15.75,
                                        gpu1_bandwidth_gbs: float = 5.25):
-        """Configure cache strategy for asymmetric x8/x4 PCIe links."""
+        """Configure cache strategy for asymmetric x8/x4 PCIe links.
+
+        Returns:
+            dict with gpu0_max_resident_experts, gpu1_max_resident_experts,
+            preferred_layer_split, staging_priority.
+        """
+        if gpu0_bandwidth_gbs <= 0 or gpu1_bandwidth_gbs <= 0:
+            logger.warning("Non-positive bandwidth values provided; using defaults")
         # GPU0 (x8) gets more resident experts, GPU1 (x4) gets fewer
         # This is a hint for the engine's layer split
         self.pcie_mode = "asymmetric"
