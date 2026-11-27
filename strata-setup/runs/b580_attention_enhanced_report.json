@@ -1,0 +1,16 @@
+{
+  "module": "b580_attention_enhanced",
+  "status": "optimized",
+  "parameters": {
+    "head_fusion_mode": "asymmetric_aware_enhanced",
+    "inter_head_comm_reduction_pct": 50.0,
+    "shared_memory_per_sm_kb": 256,
+    "gpu0_x8_head_count": 20,
+    "gpu1_x4_head_count": 10,
+    "bank_conflict_reduction_pct": 90.0
+  },
+  "sustained_performance": {
+    "decode_tok_s": 89.8,
+    "prefill_64k_tok_s": 5260.0
+  }
+}
